@@ -1,0 +1,1584 @@
+{
+  "products": [
+    {
+      "categorie": "cables",
+      "reference": "BC04M",
+      "marque": "Blackwave",
+      "description": "2,4A 1M USB micro",
+      "nom": "Blackwave 2,4A 1M USB micro",
+      "prix_achat": 0.0,
+      "prix_vente": 0.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "cables",
+      "reference": "BC04C",
+      "marque": "Blackwave",
+      "description": "USB TO type C 1M 3A",
+      "nom": "Blackwave USB TO type C 1M 3A",
+      "prix_achat": 0.0,
+      "prix_vente": 0.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "cables",
+      "reference": "BC04L",
+      "marque": "Blackwave",
+      "description": "USB to lightning 1m 3A",
+      "nom": "Blackwave USB to lightning 1m 3A",
+      "prix_achat": 0.0,
+      "prix_vente": 0.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "cables",
+      "reference": "BC03CC",
+      "marque": "Blackwave",
+      "description": "Type C vers type C PD60W 1m",
+      "nom": "Blackwave Type C vers type C PD60W 1m",
+      "prix_achat": 0.0,
+      "prix_vente": 0.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "cables",
+      "reference": "BC03CL",
+      "marque": "Blackwave",
+      "description": "Type C to Lightning PD 27W 1M",
+      "nom": "Blackwave Type C to Lightning PD 27W 1M",
+      "prix_achat": 10.0,
+      "prix_vente": 30.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "cables",
+      "reference": "CK-123",
+      "marque": "INKAX",
+      "description": "Type C to Lightning 1m",
+      "nom": "INKAX Type C to Lightning 1m",
+      "prix_achat": 0.0,
+      "prix_vente": 20.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "tete chargeur",
+      "reference": "BL02",
+      "marque": "Blackwave",
+      "description": "USB A 2,4A",
+      "nom": "Blackwave USB A 2,4A",
+      "prix_achat": 0.0,
+      "prix_vente": 25.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Chargeur complet",
+      "reference": "A2347",
+      "marque": "Apple",
+      "description": "USB-C to lightning 25W iphone 14 pro max",
+      "nom": "Apple USB-C to lightning 25W iphone 14 pro max",
+      "prix_achat": 22.0,
+      "prix_vente": 45.0,
+      "fournisseur": "",
+      "stock_mourouj": 5,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Chargeur complet",
+      "reference": "No ID",
+      "marque": "Samsung",
+      "description": "USB-C to USB-C cable 5A 45W white",
+      "nom": "Samsung USB-C to USB-C cable 5A 45W white",
+      "prix_achat": 0.0,
+      "prix_vente": 45.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Chargeur complet",
+      "reference": "No ID",
+      "marque": "Samsung",
+      "description": "USB-C to USB-C cable 5A 45W black",
+      "nom": "Samsung USB-C to USB-C cable 5A 45W black",
+      "prix_achat": 0.0,
+      "prix_vente": 45.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Chargeur complet",
+      "reference": "BL02M",
+      "marque": "Blackwave",
+      "description": "2,4A 1M USB micro",
+      "nom": "Blackwave 2,4A 1M USB micro",
+      "prix_achat": 0.0,
+      "prix_vente": 45.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Chargeur complet",
+      "reference": "BL02L",
+      "marque": "Blackwave",
+      "description": "2,4A 1M USB lightning",
+      "nom": "Blackwave 2,4A 1M USB lightning",
+      "prix_achat": 0.0,
+      "prix_vente": 45.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "E14",
+      "marque": "Inkax",
+      "description": "1,2m sans ventouse black",
+      "nom": "Inkax 1,2m sans ventouse black",
+      "prix_achat": 0.0,
+      "prix_vente": 20.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "E20",
+      "marque": "INKAX",
+      "description": "1,2m avec ventouse white",
+      "nom": "INKAX 1,2m avec ventouse white",
+      "prix_achat": 0.0,
+      "prix_vente": 20.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "R-3",
+      "marque": "BLUESPECTRUM",
+      "description": "Stereo earphone sans ventouse white",
+      "nom": "BLUESPECTRUM Stereo earphone sans ventouse white",
+      "prix_achat": 7.0,
+      "prix_vente": 20.0,
+      "fournisseur": "",
+      "stock_mourouj": 2,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "G12",
+      "marque": "celebrat",
+      "description": "1,2m sans ventouse white",
+      "nom": "celebrat 1,2m sans ventouse white",
+      "prix_achat": 6.0,
+      "prix_vente": 15.0,
+      "fournisseur": "",
+      "stock_mourouj": 2,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "G12",
+      "marque": "celebrat",
+      "description": "1,2m sans ventouse black",
+      "nom": "celebrat 1,2m sans ventouse black",
+      "prix_achat": 6.0,
+      "prix_vente": 15.0,
+      "fournisseur": "",
+      "stock_mourouj": 2,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "AE-01",
+      "marque": "Inkax",
+      "description": "sans ventouse 1,2m white",
+      "nom": "Inkax sans ventouse 1,2m white",
+      "prix_achat": 0.0,
+      "prix_vente": 15.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "AE-01",
+      "marque": "Inkax",
+      "description": "sans ventouse 1,2m black",
+      "nom": "Inkax sans ventouse 1,2m black",
+      "prix_achat": 5.0,
+      "prix_vente": 15.0,
+      "fournisseur": "",
+      "stock_mourouj": 4,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "EW43",
+      "marque": "HOCO",
+      "description": "sans ventouse stereo headset white",
+      "nom": "HOCO sans ventouse stereo headset white",
+      "prix_achat": 28.0,
+      "prix_vente": 0.0,
+      "fournisseur": "",
+      "stock_mourouj": 2,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "T03",
+      "marque": "inkax",
+      "description": "avec ventouse white",
+      "nom": "inkax avec ventouse white",
+      "prix_achat": 0.0,
+      "prix_vente": 45.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "EW04",
+      "marque": "HOCO",
+      "description": "avec ventouse white",
+      "nom": "HOCO avec ventouse white",
+      "prix_achat": 0.0,
+      "prix_vente": 45.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "T02",
+      "marque": "Inkax",
+      "description": "sans ventouse white",
+      "nom": "Inkax sans ventouse white",
+      "prix_achat": 30.0,
+      "prix_vente": 45.0,
+      "fournisseur": "",
+      "stock_mourouj": 2,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "chargeur allume cigare",
+      "reference": "CA-27",
+      "marque": "Inkax",
+      "description": "30W 2,4A double USB A",
+      "nom": "Inkax 30W 2,4A double USB A",
+      "prix_achat": 0.0,
+      "prix_vente": 0.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "support telephone voiture",
+      "reference": "CH-57",
+      "marque": "INKAX",
+      "description": "360 rotating",
+      "nom": "INKAX 360 rotating",
+      "prix_achat": 0.0,
+      "prix_vente": 25.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "support telephone voiture",
+      "reference": "CH-62",
+      "marque": "INKAX",
+      "description": "360 rotating, retractable",
+      "nom": "INKAX 360 rotating, retractable",
+      "prix_achat": 12.0,
+      "prix_vente": 30.0,
+      "fournisseur": "",
+      "stock_mourouj": 2,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "support telephone voiture",
+      "reference": "HC1508",
+      "marque": "VIDVIE",
+      "description": "metal car mount",
+      "nom": "VIDVIE metal car mount",
+      "prix_achat": 25.0,
+      "prix_vente": 45.0,
+      "fournisseur": "",
+      "stock_mourouj": 2,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "support telephone voiture",
+      "reference": "CM-09",
+      "marque": "INKAX",
+      "description": "Dual USB car wireless MP3",
+      "nom": "INKAX Dual USB car wireless MP3",
+      "prix_achat": 0.0,
+      "prix_vente": 0.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "support telephone voiture",
+      "reference": "CM-12",
+      "marque": "INKAX",
+      "description": "dual USB CAR  MP3 3,1A out",
+      "nom": "INKAX dual USB CAR  MP3 3,1A out",
+      "prix_achat": 0.0,
+      "prix_vente": 30.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "power Bank",
+      "reference": "PC 013",
+      "marque": "BAVIN",
+      "description": "",
+      "nom": "BAVIN",
+      "prix_achat": 28.0,
+      "prix_vente": 45.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 2
+    },
+    {
+      "categorie": "power Bank",
+      "reference": "KSC 1083",
+      "marque": "KAKUSIGA",
+      "description": "10000 MAH",
+      "nom": "KAKUSIGA 10000 MAH",
+      "prix_achat": 25.0,
+      "prix_vente": 45.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 2
+    },
+    {
+      "categorie": "power Bank",
+      "reference": "PB-01A",
+      "marque": "INKAX",
+      "description": "10000 MAH",
+      "nom": "INKAX 10000 MAH",
+      "prix_achat": 28.0,
+      "prix_vente": 55.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Accessoires montre",
+      "reference": "ID 53473",
+      "marque": "Xiaomi",
+      "description": "XIAOMI LEATHER QUICK RELEASE STRAP CORAL ORANGE",
+      "nom": "Xiaomi XIAOMI LEATHER QUICK RELEASE STRAP CORAL ORANGE",
+      "prix_achat": 39.0,
+      "prix_vente": 50.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Accessoires montre",
+      "reference": "ID 53472",
+      "marque": "Xiaomi",
+      "description": "XIAOMI LEATHER QUICK RELEASE STRAP CREAM WHITE",
+      "nom": "Xiaomi XIAOMI LEATHER QUICK RELEASE STRAP CREAM WHITE",
+      "prix_achat": 39.0,
+      "prix_vente": 50.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "baffle /speackers",
+      "reference": "SLC-061",
+      "marque": "wireless",
+      "description": "portable wireless speaker",
+      "nom": "wireless portable wireless speaker",
+      "prix_achat": 55.0,
+      "prix_vente": 75.0,
+      "fournisseur": "",
+      "stock_mourouj": 2,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "baffle /speackers",
+      "reference": "JZ-200",
+      "marque": "wireless",
+      "description": "wireless speaker bluetooth 5W",
+      "nom": "wireless wireless speaker bluetooth 5W",
+      "prix_achat": 30.0,
+      "prix_vente": 45.0,
+      "fournisseur": "",
+      "stock_mourouj": 2,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "baffle /speackers",
+      "reference": "No ID",
+      "marque": "no marque",
+      "description": "cache airpods pro",
+      "nom": "no marque cache airpods pro",
+      "prix_achat": 0.0,
+      "prix_vente": 15.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "baffle /speackers",
+      "reference": "GPS50",
+      "marque": "Honor",
+      "description": "X5C 4/64",
+      "nom": "Honor X5C 4/64",
+      "prix_achat": 326.0,
+      "prix_vente": 360.0,
+      "fournisseur": "actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "baffle /speackers",
+      "reference": "GPS50",
+      "marque": "Honor",
+      "description": "X5C plus 4/128 black/cyan",
+      "nom": "Honor X5C plus 4/128 black/cyan",
+      "prix_achat": 357.0,
+      "prix_vente": 395.0,
+      "fournisseur": "actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "baffle /speackers",
+      "reference": "GPS50",
+      "marque": "Honor",
+      "description": "X6C 6/128 black/cyan/white",
+      "nom": "Honor X6C 6/128 black/cyan/white",
+      "prix_achat": 421.0,
+      "prix_vente": 465.0,
+      "fournisseur": "actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "baffle /speackers",
+      "reference": "GPS50",
+      "marque": "Realme",
+      "description": "C61 8/256 gold/green",
+      "nom": "Realme C61 8/256 gold/green",
+      "prix_achat": 516.0,
+      "prix_vente": 570.0,
+      "fournisseur": "actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "baffle /speackers",
+      "reference": "GPS50",
+      "marque": "Realme",
+      "description": "Note 60X 3/64 black/green",
+      "nom": "Realme Note 60X 3/64 black/green",
+      "prix_achat": 282.0,
+      "prix_vente": 320.0,
+      "fournisseur": "actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "baffle /speackers",
+      "reference": "GPS50",
+      "marque": "Xiaomi",
+      "description": "Redmi 13 6/128 black",
+      "nom": "Xiaomi Redmi 13 6/128 black",
+      "prix_achat": 470.0,
+      "prix_vente": 520.0,
+      "fournisseur": "actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "baffle /speackers",
+      "reference": "GPS50",
+      "marque": "Xiaomi",
+      "description": "Redmi 15C 4/128 midnight black",
+      "nom": "Xiaomi Redmi 15C 4/128 midnight black",
+      "prix_achat": 404.0,
+      "prix_vente": 445.0,
+      "fournisseur": "actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "baffle /speackers",
+      "reference": "GPS50",
+      "marque": "Xiaomi",
+      "description": "Redmi 15C 6/128 midnight black/ mint green",
+      "nom": "Xiaomi Redmi 15C 6/128 midnight black/ mint green",
+      "prix_achat": 441.0,
+      "prix_vente": 495.0,
+      "fournisseur": "actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "baffle /speackers",
+      "reference": "GPS50",
+      "marque": "Xiaomi",
+      "description": "Redmi A5 3/64 black",
+      "nom": "Xiaomi Redmi A5 3/64 black",
+      "prix_achat": 272.0,
+      "prix_vente": 299.0,
+      "fournisseur": "actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "baffle /speackers",
+      "reference": "GPS50",
+      "marque": "Samsung",
+      "description": "A07 T4 4/64 black/violet",
+      "nom": "Samsung A07 T4 4/64 black/violet",
+      "prix_achat": 355.0,
+      "prix_vente": 399.0,
+      "fournisseur": "actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "baffle /speackers",
+      "reference": "GPS50",
+      "marque": "Vivo",
+      "description": "Y04 4/64 gold/green",
+      "nom": "Vivo Y04 4/64 gold/green",
+      "prix_achat": 314.0,
+      "prix_vente": 350.0,
+      "fournisseur": "actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Cable",
+      "reference": "X163",
+      "marque": "WUW",
+      "description": "type C 2.4, 1 metre micro",
+      "nom": "WUW type C 2.4, 1 metre micro",
+      "prix_achat": 5.0,
+      "prix_vente": 15.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 5
+    },
+    {
+      "categorie": "Cable",
+      "reference": "A102",
+      "marque": "ASPOR",
+      "description": "type C 3.0, 1 metre",
+      "nom": "ASPOR type C 3.0, 1 metre",
+      "prix_achat": 5.2,
+      "prix_vente": 18.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 9
+    },
+    {
+      "categorie": "Cable",
+      "reference": "D3T",
+      "marque": "GERLAX",
+      "description": "type C 2,4, 1 metre",
+      "nom": "GERLAX type C 2,4, 1 metre",
+      "prix_achat": 5.5,
+      "prix_vente": 15.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 8
+    },
+    {
+      "categorie": "Cable",
+      "reference": "XO-NB212",
+      "marque": "XO",
+      "description": "iphone 2.1, 1 metre",
+      "nom": "XO iphone 2.1, 1 metre",
+      "prix_achat": 4.8,
+      "prix_vente": 15.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 1
+    },
+    {
+      "categorie": "Cable",
+      "reference": "X163",
+      "marque": "WUW",
+      "description": "iphone 2.4, 1 metre",
+      "nom": "WUW iphone 2.4, 1 metre",
+      "prix_achat": 5.0,
+      "prix_vente": 15.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 8
+    },
+    {
+      "categorie": "Cable",
+      "reference": "CB-06",
+      "marque": "INKAX",
+      "description": "iphone 3.1, 1 metre",
+      "nom": "INKAX iphone 3.1, 1 metre",
+      "prix_achat": 5.5,
+      "prix_vente": 20.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 10
+    },
+    {
+      "categorie": "Cable",
+      "reference": "IC-UC1626",
+      "marque": "ICONIX",
+      "description": "iphone 2.4, 3 Metres",
+      "nom": "ICONIX iphone 2.4, 3 Metres",
+      "prix_achat": 10.0,
+      "prix_vente": 30.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 4
+    },
+    {
+      "categorie": "Cable",
+      "reference": "CB-06",
+      "marque": "INKAX",
+      "description": "Micro 3.1, 1 metre",
+      "nom": "INKAX Micro 3.1, 1 metre",
+      "prix_achat": 5.5,
+      "prix_vente": 20.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 4
+    },
+    {
+      "categorie": "Cable",
+      "reference": "A1480",
+      "marque": "",
+      "description": "cable usb-lightning 1m",
+      "nom": "cable usb-lightning 1m",
+      "prix_achat": 5.0,
+      "prix_vente": 15.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 5
+    },
+    {
+      "categorie": "Cable",
+      "reference": "IC-UC1622",
+      "marque": "ICONIX",
+      "description": "3,25 FT 3,4A",
+      "nom": "ICONIX 3,25 FT 3,4A",
+      "prix_achat": 7.0,
+      "prix_vente": 20.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 5
+    },
+    {
+      "categorie": "Cable",
+      "reference": "CB-45",
+      "marque": "INKAX",
+      "description": "TYPE C FASR CHARGING 4,0 MM",
+      "nom": "INKAX TYPE C FASR CHARGING 4,0 MM",
+      "prix_achat": 10.0,
+      "prix_vente": 30.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 9
+    },
+    {
+      "categorie": "Cable",
+      "reference": "CK-123",
+      "marque": "INKAX",
+      "description": "type C iphone 15 et plus , 1 metre",
+      "nom": "INKAX type C iphone 15 et plus , 1 metre",
+      "prix_achat": 10.0,
+      "prix_vente": 30.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 4
+    },
+    {
+      "categorie": "Cable",
+      "reference": "MQKJ3ZM/A",
+      "marque": "APPLE",
+      "description": "originale apple , 1 metre",
+      "nom": "APPLE originale apple , 1 metre",
+      "prix_achat": 15.0,
+      "prix_vente": 45.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 5
+    },
+    {
+      "categorie": "Cable",
+      "reference": "CB-36",
+      "marque": "Inkax",
+      "description": "type C, 3,1A  1metre",
+      "nom": "Inkax type C, 3,1A  1metre",
+      "prix_achat": 7.0,
+      "prix_vente": 22.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 8
+    },
+    {
+      "categorie": "Cable",
+      "reference": "MQGJ2ZM/A",
+      "marque": "elektrum",
+      "description": "type C iphone, 1 metre 20W",
+      "nom": "elektrum type C iphone, 1 metre 20W",
+      "prix_achat": 10.0,
+      "prix_vente": 35.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 5
+    },
+    {
+      "categorie": "Cable",
+      "reference": "AL 32",
+      "marque": "INKAX",
+      "description": "cable usb-lightning 1m",
+      "nom": "INKAX cable usb-lightning 1m",
+      "prix_achat": 5.0,
+      "prix_vente": 15.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 5
+    },
+    {
+      "categorie": "tete chargeur",
+      "reference": "S22",
+      "marque": "PD ADAPTER",
+      "description": "sortie type C / USB 35 w",
+      "nom": "PD ADAPTER sortie type C / USB 35 w",
+      "prix_achat": 25.0,
+      "prix_vente": 50.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 4
+    },
+    {
+      "categorie": "Chargeur complet",
+      "reference": "C06",
+      "marque": "INKAX",
+      "description": "2.4 A avec sortie USB",
+      "nom": "INKAX 2.4 A avec sortie USB",
+      "prix_achat": 10.0,
+      "prix_vente": 30.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 5
+    },
+    {
+      "categorie": "Chargeur complet",
+      "reference": "KSC-1236",
+      "marque": "KAKOSIGA",
+      "description": "2.4 A",
+      "nom": "KAKOSIGA 2.4 A",
+      "prix_achat": 10.0,
+      "prix_vente": 30.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 5
+    },
+    {
+      "categorie": "Chargeur complet",
+      "reference": "QC 18W",
+      "marque": "ICONIX",
+      "description": "18 W",
+      "nom": "ICONIX 18 W",
+      "prix_achat": 18.0,
+      "prix_vente": 45.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 4
+    },
+    {
+      "categorie": "Chargeur complet",
+      "reference": "A818",
+      "marque": "ASPOR",
+      "description": "smart charger 2,4 A",
+      "nom": "ASPOR smart charger 2,4 A",
+      "prix_achat": 10.0,
+      "prix_vente": 30.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 4
+    },
+    {
+      "categorie": "Chargeur complet",
+      "reference": "AG-04",
+      "marque": "AULEX",
+      "description": "2.4 LIGHTING",
+      "nom": "AULEX 2.4 LIGHTING",
+      "prix_achat": 10.0,
+      "prix_vente": 30.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 5
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "A206",
+      "marque": "ASPORT",
+      "description": "",
+      "nom": "ASPORT",
+      "prix_achat": 8.0,
+      "prix_vente": 22.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 5
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "R 12",
+      "marque": "Blue spectre",
+      "description": "R12",
+      "nom": "Blue spectre R12",
+      "prix_achat": 7.0,
+      "prix_vente": 18.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 3
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "R 09",
+      "marque": "Blue spectre",
+      "description": "R9",
+      "nom": "Blue spectre R9",
+      "prix_achat": 7.0,
+      "prix_vente": 18.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 5
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "ANC",
+      "marque": "marshal",
+      "description": "ANC",
+      "nom": "marshal ANC",
+      "prix_achat": 25.0,
+      "prix_vente": 19.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 1
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "XO-X33",
+      "marque": "XO",
+      "description": "wireless earphone",
+      "nom": "XO wireless earphone",
+      "prix_achat": 0.0,
+      "prix_vente": 80.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 1
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "T02",
+      "marque": "INKAX",
+      "description": "sans ventouse blanc",
+      "nom": "INKAX sans ventouse blanc",
+      "prix_achat": 0.0,
+      "prix_vente": 60.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 2
+    },
+    {
+      "categorie": "ecouteur",
+      "reference": "YKS18",
+      "marque": "yookie",
+      "description": "",
+      "nom": "yookie",
+      "prix_achat": 0.0,
+      "prix_vente": 49.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 2
+    },
+    {
+      "categorie": "chargeur allume cigare",
+      "reference": "CA 32",
+      "marque": "INKAX",
+      "description": "sortie type C / USB",
+      "nom": "INKAX sortie type C / USB",
+      "prix_achat": 18.0,
+      "prix_vente": 30.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 2
+    },
+    {
+      "categorie": "chargeur allume cigare",
+      "reference": "CR-69",
+      "marque": "GFUZ",
+      "description": "sortie type C 2,4",
+      "nom": "GFUZ sortie type C 2,4",
+      "prix_achat": 18.0,
+      "prix_vente": 30.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 2
+    },
+    {
+      "categorie": "casque",
+      "reference": "MAJOR IV",
+      "marque": "marshal",
+      "description": "WIRLESS",
+      "nom": "marshal WIRLESS",
+      "prix_achat": 40.0,
+      "prix_vente": 75.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 1
+    },
+    {
+      "categorie": "casque",
+      "reference": "16622",
+      "marque": "",
+      "description": "P9 normal",
+      "nom": "P9 normal",
+      "prix_achat": 15.0,
+      "prix_vente": 30.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 2
+    },
+    {
+      "categorie": "casque",
+      "reference": "20984",
+      "marque": "",
+      "description": "P9 pro Max",
+      "nom": "P9 pro Max",
+      "prix_achat": 18.0,
+      "prix_vente": 45.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 2
+    },
+    {
+      "categorie": "casque",
+      "reference": "KR-9900",
+      "marque": "HEADSET",
+      "description": "HEADSET SONIC",
+      "nom": "HEADSET HEADSET SONIC",
+      "prix_achat": 0.0,
+      "prix_vente": 29.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 1
+    },
+    {
+      "categorie": "casque",
+      "reference": "AH-806N",
+      "marque": "HEADSET",
+      "description": "KUROMI",
+      "nom": "HEADSET KUROMI",
+      "prix_achat": 0.0,
+      "prix_vente": 29.0,
+      "fournisseur": "",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 1
+    },
+    {
+      "categorie": "support telephone voiture",
+      "reference": "KSC 525",
+      "marque": "KAKUSIGA",
+      "description": "holder rearview",
+      "nom": "KAKUSIGA holder rearview",
+      "prix_achat": 15.0,
+      "prix_vente": 35.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 2
+    },
+    {
+      "categorie": "Smart watch",
+      "reference": "XO-H100",
+      "marque": "XO",
+      "description": "Kids",
+      "nom": "XO Kids",
+      "prix_achat": 62.0,
+      "prix_vente": 80.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 1
+    },
+    {
+      "categorie": "Smart watch",
+      "reference": "G9",
+      "marque": "HAINOTEKO",
+      "description": "G9 Min",
+      "nom": "HAINOTEKO G9 Min",
+      "prix_achat": 100.0,
+      "prix_vente": 120.0,
+      "fournisseur": "MOKHTAR",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 1
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Evertek",
+      "description": "Evertek E28 black/red/dark blue",
+      "nom": "Evertek Evertek E28 black/red/dark blue",
+      "prix_achat": 62.5,
+      "prix_vente": 69.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 1
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Geniphone",
+      "description": "Geniphone A2mini",
+      "nom": "Geniphone Geniphone A2mini",
+      "prix_achat": 37.9,
+      "prix_vente": 45.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Logicom",
+      "description": "Logicom P197E noir/rouge",
+      "nom": "Logicom Logicom P197E noir/rouge",
+      "prix_achat": 37.5,
+      "prix_vente": 45.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 1
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Nokia",
+      "description": "Nokia 105 2024 blue/charcoal",
+      "nom": "Nokia Nokia 105 2024 blue/charcoal",
+      "prix_achat": 54.4,
+      "prix_vente": 65.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Honor",
+      "description": "X5C 4/64 blue",
+      "nom": "Honor X5C 4/64 blue",
+      "prix_achat": 326.0,
+      "prix_vente": 360.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Honor",
+      "description": "X6C 6/128 black/cyan/white",
+      "nom": "Honor X6C 6/128 black/cyan/white",
+      "prix_achat": 421.0,
+      "prix_vente": 495.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 1
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Honor",
+      "description": "X5C plus 4/128 black/cyan",
+      "nom": "Honor X5C plus 4/128 black/cyan",
+      "prix_achat": 357.0,
+      "prix_vente": 465.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Realme",
+      "description": "C61 8/256 gold/green",
+      "nom": "Realme C61 8/256 gold/green",
+      "prix_achat": 516.0,
+      "prix_vente": 570.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Realme",
+      "description": "Note 60X 3/64 black/green",
+      "nom": "Realme Note 60X 3/64 black/green",
+      "prix_achat": 282.0,
+      "prix_vente": 320.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Xiaomi",
+      "description": "Redmi 13 6/128 black",
+      "nom": "Xiaomi Redmi 13 6/128 black",
+      "prix_achat": 470.0,
+      "prix_vente": 520.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Xiaomi",
+      "description": "Redmi 15C 4/128 midnight black",
+      "nom": "Xiaomi Redmi 15C 4/128 midnight black",
+      "prix_achat": 404.0,
+      "prix_vente": 445.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Xiaomi",
+      "description": "Redmi 15C 6/128 midnight black/ mint green",
+      "nom": "Xiaomi Redmi 15C 6/128 midnight black/ mint green",
+      "prix_achat": 441.0,
+      "prix_vente": 495.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Xiaomi",
+      "description": "Redmi A5 3/64 black",
+      "nom": "Xiaomi Redmi A5 3/64 black",
+      "prix_achat": 272.0,
+      "prix_vente": 350.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 1
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Samsung",
+      "description": "A04 3/32 black/cooper",
+      "nom": "Samsung A04 3/32 black/cooper",
+      "prix_achat": 412.0,
+      "prix_vente": 455.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Samsung",
+      "description": "A04 S 4/128 black/cooper",
+      "nom": "Samsung A04 S 4/128 black/cooper",
+      "prix_achat": 495.4,
+      "prix_vente": 545.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 1
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Samsung",
+      "description": "A07 TA 4/64 black/violet",
+      "nom": "Samsung A07 TA 4/64 black/violet",
+      "prix_achat": 355.0,
+      "prix_vente": 399.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Samsung",
+      "description": "Galaxy A14 4/128 black/green/silver",
+      "nom": "Samsung Galaxy A14 4/128 black/green/silver",
+      "prix_achat": 487.0,
+      "prix_vente": 540.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 0
+    },
+    {
+      "categorie": "Smartphone et portable",
+      "reference": "no id",
+      "marque": "Vivo",
+      "description": "Y04 4/64 green/gold",
+      "nom": "Vivo Y04 4/64 green/gold",
+      "prix_achat": 314.0,
+      "prix_vente": 380.0,
+      "fournisseur": "Actelo",
+      "stock_mourouj": 0,
+      "stock_dar_fadhal": 1
+    }
+  ],
+  "stock": {
+    "BC04M|Blackwave|2,4A 1M USB micro": {
+      "Mourouj": 0
+    },
+    "BC04C|Blackwave|USB TO type C 1M 3A": {
+      "Mourouj": 0
+    },
+    "BC04L|Blackwave|USB to lightning 1m 3A": {
+      "Mourouj": 0
+    },
+    "BC03CC|Blackwave|Type C vers type C PD60W 1m": {
+      "Mourouj": 0
+    },
+    "BC03CL|Blackwave|Type C to Lightning PD 27W 1M": {
+      "Mourouj": 0
+    },
+    "CK-123|INKAX|Type C to Lightning 1m": {
+      "Mourouj": 0
+    },
+    "BL02|Blackwave|USB A 2,4A": {
+      "Mourouj": 0
+    },
+    "A2347|Apple|USB-C to lightning 25W iphone 14 pro max": {
+      "Mourouj": 5
+    },
+    "No ID|Samsung|USB-C to USB-C cable 5A 45W white": {
+      "Mourouj": 0
+    },
+    "No ID|Samsung|USB-C to USB-C cable 5A 45W black": {
+      "Mourouj": 0
+    },
+    "BL02M|Blackwave|2,4A 1M USB micro": {
+      "Mourouj": 0
+    },
+    "BL02L|Blackwave|2,4A 1M USB lightning": {
+      "Mourouj": 0
+    },
+    "E14|Inkax|1,2m sans ventouse black": {
+      "Mourouj": 0
+    },
+    "E20|INKAX|1,2m avec ventouse white": {
+      "Mourouj": 0
+    },
+    "R-3|BLUESPECTRUM|Stereo earphone sans ventouse white": {
+      "Mourouj": 2
+    },
+    "G12|celebrat|1,2m sans ventouse white": {
+      "Mourouj": 2
+    },
+    "G12|celebrat|1,2m sans ventouse black": {
+      "Mourouj": 2
+    },
+    "AE-01|Inkax|sans ventouse 1,2m white": {
+      "Mourouj": 0
+    },
+    "AE-01|Inkax|sans ventouse 1,2m black": {
+      "Mourouj": 4
+    },
+    "EW43|HOCO|sans ventouse stereo headset white": {
+      "Mourouj": 2
+    },
+    "T03|inkax|avec ventouse white": {
+      "Mourouj": 0
+    },
+    "EW04|HOCO|avec ventouse white": {
+      "Mourouj": 0
+    },
+    "T02|Inkax|sans ventouse white": {
+      "Mourouj": 2
+    },
+    "CA-27|Inkax|30W 2,4A double USB A": {
+      "Mourouj": 0
+    },
+    "CH-57|INKAX|360 rotating": {
+      "Mourouj": 0
+    },
+    "CH-62|INKAX|360 rotating, retractable": {
+      "Mourouj": 2
+    },
+    "HC1508|VIDVIE|metal car mount": {
+      "Mourouj": 2
+    },
+    "CM-09|INKAX|Dual USB car wireless MP3": {
+      "Mourouj": 0
+    },
+    "CM-12|INKAX|dual USB CAR  MP3 3,1A out": {
+      "Mourouj": 0
+    },
+    "PC 013|BAVIN|": {
+      "Mourouj": 0,
+      "Dar Fadhal": 2
+    },
+    "KSC 1083|KAKUSIGA|10000 MAH": {
+      "Mourouj": 0,
+      "Dar Fadhal": 2
+    },
+    "PB-01A|INKAX|10000 MAH": {
+      "Mourouj": 0,
+      "Dar Fadhal": 0
+    },
+    "ID 53473|Xiaomi|XIAOMI LEATHER QUICK RELEASE STRAP CORAL ORANGE": {
+      "Mourouj": 0
+    },
+    "ID 53472|Xiaomi|XIAOMI LEATHER QUICK RELEASE STRAP CREAM WHITE": {
+      "Mourouj": 0
+    },
+    "SLC-061|wireless|portable wireless speaker": {
+      "Mourouj": 2
+    },
+    "JZ-200|wireless|wireless speaker bluetooth 5W": {
+      "Mourouj": 2
+    },
+    "No ID|no marque|cache airpods pro": {
+      "Mourouj": 0
+    },
+    "GPS50|Honor|X5C 4/64": {
+      "Mourouj": 0
+    },
+    "GPS50|Honor|X5C plus 4/128 black/cyan": {
+      "Mourouj": 0
+    },
+    "GPS50|Honor|X6C 6/128 black/cyan/white": {
+      "Mourouj": 0
+    },
+    "GPS50|Realme|C61 8/256 gold/green": {
+      "Mourouj": 0
+    },
+    "GPS50|Realme|Note 60X 3/64 black/green": {
+      "Mourouj": 0
+    },
+    "GPS50|Xiaomi|Redmi 13 6/128 black": {
+      "Mourouj": 0
+    },
+    "GPS50|Xiaomi|Redmi 15C 4/128 midnight black": {
+      "Mourouj": 0
+    },
+    "GPS50|Xiaomi|Redmi 15C 6/128 midnight black/ mint green": {
+      "Mourouj": 0
+    },
+    "GPS50|Xiaomi|Redmi A5 3/64 black": {
+      "Mourouj": 0
+    },
+    "GPS50|Samsung|A07 T4 4/64 black/violet": {
+      "Mourouj": 0
+    },
+    "GPS50|Vivo|Y04 4/64 gold/green": {
+      "Mourouj": 0
+    },
+    "X163|WUW|type C 2.4, 1 metre micro": {
+      "Dar Fadhal": 5
+    },
+    "A102|ASPOR|type C 3.0, 1 metre": {
+      "Dar Fadhal": 9
+    },
+    "D3T|GERLAX|type C 2,4, 1 metre": {
+      "Dar Fadhal": 8
+    },
+    "XO-NB212|XO|iphone 2.1, 1 metre": {
+      "Dar Fadhal": 1
+    },
+    "X163|WUW|iphone 2.4, 1 metre": {
+      "Dar Fadhal": 8
+    },
+    "CB-06|INKAX|iphone 3.1, 1 metre": {
+      "Dar Fadhal": 10
+    },
+    "IC-UC1626|ICONIX|iphone 2.4, 3 Metres": {
+      "Dar Fadhal": 4
+    },
+    "CB-06|INKAX|Micro 3.1, 1 metre": {
+      "Dar Fadhal": 4
+    },
+    "A1480||cable usb-lightning 1m": {
+      "Dar Fadhal": 5
+    },
+    "IC-UC1622|ICONIX|3,25 FT 3,4A": {
+      "Dar Fadhal": 5
+    },
+    "CB-45|INKAX|TYPE C FASR CHARGING 4,0 MM": {
+      "Dar Fadhal": 9
+    },
+    "CK-123|INKAX|type C iphone 15 et plus , 1 metre": {
+      "Dar Fadhal": 4
+    },
+    "MQKJ3ZM/A|APPLE|originale apple , 1 metre": {
+      "Dar Fadhal": 5
+    },
+    "CB-36|Inkax|type C, 3,1A  1metre": {
+      "Dar Fadhal": 8
+    },
+    "MQGJ2ZM/A|elektrum|type C iphone, 1 metre 20W": {
+      "Dar Fadhal": 5
+    },
+    "AL 32|INKAX|cable usb-lightning 1m": {
+      "Dar Fadhal": 5
+    },
+    "S22|PD ADAPTER|sortie type C / USB 35 w": {
+      "Dar Fadhal": 4
+    },
+    "C06|INKAX|2.4 A avec sortie USB": {
+      "Dar Fadhal": 5
+    },
+    "KSC-1236|KAKOSIGA|2.4 A": {
+      "Dar Fadhal": 5
+    },
+    "QC 18W|ICONIX|18 W": {
+      "Dar Fadhal": 4
+    },
+    "A818|ASPOR|smart charger 2,4 A": {
+      "Dar Fadhal": 4
+    },
+    "AG-04|AULEX|2.4 LIGHTING": {
+      "Dar Fadhal": 5
+    },
+    "A206|ASPORT|": {
+      "Dar Fadhal": 5
+    },
+    "R 12|Blue spectre|R12": {
+      "Dar Fadhal": 3
+    },
+    "R 09|Blue spectre|R9": {
+      "Dar Fadhal": 5
+    },
+    "ANC|marshal|ANC": {
+      "Dar Fadhal": 1
+    },
+    "XO-X33|XO|wireless earphone": {
+      "Dar Fadhal": 1
+    },
+    "T02|INKAX|sans ventouse blanc": {
+      "Dar Fadhal": 2
+    },
+    "YKS18|yookie|": {
+      "Dar Fadhal": 2
+    },
+    "CA 32|INKAX|sortie type C / USB": {
+      "Dar Fadhal": 2
+    },
+    "CR-69|GFUZ|sortie type C 2,4": {
+      "Dar Fadhal": 2
+    },
+    "MAJOR IV|marshal|WIRLESS": {
+      "Dar Fadhal": 1
+    },
+    "16622||P9 normal": {
+      "Dar Fadhal": 2
+    },
+    "20984||P9 pro Max": {
+      "Dar Fadhal": 2
+    },
+    "KR-9900|HEADSET|HEADSET SONIC": {
+      "Dar Fadhal": 1
+    },
+    "AH-806N|HEADSET|KUROMI": {
+      "Dar Fadhal": 1
+    },
+    "KSC 525|KAKUSIGA|holder rearview": {
+      "Dar Fadhal": 2
+    },
+    "XO-H100|XO|Kids": {
+      "Dar Fadhal": 1
+    },
+    "G9|HAINOTEKO|G9 Min": {
+      "Dar Fadhal": 1
+    },
+    "no id|Evertek|Evertek E28 black/red/dark blue": {
+      "Dar Fadhal": 1
+    },
+    "no id|Geniphone|Geniphone A2mini": {
+      "Dar Fadhal": 0
+    },
+    "no id|Logicom|Logicom P197E noir/rouge": {
+      "Dar Fadhal": 1
+    },
+    "no id|Nokia|Nokia 105 2024 blue/charcoal": {
+      "Dar Fadhal": 0
+    },
+    "no id|Honor|X5C 4/64 blue": {
+      "Dar Fadhal": 0
+    },
+    "no id|Honor|X6C 6/128 black/cyan/white": {
+      "Dar Fadhal": 1
+    },
+    "no id|Honor|X5C plus 4/128 black/cyan": {
+      "Dar Fadhal": 0
+    },
+    "no id|Realme|C61 8/256 gold/green": {
+      "Dar Fadhal": 0
+    },
+    "no id|Realme|Note 60X 3/64 black/green": {
+      "Dar Fadhal": 0
+    },
+    "no id|Xiaomi|Redmi 13 6/128 black": {
+      "Dar Fadhal": 0
+    },
+    "no id|Xiaomi|Redmi 15C 4/128 midnight black": {
+      "Dar Fadhal": 0
+    },
+    "no id|Xiaomi|Redmi 15C 6/128 midnight black/ mint green": {
+      "Dar Fadhal": 0
+    },
+    "no id|Xiaomi|Redmi A5 3/64 black": {
+      "Dar Fadhal": 1
+    },
+    "no id|Samsung|A04 3/32 black/cooper": {
+      "Dar Fadhal": 0
+    },
+    "no id|Samsung|A04 S 4/128 black/cooper": {
+      "Dar Fadhal": 1
+    },
+    "no id|Samsung|A07 TA 4/64 black/violet": {
+      "Dar Fadhal": 0
+    },
+    "no id|Samsung|Galaxy A14 4/128 black/green/silver": {
+      "Dar Fadhal": 0
+    },
+    "no id|Vivo|Y04 4/64 green/gold": {
+      "Dar Fadhal": 1
+    }
+  }
+}
