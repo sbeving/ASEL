@@ -1,482 +1,575 @@
 """
-ASEL Mobile — Gestion de Stock & POS v2.0
-Base de données SQLite complète
+ASEL Mobile — Google Sheets Database Layer
+Each sheet = one table. Uses gspread + service account.
 """
-import sqlite3, hashlib, os, csv, io
+import gspread
+from google.oauth2.service_account import Credentials
+import streamlit as st
+import json
+import hashlib
 from datetime import datetime, date
+import time
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "asel_stock.db")
+# === CONNECTION ===
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
 
-def get_db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+@st.cache_resource(ttl=300)
+def get_client():
+    creds_dict = json.loads(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    return gspread.authorize(creds)
 
-def init_db():
-    conn = get_db()
-    c = conn.cursor()
+def get_sheet():
+    client = get_client()
+    return client.open_by_key(st.secrets["spreadsheet_id"])
 
-    c.executescript("""
-    CREATE TABLE IF NOT EXISTS franchises (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nom TEXT UNIQUE NOT NULL,
-        adresse TEXT, telephone TEXT, responsable TEXT,
-        actif INTEGER DEFAULT 1,
-        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS categories (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nom TEXT UNIQUE NOT NULL, description TEXT
-    );
-    CREATE TABLE IF NOT EXISTS fournisseurs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nom TEXT NOT NULL, telephone TEXT, email TEXT, adresse TEXT,
-        actif INTEGER DEFAULT 1
-    );
-    CREATE TABLE IF NOT EXISTS produits (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nom TEXT NOT NULL, categorie_id INTEGER NOT NULL,
-        prix_achat REAL DEFAULT 0, prix_vente REAL DEFAULT 0,
-        reference TEXT, code_barre TEXT, description TEXT,
-        fournisseur_id INTEGER,
-        seuil_alerte INTEGER DEFAULT 5,
-        actif INTEGER DEFAULT 1,
-        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (categorie_id) REFERENCES categories(id),
-        FOREIGN KEY (fournisseur_id) REFERENCES fournisseurs(id)
-    );
-    CREATE TABLE IF NOT EXISTS utilisateurs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nom_utilisateur TEXT UNIQUE NOT NULL,
-        mot_de_passe TEXT NOT NULL,
-        nom_complet TEXT NOT NULL,
-        role TEXT NOT NULL CHECK(role IN ('admin','franchise','viewer')),
-        franchise_id INTEGER,
-        actif INTEGER DEFAULT 1,
-        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (franchise_id) REFERENCES franchises(id)
-    );
-    CREATE TABLE IF NOT EXISTS stock (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        franchise_id INTEGER NOT NULL, produit_id INTEGER NOT NULL,
-        quantite INTEGER DEFAULT 0,
-        derniere_maj TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(franchise_id, produit_id),
-        FOREIGN KEY (franchise_id) REFERENCES franchises(id),
-        FOREIGN KEY (produit_id) REFERENCES produits(id)
-    );
-    CREATE TABLE IF NOT EXISTS mouvements (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        franchise_id INTEGER NOT NULL, produit_id INTEGER NOT NULL,
-        type_mouvement TEXT NOT NULL,
-        quantite INTEGER NOT NULL,
-        prix_unitaire REAL DEFAULT 0, note TEXT,
-        utilisateur_id INTEGER,
-        date_mouvement TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (franchise_id) REFERENCES franchises(id),
-        FOREIGN KEY (produit_id) REFERENCES produits(id)
-    );
-    CREATE TABLE IF NOT EXISTS ventes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        franchise_id INTEGER NOT NULL, produit_id INTEGER NOT NULL,
-        quantite INTEGER NOT NULL,
-        prix_unitaire REAL NOT NULL, prix_total REAL NOT NULL,
-        remise REAL DEFAULT 0,
-        date_vente DATE DEFAULT (date('now')),
-        utilisateur_id INTEGER, note TEXT,
-        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (franchise_id) REFERENCES franchises(id),
-        FOREIGN KEY (produit_id) REFERENCES produits(id)
-    );
-    CREATE TABLE IF NOT EXISTS transferts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        franchise_source INTEGER NOT NULL,
-        franchise_dest INTEGER NOT NULL,
-        produit_id INTEGER NOT NULL,
-        quantite INTEGER NOT NULL,
-        statut TEXT DEFAULT 'en_attente' CHECK(statut IN ('en_attente','accepte','rejete')),
-        demandeur_id INTEGER,
-        validateur_id INTEGER,
-        note TEXT,
-        date_demande TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        date_validation TIMESTAMP,
-        FOREIGN KEY (franchise_source) REFERENCES franchises(id),
-        FOREIGN KEY (franchise_dest) REFERENCES franchises(id),
-        FOREIGN KEY (produit_id) REFERENCES produits(id)
-    );
-    CREATE TABLE IF NOT EXISTS clotures (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        franchise_id INTEGER NOT NULL,
-        date_cloture DATE NOT NULL,
-        total_ventes_declare REAL DEFAULT 0,
-        total_articles_declare INTEGER DEFAULT 0,
-        total_ventes_systeme REAL DEFAULT 0,
-        total_articles_systeme INTEGER DEFAULT 0,
-        commentaire TEXT,
-        valide INTEGER DEFAULT 0,
-        utilisateur_id INTEGER,
-        validateur_id INTEGER,
-        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(franchise_id, date_cloture),
-        FOREIGN KEY (franchise_id) REFERENCES franchises(id)
-    );
-    CREATE TABLE IF NOT EXISTS retours (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        franchise_id INTEGER NOT NULL, produit_id INTEGER NOT NULL,
-        quantite INTEGER NOT NULL,
-        type_retour TEXT DEFAULT 'retour' CHECK(type_retour IN ('retour','echange')),
-        raison TEXT, note TEXT,
-        utilisateur_id INTEGER,
-        date_retour TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (franchise_id) REFERENCES franchises(id),
-        FOREIGN KEY (produit_id) REFERENCES produits(id)
-    );
-    CREATE TABLE IF NOT EXISTS historique_prix (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        produit_id INTEGER NOT NULL,
-        ancien_prix_achat REAL, nouveau_prix_achat REAL,
-        ancien_prix_vente REAL, nouveau_prix_vente REAL,
-        utilisateur_id INTEGER,
-        date_changement TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (produit_id) REFERENCES produits(id)
-    );
-    CREATE TABLE IF NOT EXISTS dispatch (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        franchise_id INTEGER NOT NULL, produit_id INTEGER NOT NULL,
-        quantite INTEGER NOT NULL,
-        utilisateur_id INTEGER, note TEXT,
-        date_dispatch TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (franchise_id) REFERENCES franchises(id),
-        FOREIGN KEY (produit_id) REFERENCES produits(id)
-    );
-    """)
-    conn.commit()
-    if c.execute("SELECT COUNT(*) FROM franchises").fetchone()[0] == 0:
-        _seed(conn)
-    conn.close()
+# === HELPERS ===
+def _ws(name):
+    """Get or create worksheet"""
+    sh = get_sheet()
+    try:
+        return sh.worksheet(name)
+    except gspread.WorksheetNotFound:
+        return None
 
-def _seed(conn):
-    c = conn.cursor()
+def _all(name):
+    ws = _ws(name)
+    if not ws: return []
+    data = ws.get_all_records()
+    return data
+
+def _find_row(name, col, val):
+    ws = _ws(name)
+    if not ws: return None, None
+    data = ws.get_all_records()
+    for i, row in enumerate(data):
+        if str(row.get(col, '')) == str(val):
+            return i + 2, row  # +2 because row 1 = header, gspread is 1-indexed
+    return None, None
+
+def _next_id(name):
+    data = _all(name)
+    if not data: return 1
+    ids = [int(r.get('id', 0)) for r in data if str(r.get('id', '')).isdigit()]
+    return max(ids) + 1 if ids else 1
+
+def _append(name, row_dict):
+    ws = _ws(name)
+    if not ws: return
+    headers = ws.row_values(1)
+    row = [row_dict.get(h, '') for h in headers]
+    ws.append_row(row, value_input_option='USER_ENTERED')
+
+def _update_row(name, row_num, row_dict):
+    ws = _ws(name)
+    if not ws: return
+    headers = ws.row_values(1)
+    row = [row_dict.get(h, '') for h in headers]
+    ws.update(f'A{row_num}:{chr(64+len(headers))}{row_num}', [row])
+
+def _retry(func, *args, retries=3, **kwargs):
+    """Retry on API rate limit"""
+    for i in range(retries):
+        try:
+            return func(*args, **kwargs)
+        except gspread.exceptions.APIError as e:
+            if 'RATE_LIMIT' in str(e) or '429' in str(e):
+                time.sleep(2 ** i)
+            else:
+                raise
+    return func(*args, **kwargs)
+
+# === INIT SHEETS ===
+def init_sheets():
+    """Create all sheets with headers if they don't exist"""
+    sh = get_sheet()
+    existing = [ws.title for ws in sh.worksheets()]
+    
+    tables = {
+        "franchises": ["id","nom","adresse","telephone","responsable","actif","date_creation"],
+        "categories": ["id","nom","description"],
+        "fournisseurs": ["id","nom","telephone","email","adresse","actif"],
+        "produits": ["id","nom","categorie_id","prix_achat","prix_vente","reference","code_barre","description","fournisseur_id","seuil_alerte","actif","date_creation"],
+        "utilisateurs": ["id","nom_utilisateur","mot_de_passe","nom_complet","role","franchise_id","actif","date_creation"],
+        "stock": ["id","franchise_id","produit_id","quantite","derniere_maj"],
+        "mouvements": ["id","franchise_id","produit_id","type_mouvement","quantite","prix_unitaire","note","utilisateur_id","date_mouvement"],
+        "ventes": ["id","franchise_id","produit_id","quantite","prix_unitaire","prix_total","remise","date_vente","utilisateur_id","note","date_creation"],
+        "transferts": ["id","franchise_source","franchise_dest","produit_id","quantite","statut","demandeur_id","validateur_id","note","date_demande","date_validation"],
+        "clotures": ["id","franchise_id","date_cloture","total_ventes_declare","total_articles_declare","total_ventes_systeme","total_articles_systeme","commentaire","valide","utilisateur_id","validateur_id","date_creation"],
+        "retours": ["id","franchise_id","produit_id","quantite","type_retour","raison","note","utilisateur_id","date_retour"],
+        "dispatch": ["id","franchise_id","produit_id","quantite","utilisateur_id","note","date_dispatch"],
+        "historique_prix": ["id","produit_id","ancien_prix_achat","nouveau_prix_achat","ancien_prix_vente","nouveau_prix_vente","utilisateur_id","date_changement"],
+    }
+    
+    for name, headers in tables.items():
+        if name not in existing:
+            ws = sh.add_worksheet(title=name, rows=1000, cols=len(headers))
+            ws.update('A1', [headers])
+            time.sleep(1)  # Rate limit
+    
+    # Remove default Sheet1 if exists and empty
+    if "Sheet1" in existing:
+        try:
+            ws1 = sh.worksheet("Sheet1")
+            if not ws1.get_all_values()[1:]:
+                sh.del_worksheet(ws1)
+        except:
+            pass
+    
+    # Seed if empty
+    if not _all("franchises"):
+        _seed()
+
+def _seed():
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Franchises
     franchises = [
-        ("ASEL Mobile — Tunis Centre","Av. Habib Bourguiba, Tunis","+216 71 123 456","Ahmed Ben Ali"),
-        ("ASEL Mobile — Sfax","Route de Tunis, Sfax","+216 74 234 567","Mohamed Trabelsi"),
-        ("ASEL Mobile — Sousse","Bd 14 Janvier, Sousse","+216 73 345 678","Fatma Bouazizi"),
-        ("ASEL Mobile — Nabeul","Av. Habib Thameur, Nabeul","+216 72 456 789","Karim Jebali"),
-        ("ASEL Mobile — Bizerte","Rue de la République, Bizerte","+216 72 567 890","Sana Mansouri"),
+        {"id":1,"nom":"ASEL Mobile — Tunis Centre","adresse":"Av. Habib Bourguiba, Tunis","telephone":"+216 71 123 456","responsable":"Ahmed Ben Ali","actif":1,"date_creation":now},
+        {"id":2,"nom":"ASEL Mobile — Sfax","adresse":"Route de Tunis, Sfax","telephone":"+216 74 234 567","responsable":"Mohamed Trabelsi","actif":1,"date_creation":now},
+        {"id":3,"nom":"ASEL Mobile — Sousse","adresse":"Bd 14 Janvier, Sousse","telephone":"+216 73 345 678","responsable":"Fatma Bouazizi","actif":1,"date_creation":now},
+        {"id":4,"nom":"ASEL Mobile — Nabeul","adresse":"Av. Habib Thameur, Nabeul","telephone":"+216 72 456 789","responsable":"Karim Jebali","actif":1,"date_creation":now},
+        {"id":5,"nom":"ASEL Mobile — Bizerte","adresse":"Rue de la République, Bizerte","telephone":"+216 72 567 890","responsable":"Sana Mansouri","actif":1,"date_creation":now},
     ]
-    c.executemany("INSERT INTO franchises (nom,adresse,telephone,responsable) VALUES (?,?,?,?)", franchises)
-    cats = [("Téléphones","Smartphones et téléphones"),("Coques & Protections","Coques, étuis, films"),
-            ("Écouteurs & Casques","Filaires et Bluetooth"),("Enceintes","Bluetooth et portables"),
-            ("Chargeurs & Câbles","Chargeurs, câbles, batteries"),("Accessoires","Supports, cartes mémoire, etc.")]
-    c.executemany("INSERT INTO categories (nom,description) VALUES (?,?)", cats)
-    c.execute("INSERT INTO fournisseurs (nom,telephone,email) VALUES (?,?,?)",("Fournisseur Général","+216 70 000 000","contact@fournisseur.tn"))
+    ws = _ws("franchises")
+    for f in franchises:
+        _append("franchises", f)
+        time.sleep(0.5)
+    
+    # Categories
+    cats = [
+        {"id":1,"nom":"Téléphones","description":"Smartphones et téléphones"},
+        {"id":2,"nom":"Coques & Protections","description":"Coques, étuis, films"},
+        {"id":3,"nom":"Écouteurs & Casques","description":"Filaires et Bluetooth"},
+        {"id":4,"nom":"Enceintes","description":"Bluetooth et portables"},
+        {"id":5,"nom":"Chargeurs & Câbles","description":"Chargeurs, câbles, batteries"},
+        {"id":6,"nom":"Accessoires","description":"Supports, cartes mémoire, etc."},
+    ]
+    for c in cats:
+        _append("categories", c)
+        time.sleep(0.3)
+    
+    # Fournisseurs
+    _append("fournisseurs", {"id":1,"nom":"Fournisseur Général","telephone":"+216 70 000 000","email":"contact@fournisseur.tn","adresse":"Tunis","actif":1})
+    
+    # Produits
     produits = [
-        ("Samsung Galaxy A15",1,450,599,"SM-A155F","8806095426280",1),
-        ("Samsung Galaxy A25",1,650,849,"SM-A256B","8806095468123",1),
-        ("iPhone 15",1,2800,3499,"IPHONE15-128","0194253396055",1),
-        ("Xiaomi Redmi Note 13",1,500,699,"RN13-128","6941812756423",1),
-        ("OPPO A18",1,380,499,"OPPO-A18","6932169086547",1),
-        ("Coque Samsung A15",2,15,35,"COQ-A15","COQ-SAM-A15",1),
-        ("Coque iPhone 15",2,20,45,"COQ-IP15","COQ-IP-15",1),
-        ("Protection écran Samsung",2,8,20,"PE-SAM","PE-SAM-UNIV",1),
-        ("Protection écran iPhone",2,10,25,"PE-IP","PE-IP-15",1),
-        ("Coque Xiaomi RN13",2,12,30,"COQ-XRN13","COQ-XI-RN13",1),
-        ("AirPods Pro 2",3,600,849,"APP2","0194253404026",1),
-        ("Samsung Galaxy Buds FE",3,200,299,"SGB-FE","8806095170862",1),
-        ("Écouteurs filaires USB-C",3,15,35,"EC-USBC","EC-USBC-GEN",1),
-        ("JBL Tune 520BT",3,120,179,"JBL-T520","6925281978944",1),
-        ("JBL Flip 6",4,250,399,"JBL-F6","6925281993152",1),
-        ("JBL Go 3",4,80,129,"JBL-G3","6925281979415",1),
-        ("Anker Soundcore Mini",4,60,99,"ANK-MINI","ANK-SC-MINI",1),
-        ("Chargeur rapide 25W",5,25,49,"CHR-25W","CHR-25W-SAM",1),
-        ("Chargeur rapide 65W",5,45,79,"CHR-65W","CHR-65W-GAN",1),
-        ("Câble USB-C 1m",5,8,20,"CAB-USBC","CAB-USBC-1M",1),
-        ("Câble Lightning 1m",5,12,25,"CAB-LTN","CAB-LTN-1M",1),
-        ("Batterie externe 10000mAh",5,45,79,"BAT-10K","BAT-10K-ANK",1),
-        ("Batterie externe 20000mAh",5,65,109,"BAT-20K","BAT-20K-ANK",1),
-        ("Support voiture magnétique",6,15,35,"SUP-VOI","SUP-MAG-VOI",1),
-        ("Carte mémoire 64Go",6,20,39,"CM-64","CM-SD-64",1),
-        ("Carte mémoire 128Go",6,35,59,"CM-128","CM-SD-128",1),
+        (1,"Samsung Galaxy A15",1,450,599,"SM-A155F","8806095426280",1,5),
+        (2,"Samsung Galaxy A25",1,650,849,"SM-A256B","8806095468123",1,5),
+        (3,"iPhone 15",1,2800,3499,"IPHONE15-128","0194253396055",1,3),
+        (4,"Xiaomi Redmi Note 13",1,500,699,"RN13-128","6941812756423",1,5),
+        (5,"OPPO A18",1,380,499,"OPPO-A18","6932169086547",1,5),
+        (6,"Coque Samsung A15",2,15,35,"COQ-A15","COQ-SAM-A15",1,10),
+        (7,"Coque iPhone 15",2,20,45,"COQ-IP15","COQ-IP-15",1,10),
+        (8,"Protection écran Samsung",2,8,20,"PE-SAM","PE-SAM-UNIV",1,10),
+        (9,"Protection écran iPhone",2,10,25,"PE-IP","PE-IP-15",1,10),
+        (10,"Coque Xiaomi RN13",2,12,30,"COQ-XRN13","COQ-XI-RN13",1,10),
+        (11,"AirPods Pro 2",3,600,849,"APP2","0194253404026",1,3),
+        (12,"Samsung Galaxy Buds FE",3,200,299,"SGB-FE","8806095170862",1,5),
+        (13,"Écouteurs filaires USB-C",3,15,35,"EC-USBC","EC-USBC-GEN",1,15),
+        (14,"JBL Tune 520BT",3,120,179,"JBL-T520","6925281978944",1,5),
+        (15,"JBL Flip 6",4,250,399,"JBL-F6","6925281993152",1,3),
+        (16,"JBL Go 3",4,80,129,"JBL-G3","6925281979415",1,5),
+        (17,"Chargeur rapide 25W",5,25,49,"CHR-25W","CHR-25W-SAM",1,10),
+        (18,"Chargeur rapide 65W",5,45,79,"CHR-65W","CHR-65W-GAN",1,5),
+        (19,"Câble USB-C 1m",5,8,20,"CAB-USBC","CAB-USBC-1M",1,15),
+        (20,"Câble Lightning 1m",5,12,25,"CAB-LTN","CAB-LTN-1M",1,10),
+        (21,"Batterie externe 10000mAh",5,45,79,"BAT-10K","BAT-10K-ANK",1,5),
+        (22,"Support voiture magnétique",6,15,35,"SUP-VOI","SUP-MAG-VOI",1,10),
+        (23,"Carte mémoire 64Go",6,20,39,"CM-64","CM-SD-64",1,10),
+        (24,"Carte mémoire 128Go",6,35,59,"CM-128","CM-SD-128",1,5),
     ]
-    c.executemany("INSERT INTO produits (nom,categorie_id,prix_achat,prix_vente,reference,code_barre,fournisseur_id) VALUES (?,?,?,?,?,?,?)", produits)
-    pwd = hashlib.sha256("admin2024".encode()).hexdigest()
-    c.execute("INSERT INTO utilisateurs (nom_utilisateur,mot_de_passe,nom_complet,role) VALUES (?,?,?,?)",("admin",pwd,"Administrateur","admin"))
+    for p in produits:
+        _append("produits", {"id":p[0],"nom":p[1],"categorie_id":p[2],"prix_achat":p[3],"prix_vente":p[4],"reference":p[5],"code_barre":p[6],"fournisseur_id":p[7],"seuil_alerte":p[8],"actif":1,"date_creation":now,"description":""})
+        time.sleep(0.3)
+    
+    # Admin + franchise users
+    _append("utilisateurs", {"id":1,"nom_utilisateur":"admin","mot_de_passe":hash_pw("admin2024"),"nom_complet":"Administrateur","role":"admin","franchise_id":"","actif":1,"date_creation":now})
+    time.sleep(0.3)
     for i in range(1,6):
-        p = hashlib.sha256(f"franchise{i}".encode()).hexdigest()
-        c.execute("INSERT INTO utilisateurs (nom_utilisateur,mot_de_passe,nom_complet,role,franchise_id) VALUES (?,?,?,?,?)",(f"franchise{i}",p,f"Gérant Franchise {i}","franchise",i))
+        _append("utilisateurs", {"id":i+1,"nom_utilisateur":f"franchise{i}","mot_de_passe":hash_pw(f"franchise{i}"),"nom_complet":f"Gérant Franchise {i}","role":"franchise","franchise_id":i,"actif":1,"date_creation":now})
+        time.sleep(0.3)
+    
+    # Initial stock
     import random
+    sid = 1
     for fid in range(1,6):
-        for pid in range(1,27):
-            c.execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?)",(fid,pid,random.randint(3,50)))
-    conn.commit()
+        for pid in range(1,25):
+            _append("stock", {"id":sid,"franchise_id":fid,"produit_id":pid,"quantite":random.randint(5,40),"derniere_maj":now})
+            sid += 1
+            time.sleep(0.2)
 
 # === AUTH ===
-def hash_pw(p): return hashlib.sha256(p.encode()).hexdigest()
-def verify_user(u,p):
-    conn=get_db(); r=conn.execute("SELECT * FROM utilisateurs WHERE nom_utilisateur=? AND mot_de_passe=? AND actif=1",(u,hash_pw(p))).fetchone(); conn.close()
-    return dict(r) if r else None
+def hash_pw(p):
+    return hashlib.sha256(p.encode()).hexdigest()
+
+def verify_user(username, password):
+    users = _all("utilisateurs")
+    hashed = hash_pw(password)
+    for u in users:
+        if u.get('nom_utilisateur') == username and u.get('mot_de_passe') == hashed and str(u.get('actif','1')) == '1':
+            return u
+    return None
+
 def change_password(user_id, new_pw):
-    conn=get_db(); conn.execute("UPDATE utilisateurs SET mot_de_passe=? WHERE id=?",(hash_pw(new_pw),user_id)); conn.commit(); conn.close()
+    row_num, row = _find_row("utilisateurs", "id", user_id)
+    if row_num:
+        row['mot_de_passe'] = hash_pw(new_pw)
+        _update_row("utilisateurs", row_num, row)
 
 # === FRANCHISES ===
 def get_franchises(actif_only=True):
-    conn=get_db(); q="SELECT * FROM franchises"+(" WHERE actif=1" if actif_only else ""); r=[dict(x) for x in conn.execute(q).fetchall()]; conn.close(); return r
-def add_franchise(nom,adresse="",telephone="",responsable=""):
-    conn=get_db()
-    try:
-        c=conn.cursor(); c.execute("INSERT INTO franchises (nom,adresse,telephone,responsable) VALUES (?,?,?,?)",(nom,adresse,telephone,responsable))
-        fid=c.lastrowid
-        for p in conn.execute("SELECT id FROM produits WHERE actif=1").fetchall():
-            conn.execute("INSERT OR IGNORE INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,0)",(fid,p['id']))
-        conn.commit(); conn.close(); return fid
-    except: conn.close(); return None
-def update_franchise(fid,nom,adresse,telephone,responsable,actif):
-    conn=get_db(); conn.execute("UPDATE franchises SET nom=?,adresse=?,telephone=?,responsable=?,actif=? WHERE id=?",(nom,adresse,telephone,responsable,actif,fid)); conn.commit(); conn.close()
+    data = _all("franchises")
+    if actif_only:
+        return [f for f in data if str(f.get('actif','1')) == '1']
+    return data
+
+def add_franchise(nom, adresse="", telephone="", responsable=""):
+    nid = _next_id("franchises")
+    _append("franchises", {"id":nid,"nom":nom,"adresse":adresse,"telephone":telephone,"responsable":responsable,"actif":1,"date_creation":datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    # Init stock for all products
+    produits = get_produits()
+    sid = _next_id("stock")
+    for p in produits:
+        _append("stock", {"id":sid,"franchise_id":nid,"produit_id":p['id'],"quantite":0,"derniere_maj":datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        sid += 1
+        time.sleep(0.2)
+    return nid
+
+def update_franchise(fid, nom, adresse, telephone, responsable, actif):
+    row_num, _ = _find_row("franchises", "id", fid)
+    if row_num:
+        _update_row("franchises", row_num, {"id":fid,"nom":nom,"adresse":adresse,"telephone":telephone,"responsable":responsable,"actif":actif,"date_creation":""})
 
 # === CATEGORIES ===
 def get_categories():
-    conn=get_db(); r=[dict(x) for x in conn.execute("SELECT * FROM categories ORDER BY nom").fetchall()]; conn.close(); return r
-def add_category(nom,desc=""):
-    conn=get_db()
-    try: conn.execute("INSERT INTO categories (nom,description) VALUES (?,?)",(nom,desc)); conn.commit(); conn.close(); return True
-    except: conn.close(); return False
+    return _all("categories")
+
+def add_category(nom, desc=""):
+    nid = _next_id("categories")
+    _append("categories", {"id":nid,"nom":nom,"description":desc})
+    return True
 
 # === FOURNISSEURS ===
 def get_fournisseurs():
-    conn=get_db(); r=[dict(x) for x in conn.execute("SELECT * FROM fournisseurs WHERE actif=1").fetchall()]; conn.close(); return r
-def add_fournisseur(nom,tel="",email="",adresse=""):
-    conn=get_db(); conn.execute("INSERT INTO fournisseurs (nom,telephone,email,adresse) VALUES (?,?,?,?)",(nom,tel,email,adresse)); conn.commit(); conn.close()
+    return [f for f in _all("fournisseurs") if str(f.get('actif','1')) == '1']
+
+def add_fournisseur(nom, tel="", email="", adresse=""):
+    nid = _next_id("fournisseurs")
+    _append("fournisseurs", {"id":nid,"nom":nom,"telephone":tel,"email":email,"adresse":adresse,"actif":1})
 
 # === PRODUITS ===
-def get_produits(cat_id=None,actif_only=True):
-    conn=get_db()
-    q="SELECT p.*,c.nom as categorie_nom,f.nom as fournisseur_nom FROM produits p JOIN categories c ON p.categorie_id=c.id LEFT JOIN fournisseurs f ON p.fournisseur_id=f.id"
-    conds,params=[],[]
-    if actif_only: conds.append("p.actif=1")
-    if cat_id: conds.append("p.categorie_id=?"); params.append(cat_id)
-    if conds: q+=" WHERE "+" AND ".join(conds)
-    q+=" ORDER BY c.nom,p.nom"
-    r=[dict(x) for x in conn.execute(q,params).fetchall()]; conn.close(); return r
+def get_produits(cat_id=None, actif_only=True):
+    data = _all("produits")
+    cats = {str(c['id']): c['nom'] for c in get_categories()}
+    result = []
+    for p in data:
+        if actif_only and str(p.get('actif','1')) != '1':
+            continue
+        if cat_id and str(p.get('categorie_id','')) != str(cat_id):
+            continue
+        p['categorie_nom'] = cats.get(str(p.get('categorie_id','')), '?')
+        result.append(p)
+    return result
 
 def get_produit_by_barcode(code):
-    conn=get_db(); r=conn.execute("SELECT p.*,c.nom as categorie_nom FROM produits p JOIN categories c ON p.categorie_id=c.id WHERE p.code_barre=? AND p.actif=1",(code,)).fetchone(); conn.close()
-    return dict(r) if r else None
+    produits = _all("produits")
+    for p in produits:
+        if p.get('code_barre') == code and str(p.get('actif','1')) == '1':
+            cats = {str(c['id']): c['nom'] for c in get_categories()}
+            p['categorie_nom'] = cats.get(str(p.get('categorie_id','')), '?')
+            return p
+    return None
 
-def add_produit(nom,cat_id,prix_achat,prix_vente,ref="",code_barre="",desc="",fournisseur_id=None,seuil=5):
-    conn=get_db(); c=conn.cursor()
-    c.execute("INSERT INTO produits (nom,categorie_id,prix_achat,prix_vente,reference,code_barre,description,fournisseur_id,seuil_alerte) VALUES (?,?,?,?,?,?,?,?,?)",
-              (nom,cat_id,prix_achat,prix_vente,ref,code_barre,desc,fournisseur_id,seuil))
-    pid=c.lastrowid
-    for f in conn.execute("SELECT id FROM franchises WHERE actif=1").fetchall():
-        conn.execute("INSERT OR IGNORE INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,0)",(f['id'],pid))
-    conn.commit(); conn.close(); return pid
+def add_produit(nom, cat_id, prix_achat, prix_vente, ref="", code_barre="", desc="", fournisseur_id=None, seuil=5):
+    nid = _next_id("produits")
+    _append("produits", {"id":nid,"nom":nom,"categorie_id":cat_id,"prix_achat":prix_achat,"prix_vente":prix_vente,"reference":ref,"code_barre":code_barre,"description":desc,"fournisseur_id":fournisseur_id or "","seuil_alerte":seuil,"actif":1,"date_creation":datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    # Init stock
+    sid = _next_id("stock")
+    for f in get_franchises():
+        _append("stock", {"id":sid,"franchise_id":f['id'],"produit_id":nid,"quantite":0,"derniere_maj":datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        sid += 1
+        time.sleep(0.2)
+    return nid
 
-def update_produit(pid,nom,cat_id,prix_achat,prix_vente,ref,code_barre,desc,fournisseur_id,seuil,actif,user_id=None):
-    conn=get_db()
-    old=conn.execute("SELECT prix_achat,prix_vente FROM produits WHERE id=?",(pid,)).fetchone()
-    if old and (old['prix_achat']!=prix_achat or old['prix_vente']!=prix_vente):
-        conn.execute("INSERT INTO historique_prix (produit_id,ancien_prix_achat,nouveau_prix_achat,ancien_prix_vente,nouveau_prix_vente,utilisateur_id) VALUES (?,?,?,?,?,?)",
-                     (pid,old['prix_achat'],prix_achat,old['prix_vente'],prix_vente,user_id))
-    conn.execute("UPDATE produits SET nom=?,categorie_id=?,prix_achat=?,prix_vente=?,reference=?,code_barre=?,description=?,fournisseur_id=?,seuil_alerte=?,actif=? WHERE id=?",
-                 (nom,cat_id,prix_achat,prix_vente,ref,code_barre,desc,fournisseur_id,seuil,actif,pid))
-    conn.commit(); conn.close()
-
-def import_produits_csv(csv_text):
-    """Import CSV: nom,categorie,prix_achat,prix_vente,reference,code_barre"""
-    conn=get_db(); reader=csv.DictReader(io.StringIO(csv_text)); count=0
-    cats={c['nom']:c['id'] for c in [dict(x) for x in conn.execute("SELECT * FROM categories").fetchall()]}
-    for row in reader:
-        cat_id=cats.get(row.get('categorie',''))
-        if not cat_id: continue
-        try:
-            conn.execute("INSERT INTO produits (nom,categorie_id,prix_achat,prix_vente,reference,code_barre) VALUES (?,?,?,?,?,?)",
-                         (row['nom'],cat_id,float(row.get('prix_achat',0)),float(row.get('prix_vente',0)),row.get('reference',''),row.get('code_barre','')))
-            count+=1
-        except: pass
-    conn.commit(); conn.close(); return count
+def update_produit(pid, nom, cat_id, prix_achat, prix_vente, ref, code_barre, desc, fournisseur_id, seuil, actif, user_id=None):
+    row_num, old = _find_row("produits", "id", pid)
+    if row_num:
+        # Track price history
+        if old and (float(old.get('prix_achat',0)) != float(prix_achat) or float(old.get('prix_vente',0)) != float(prix_vente)):
+            hid = _next_id("historique_prix")
+            _append("historique_prix", {"id":hid,"produit_id":pid,"ancien_prix_achat":old.get('prix_achat',0),"nouveau_prix_achat":prix_achat,"ancien_prix_vente":old.get('prix_vente',0),"nouveau_prix_vente":prix_vente,"utilisateur_id":user_id or "","date_changement":datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        _update_row("produits", row_num, {"id":pid,"nom":nom,"categorie_id":cat_id,"prix_achat":prix_achat,"prix_vente":prix_vente,"reference":ref,"code_barre":code_barre,"description":desc,"fournisseur_id":fournisseur_id or "","seuil_alerte":seuil,"actif":actif,"date_creation":old.get('date_creation','')})
 
 # === STOCK ===
 def get_stock(franchise_id=None):
-    conn=get_db()
-    q="""SELECT s.*,p.nom as produit_nom,p.prix_vente,p.prix_achat,p.reference,p.code_barre,p.seuil_alerte,
-         c.nom as categorie_nom,f.nom as franchise_nom
-         FROM stock s JOIN produits p ON s.produit_id=p.id JOIN categories c ON p.categorie_id=c.id JOIN franchises f ON s.franchise_id=f.id WHERE p.actif=1"""
-    params=[]
-    if franchise_id: q+=" AND s.franchise_id=?"; params.append(franchise_id)
-    q+=" ORDER BY f.nom,c.nom,p.nom"
-    r=[dict(x) for x in conn.execute(q,params).fetchall()]; conn.close(); return r
+    stock_data = _all("stock")
+    produits = {str(p['id']): p for p in get_produits(actif_only=False)}
+    cats = {str(c['id']): c['nom'] for c in get_categories()}
+    franchises = {str(f['id']): f['nom'] for f in get_franchises(actif_only=False)}
+    
+    result = []
+    for s in stock_data:
+        if franchise_id and str(s.get('franchise_id','')) != str(franchise_id):
+            continue
+        pid = str(s.get('produit_id',''))
+        p = produits.get(pid, {})
+        if str(p.get('actif','1')) != '1':
+            continue
+        s['produit_nom'] = p.get('nom', '?')
+        s['prix_vente'] = float(p.get('prix_vente', 0))
+        s['prix_achat'] = float(p.get('prix_achat', 0))
+        s['reference'] = p.get('reference', '')
+        s['code_barre'] = p.get('code_barre', '')
+        s['seuil_alerte'] = int(p.get('seuil_alerte', 5))
+        s['categorie_nom'] = cats.get(str(p.get('categorie_id','')), '?')
+        s['franchise_nom'] = franchises.get(str(s.get('franchise_id','')), '?')
+        s['quantite'] = int(s.get('quantite', 0))
+        result.append(s)
+    return result
 
-def update_stock(fid,pid,qty,type_mv,prix=0,note="",uid=None):
-    conn=get_db(); c=conn.cursor()
-    c.execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,prix_unitaire,note,utilisateur_id) VALUES (?,?,?,?,?,?,?)",(fid,pid,type_mv,qty,prix,note,uid))
+def _update_stock_qty(franchise_id, produit_id, delta):
+    """Update stock quantity by delta (+ or -)"""
+    stock_data = _all("stock")
+    ws = _ws("stock")
+    for i, s in enumerate(stock_data):
+        if str(s.get('franchise_id','')) == str(franchise_id) and str(s.get('produit_id','')) == str(produit_id):
+            new_qty = max(0, int(s.get('quantite', 0)) + delta)
+            s['quantite'] = new_qty
+            s['derniere_maj'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _update_row("stock", i + 2, s)
+            return
+    # If not found, create it
+    sid = _next_id("stock")
+    _append("stock", {"id":sid,"franchise_id":franchise_id,"produit_id":produit_id,"quantite":max(0, delta),"derniere_maj":datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+
+def update_stock(fid, pid, qty, type_mv, prix=0, note="", uid=None):
+    mid = _next_id("mouvements")
+    _append("mouvements", {"id":mid,"franchise_id":fid,"produit_id":pid,"type_mouvement":type_mv,"quantite":qty,"prix_unitaire":prix,"note":note,"utilisateur_id":uid or "","date_mouvement":datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
     if type_mv in ('entree','ajustement','dispatch_in','retour'):
-        c.execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON CONFLICT(franchise_id,produit_id) DO UPDATE SET quantite=quantite+?,derniere_maj=CURRENT_TIMESTAMP",(fid,pid,qty,qty))
+        _update_stock_qty(fid, pid, qty)
     elif type_mv in ('sortie','vente','dispatch_out'):
-        c.execute("UPDATE stock SET quantite=MAX(0,quantite-?),derniere_maj=CURRENT_TIMESTAMP WHERE franchise_id=? AND produit_id=?",(qty,fid,pid))
-    conn.commit(); conn.close()
+        _update_stock_qty(fid, pid, -qty)
 
-def batch_stock_entry(fid,items,uid=None):
-    """items = [(produit_id, quantite, note), ...]"""
-    conn=get_db(); c=conn.cursor()
-    for pid,qty,note in items:
-        c.execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,note,utilisateur_id) VALUES (?,?,'entree',?,?,?)",(fid,pid,qty,note,uid))
-        c.execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON CONFLICT(franchise_id,produit_id) DO UPDATE SET quantite=quantite+?,derniere_maj=CURRENT_TIMESTAMP",(fid,pid,qty,qty))
-    conn.commit(); conn.close()
-
-def get_stock_value(franchise_id=None):
-    conn=get_db()
-    q="SELECT COALESCE(SUM(s.quantite*p.prix_vente),0) as valeur, COALESCE(SUM(s.quantite*p.prix_achat),0) as cout, COALESCE(SUM(s.quantite),0) as total FROM stock s JOIN produits p ON s.produit_id=p.id"
-    if franchise_id: q+=" WHERE s.franchise_id=?"; r=conn.execute(q,(franchise_id,)).fetchone()
-    else: r=conn.execute(q).fetchone()
-    conn.close(); return dict(r)
+def batch_stock_entry(fid, items, uid=None):
+    for pid, qty, note in items:
+        update_stock(fid, pid, qty, 'entree', 0, note, uid)
+        time.sleep(0.3)
 
 # === VENTES ===
-def enregistrer_vente(fid,pid,qty,prix,remise=0,uid=None,note=""):
-    total=qty*prix*(1-remise/100)
-    conn=get_db(); c=conn.cursor()
-    c.execute("INSERT INTO ventes (franchise_id,produit_id,quantite,prix_unitaire,prix_total,remise,utilisateur_id,note) VALUES (?,?,?,?,?,?,?,?)",(fid,pid,qty,prix,total,remise,uid,note))
-    c.execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,prix_unitaire,note,utilisateur_id) VALUES (?,?,'vente',?,?,?,?)",(fid,pid,qty,prix,note,uid))
-    c.execute("UPDATE stock SET quantite=MAX(0,quantite-?),derniere_maj=CURRENT_TIMESTAMP WHERE franchise_id=? AND produit_id=?",(qty,fid,pid))
-    conn.commit(); conn.close(); return total
+def enregistrer_vente(fid, pid, qty, prix, remise=0, uid=None, note=""):
+    total = qty * prix * (1 - remise / 100)
+    vid = _next_id("ventes")
+    now = datetime.now()
+    _append("ventes", {"id":vid,"franchise_id":fid,"produit_id":pid,"quantite":qty,"prix_unitaire":prix,"prix_total":round(total,2),"remise":remise,"date_vente":now.strftime("%Y-%m-%d"),"utilisateur_id":uid or "","note":note,"date_creation":now.strftime("%Y-%m-%d %H:%M:%S")})
+    update_stock(fid, pid, qty, 'vente', prix, note, uid)
+    return total
 
-def enregistrer_vente_multiple(fid,items,uid=None):
-    """items = [(produit_id, quantite, prix_unitaire, remise, note), ...]"""
-    conn=get_db(); c=conn.cursor(); total_global=0
-    for pid,qty,prix,remise,note in items:
-        total=qty*prix*(1-remise/100); total_global+=total
-        c.execute("INSERT INTO ventes (franchise_id,produit_id,quantite,prix_unitaire,prix_total,remise,utilisateur_id,note) VALUES (?,?,?,?,?,?,?,?)",(fid,pid,qty,prix,total,remise,uid,note))
-        c.execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,prix_unitaire,note,utilisateur_id) VALUES (?,?,'vente',?,?,?,?)",(fid,pid,qty,prix,note,uid))
-        c.execute("UPDATE stock SET quantite=MAX(0,quantite-?),derniere_maj=CURRENT_TIMESTAMP WHERE franchise_id=? AND produit_id=?",(qty,fid,pid))
-    conn.commit(); conn.close(); return total_global
+def enregistrer_vente_multiple(fid, items, uid=None):
+    total_global = 0
+    for pid, qty, prix, remise, note in items:
+        total_global += enregistrer_vente(fid, pid, qty, prix, remise, uid, note)
+        time.sleep(0.3)
+    return total_global
 
-def get_ventes(fid=None,d1=None,d2=None):
-    conn=get_db()
-    q="""SELECT v.*,p.nom as produit_nom,p.reference,c.nom as categorie_nom,f.nom as franchise_nom,u.nom_complet as vendeur
-         FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN categories c ON p.categorie_id=c.id JOIN franchises f ON v.franchise_id=f.id LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id WHERE 1=1"""
-    params=[]
-    if fid: q+=" AND v.franchise_id=?"; params.append(fid)
-    if d1: q+=" AND v.date_vente>=?"; params.append(str(d1))
-    if d2: q+=" AND v.date_vente<=?"; params.append(str(d2))
-    q+=" ORDER BY v.date_creation DESC"
-    r=[dict(x) for x in conn.execute(q,params).fetchall()]; conn.close(); return r
+def get_ventes(fid=None, d1=None, d2=None):
+    data = _all("ventes")
+    produits = {str(p['id']): p for p in get_produits(actif_only=False)}
+    cats = {str(c['id']): c['nom'] for c in get_categories()}
+    franchises = {str(f['id']): f['nom'] for f in get_franchises(actif_only=False)}
+    users = {str(u['id']): u.get('nom_complet','') for u in _all("utilisateurs")}
+    
+    result = []
+    for v in data:
+        if fid and str(v.get('franchise_id','')) != str(fid):
+            continue
+        dv = v.get('date_vente', '')
+        if d1 and dv < str(d1):
+            continue
+        if d2 and dv > str(d2):
+            continue
+        pid = str(v.get('produit_id',''))
+        p = produits.get(pid, {})
+        v['produit_nom'] = p.get('nom', '?')
+        v['reference'] = p.get('reference', '')
+        v['categorie_nom'] = cats.get(str(p.get('categorie_id','')), '?')
+        v['franchise_nom'] = franchises.get(str(v.get('franchise_id','')), '?')
+        v['vendeur'] = users.get(str(v.get('utilisateur_id','')), '')
+        v['prix_total'] = float(v.get('prix_total', 0))
+        v['quantite'] = int(v.get('quantite', 0))
+        result.append(v)
+    result.sort(key=lambda x: x.get('date_creation', ''), reverse=True)
+    return result
 
 # === TRANSFERTS ===
-def demander_transfert(src,dest,pid,qty,uid=None,note=""):
-    conn=get_db(); conn.execute("INSERT INTO transferts (franchise_source,franchise_dest,produit_id,quantite,demandeur_id,note) VALUES (?,?,?,?,?,?)",(src,dest,pid,qty,uid,note)); conn.commit(); conn.close()
+def demander_transfert(src, dest, pid, qty, uid=None, note=""):
+    tid = _next_id("transferts")
+    _append("transferts", {"id":tid,"franchise_source":src,"franchise_dest":dest,"produit_id":pid,"quantite":qty,"statut":"en_attente","demandeur_id":uid or "","validateur_id":"","note":note,"date_demande":datetime.now().strftime("%Y-%m-%d %H:%M:%S"),"date_validation":""})
 
-def get_transferts(fid=None,statut=None):
-    conn=get_db()
-    q="""SELECT t.*,p.nom as produit_nom,fs.nom as source_nom,fd.nom as dest_nom,u.nom_complet as demandeur_nom
-         FROM transferts t JOIN produits p ON t.produit_id=p.id JOIN franchises fs ON t.franchise_source=fs.id JOIN franchises fd ON t.franchise_dest=fd.id LEFT JOIN utilisateurs u ON t.demandeur_id=u.id WHERE 1=1"""
-    params=[]
-    if fid: q+=" AND (t.franchise_source=? OR t.franchise_dest=?)"; params.extend([fid,fid])
-    if statut: q+=" AND t.statut=?"; params.append(statut)
-    q+=" ORDER BY t.date_demande DESC"
-    r=[dict(x) for x in conn.execute(q,params).fetchall()]; conn.close(); return r
+def get_transferts(fid=None, statut=None):
+    data = _all("transferts")
+    produits = {str(p['id']): p.get('nom','?') for p in get_produits(actif_only=False)}
+    franchises = {str(f['id']): f['nom'] for f in get_franchises(actif_only=False)}
+    
+    result = []
+    for t in data:
+        if fid and str(t.get('franchise_source','')) != str(fid) and str(t.get('franchise_dest','')) != str(fid):
+            continue
+        if statut and t.get('statut','') != statut:
+            continue
+        t['produit_nom'] = produits.get(str(t.get('produit_id','')), '?')
+        t['source_nom'] = franchises.get(str(t.get('franchise_source','')), '?')
+        t['dest_nom'] = franchises.get(str(t.get('franchise_dest','')), '?')
+        result.append(t)
+    result.sort(key=lambda x: x.get('date_demande', ''), reverse=True)
+    return result
 
-def valider_transfert(tid,accepter,uid=None):
-    conn=get_db(); t=dict(conn.execute("SELECT * FROM transferts WHERE id=?",(tid,)).fetchone())
-    statut='accepte' if accepter else 'rejete'
-    conn.execute("UPDATE transferts SET statut=?,validateur_id=?,date_validation=CURRENT_TIMESTAMP WHERE id=?",(statut,uid,tid))
+def valider_transfert(tid, accepter, uid=None):
+    row_num, t = _find_row("transferts", "id", tid)
+    if not row_num: return
+    t['statut'] = 'accepte' if accepter else 'rejete'
+    t['validateur_id'] = uid or ''
+    t['date_validation'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    _update_row("transferts", row_num, t)
     if accepter:
-        conn.execute("UPDATE stock SET quantite=MAX(0,quantite-?) WHERE franchise_id=? AND produit_id=?",(t['quantite'],t['franchise_source'],t['produit_id']))
-        conn.execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON CONFLICT(franchise_id,produit_id) DO UPDATE SET quantite=quantite+?",(t['franchise_dest'],t['produit_id'],t['quantite'],t['quantite']))
-        conn.execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,note,utilisateur_id) VALUES (?,?,'dispatch_out',?,?,?)",(t['franchise_source'],t['produit_id'],t['quantite'],f"Transfert→{t['franchise_dest']}",uid))
-        conn.execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,note,utilisateur_id) VALUES (?,?,'dispatch_in',?,?,?)",(t['franchise_dest'],t['produit_id'],t['quantite'],f"Transfert←{t['franchise_source']}",uid))
-    conn.commit(); conn.close()
+        qty = int(t.get('quantite', 0))
+        pid = t.get('produit_id')
+        update_stock(t['franchise_source'], pid, qty, 'dispatch_out', 0, f"Transfert→{t['franchise_dest']}", uid)
+        time.sleep(0.3)
+        update_stock(t['franchise_dest'], pid, qty, 'dispatch_in', 0, f"Transfert←{t['franchise_source']}", uid)
 
 # === DISPATCH ===
-def dispatch_stock(items,uid=None):
-    """items = [(franchise_id, produit_id, quantite, note), ...]"""
-    conn=get_db(); c=conn.cursor()
-    for fid,pid,qty,note in items:
-        c.execute("INSERT INTO dispatch (franchise_id,produit_id,quantite,utilisateur_id,note) VALUES (?,?,?,?,?)",(fid,pid,qty,uid,note))
-        c.execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON CONFLICT(franchise_id,produit_id) DO UPDATE SET quantite=quantite+?,derniere_maj=CURRENT_TIMESTAMP",(fid,pid,qty,qty))
-        c.execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,note,utilisateur_id) VALUES (?,?,'dispatch_in',?,?,?)",(fid,pid,qty,note or "Dispatch admin",uid))
-    conn.commit(); conn.close()
+def dispatch_stock(items, uid=None):
+    for fid, pid, qty, note in items:
+        did = _next_id("dispatch")
+        _append("dispatch", {"id":did,"franchise_id":fid,"produit_id":pid,"quantite":qty,"utilisateur_id":uid or "","note":note or "Dispatch admin","date_dispatch":datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        update_stock(fid, pid, qty, 'dispatch_in', 0, note or "Dispatch admin", uid)
+        time.sleep(0.3)
 
 # === CLOTURES ===
-def soumettre_cloture(fid,date_cl,total_declare,articles_declare,commentaire="",uid=None):
-    conn=get_db()
-    sys_data=conn.execute("SELECT COALESCE(SUM(prix_total),0) as t,COALESCE(SUM(quantite),0) as a FROM ventes WHERE franchise_id=? AND date_vente=?",(fid,str(date_cl))).fetchone()
-    try:
-        conn.execute("INSERT INTO clotures (franchise_id,date_cloture,total_ventes_declare,total_articles_declare,total_ventes_systeme,total_articles_systeme,commentaire,utilisateur_id) VALUES (?,?,?,?,?,?,?,?)",
-                     (fid,str(date_cl),total_declare,articles_declare,sys_data['t'],sys_data['a'],commentaire,uid))
-        conn.commit(); conn.close(); return True
-    except: conn.close(); return False
+def soumettre_cloture(fid, date_cl, total_declare, articles_declare, commentaire="", uid=None):
+    # Check if already exists
+    data = _all("clotures")
+    for cl in data:
+        if str(cl.get('franchise_id','')) == str(fid) and cl.get('date_cloture','') == str(date_cl):
+            return False
+    
+    # Get system totals
+    ventes = get_ventes(fid, date_cl, date_cl)
+    sys_total = sum(float(v.get('prix_total', 0)) for v in ventes)
+    sys_articles = sum(int(v.get('quantite', 0)) for v in ventes)
+    
+    cid = _next_id("clotures")
+    _append("clotures", {"id":cid,"franchise_id":fid,"date_cloture":str(date_cl),"total_ventes_declare":total_declare,"total_articles_declare":articles_declare,"total_ventes_systeme":round(sys_total,2),"total_articles_systeme":sys_articles,"commentaire":commentaire,"valide":0,"utilisateur_id":uid or "","validateur_id":"","date_creation":datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    return True
 
 def get_clotures(fid=None):
-    conn=get_db()
-    q="SELECT cl.*,f.nom as franchise_nom,u.nom_complet as soumis_par FROM clotures cl JOIN franchises f ON cl.franchise_id=f.id LEFT JOIN utilisateurs u ON cl.utilisateur_id=u.id WHERE 1=1"
-    params=[]
-    if fid: q+=" AND cl.franchise_id=?"; params.append(fid)
-    q+=" ORDER BY cl.date_cloture DESC"
-    r=[dict(x) for x in conn.execute(q,params).fetchall()]; conn.close(); return r
+    data = _all("clotures")
+    franchises = {str(f['id']): f['nom'] for f in get_franchises(actif_only=False)}
+    result = []
+    for cl in data:
+        if fid and str(cl.get('franchise_id','')) != str(fid):
+            continue
+        cl['franchise_nom'] = franchises.get(str(cl.get('franchise_id','')), '?')
+        cl['total_ventes_declare'] = float(cl.get('total_ventes_declare', 0))
+        cl['total_articles_declare'] = int(cl.get('total_articles_declare', 0))
+        cl['total_ventes_systeme'] = float(cl.get('total_ventes_systeme', 0))
+        cl['total_articles_systeme'] = int(cl.get('total_articles_systeme', 0))
+        result.append(cl)
+    result.sort(key=lambda x: x.get('date_cloture', ''), reverse=True)
+    return result
 
-def valider_cloture(cid,uid):
-    conn=get_db(); conn.execute("UPDATE clotures SET valide=1,validateur_id=? WHERE id=?",(uid,cid)); conn.commit(); conn.close()
+def valider_cloture(cid, uid):
+    row_num, cl = _find_row("clotures", "id", cid)
+    if row_num:
+        cl['valide'] = 1
+        cl['validateur_id'] = uid
+        _update_row("clotures", row_num, cl)
 
 # === RETOURS ===
-def enregistrer_retour(fid,pid,qty,type_r,raison="",note="",uid=None):
-    conn=get_db()
-    conn.execute("INSERT INTO retours (franchise_id,produit_id,quantite,type_retour,raison,note,utilisateur_id) VALUES (?,?,?,?,?,?,?)",(fid,pid,qty,type_r,raison,note,uid))
-    if type_r=='retour':
-        conn.execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON CONFLICT(franchise_id,produit_id) DO UPDATE SET quantite=quantite+?",(fid,pid,qty,qty))
-        conn.execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,note,utilisateur_id) VALUES (?,?,'retour',?,?,?)",(fid,pid,qty,raison,uid))
-    conn.commit(); conn.close()
+def enregistrer_retour(fid, pid, qty, type_r, raison="", note="", uid=None):
+    rid = _next_id("retours")
+    _append("retours", {"id":rid,"franchise_id":fid,"produit_id":pid,"quantite":qty,"type_retour":type_r,"raison":raison,"note":note,"utilisateur_id":uid or "","date_retour":datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    if type_r == 'retour':
+        update_stock(fid, pid, qty, 'retour', 0, raison, uid)
 
 def get_retours(fid=None):
-    conn=get_db()
-    q="SELECT r.*,p.nom as produit_nom,f.nom as franchise_nom FROM retours r JOIN produits p ON r.produit_id=p.id JOIN franchises f ON r.franchise_id=f.id WHERE 1=1"
-    params=[]
-    if fid: q+=" AND r.franchise_id=?"; params.append(fid)
-    q+=" ORDER BY r.date_retour DESC"
-    r=[dict(x) for x in conn.execute(q,params).fetchall()]; conn.close(); return r
+    data = _all("retours")
+    produits = {str(p['id']): p.get('nom','?') for p in get_produits(actif_only=False)}
+    franchises = {str(f['id']): f['nom'] for f in get_franchises(actif_only=False)}
+    result = []
+    for r in data:
+        if fid and str(r.get('franchise_id','')) != str(fid):
+            continue
+        r['produit_nom'] = produits.get(str(r.get('produit_id','')), '?')
+        r['franchise_nom'] = franchises.get(str(r.get('franchise_id','')), '?')
+        result.append(r)
+    result.sort(key=lambda x: x.get('date_retour', ''), reverse=True)
+    return result
 
 # === MOUVEMENTS ===
-def get_mouvements(fid=None,limit=100):
-    conn=get_db()
-    q="SELECT m.*,p.nom as produit_nom,f.nom as franchise_nom,u.nom_complet as utilisateur_nom FROM mouvements m JOIN produits p ON m.produit_id=p.id JOIN franchises f ON m.franchise_id=f.id LEFT JOIN utilisateurs u ON m.utilisateur_id=u.id WHERE 1=1"
-    params=[]
-    if fid: q+=" AND m.franchise_id=?"; params.append(fid)
-    q+=" ORDER BY m.date_mouvement DESC LIMIT ?"; params.append(limit)
-    r=[dict(x) for x in conn.execute(q,params).fetchall()]; conn.close(); return r
+def get_mouvements(fid=None, limit=100):
+    data = _all("mouvements")
+    produits = {str(p['id']): p.get('nom','?') for p in get_produits(actif_only=False)}
+    franchises = {str(f['id']): f['nom'] for f in get_franchises(actif_only=False)}
+    users = {str(u['id']): u.get('nom_complet','') for u in _all("utilisateurs")}
+    result = []
+    for m in data:
+        if fid and str(m.get('franchise_id','')) != str(fid):
+            continue
+        m['produit_nom'] = produits.get(str(m.get('produit_id','')), '?')
+        m['franchise_nom'] = franchises.get(str(m.get('franchise_id','')), '?')
+        m['utilisateur_nom'] = users.get(str(m.get('utilisateur_id','')), '')
+        result.append(m)
+    result.sort(key=lambda x: x.get('date_mouvement', ''), reverse=True)
+    return result[:limit]
 
 # === ALERTES ===
 def get_alertes(fid=None):
-    conn=get_db()
-    q="SELECT s.*,p.nom as produit_nom,p.reference,p.seuil_alerte,c.nom as categorie_nom,f.nom as franchise_nom FROM stock s JOIN produits p ON s.produit_id=p.id JOIN categories c ON p.categorie_id=c.id JOIN franchises f ON s.franchise_id=f.id WHERE s.quantite<=p.seuil_alerte AND p.actif=1"
-    params=[]
-    if fid: q+=" AND s.franchise_id=?"; params.append(fid)
-    q+=" ORDER BY s.quantite ASC"
-    r=[dict(x) for x in conn.execute(q,params).fetchall()]; conn.close(); return r
+    stock = get_stock(fid)
+    return [s for s in stock if s['quantite'] <= s['seuil_alerte']]
 
 # === STATS ===
 def get_stats(fid=None):
-    conn=get_db(); s={}
-    filt=" WHERE franchise_id=?" if fid else ""; p=(fid,) if fid else ()
-    filt_v=" AND franchise_id=?" if fid else ""; p_v=(fid,) if fid else ()
-    s['total_produits']=conn.execute("SELECT COUNT(*) FROM produits WHERE actif=1").fetchone()[0]
-    s['total_franchises']=conn.execute("SELECT COUNT(*) FROM franchises WHERE actif=1").fetchone()[0]
-    sv=conn.execute(f"SELECT COALESCE(SUM(quantite),0),COALESCE(SUM(quantite*(SELECT prix_vente FROM produits WHERE id=stock.produit_id)),0) FROM stock{filt}",p).fetchone()
-    s['stock_total']=sv[0]; s['valeur_stock']=sv[1]
-    s['ventes_aujourdhui']=conn.execute(f"SELECT COALESCE(SUM(prix_total),0) FROM ventes WHERE date_vente=date('now'){filt_v}",p_v).fetchone()[0]
-    s['ventes_semaine']=conn.execute(f"SELECT COALESCE(SUM(prix_total),0) FROM ventes WHERE date_vente>=date('now','-7 days'){filt_v}",p_v).fetchone()[0]
-    s['ventes_mois']=conn.execute(f"SELECT COALESCE(SUM(prix_total),0) FROM ventes WHERE strftime('%Y-%m',date_vente)=strftime('%Y-%m','now'){filt_v}",p_v).fetchone()[0]
-    s['alertes']=len(get_alertes(fid))
-    s['transferts_attente']=conn.execute("SELECT COUNT(*) FROM transferts WHERE statut='en_attente'").fetchone()[0]
-    conn.close(); return s
+    stock = get_stock(fid)
+    ventes_all = get_ventes(fid)
+    today = date.today().strftime("%Y-%m-%d")
+    week_ago = (date.today() - __import__('datetime').timedelta(days=7)).strftime("%Y-%m-%d")
+    month = date.today().strftime("%Y-%m")
+    
+    s = {}
+    s['total_produits'] = len(get_produits())
+    s['total_franchises'] = len(get_franchises())
+    s['stock_total'] = sum(int(x.get('quantite',0)) for x in stock)
+    s['valeur_stock'] = sum(int(x.get('quantite',0)) * float(x.get('prix_vente',0)) for x in stock)
+    s['ventes_aujourdhui'] = sum(float(v.get('prix_total',0)) for v in ventes_all if v.get('date_vente','') == today)
+    s['ventes_semaine'] = sum(float(v.get('prix_total',0)) for v in ventes_all if v.get('date_vente','') >= week_ago)
+    s['ventes_mois'] = sum(float(v.get('prix_total',0)) for v in ventes_all if v.get('date_vente','')[:7] == month)
+    s['alertes'] = len(get_alertes(fid))
+    s['transferts_attente'] = len([t for t in _all("transferts") if t.get('statut')=='en_attente'])
+    return s
 
 # === USERS ===
 def get_utilisateurs():
-    conn=get_db(); r=[dict(x) for x in conn.execute("SELECT u.*,f.nom as franchise_nom FROM utilisateurs u LEFT JOIN franchises f ON u.franchise_id=f.id ORDER BY u.role,u.nom_complet").fetchall()]; conn.close(); return r
-def add_user(username,pwd,nom,role,fid=None):
-    conn=get_db()
-    try: conn.execute("INSERT INTO utilisateurs (nom_utilisateur,mot_de_passe,nom_complet,role,franchise_id) VALUES (?,?,?,?,?)",(username,hash_pw(pwd),nom,role,fid)); conn.commit(); conn.close(); return True
-    except: conn.close(); return False
-def update_user(uid,nom_complet,role,fid,actif):
-    conn=get_db(); conn.execute("UPDATE utilisateurs SET nom_complet=?,role=?,franchise_id=?,actif=? WHERE id=?",(nom_complet,role,fid,actif,uid)); conn.commit(); conn.close()
-def reset_user_password(uid,new_pw):
-    conn=get_db(); conn.execute("UPDATE utilisateurs SET mot_de_passe=? WHERE id=?",(hash_pw(new_pw),uid)); conn.commit(); conn.close()
+    data = _all("utilisateurs")
+    franchises = {str(f['id']): f['nom'] for f in get_franchises(actif_only=False)}
+    for u in data:
+        u['franchise_nom'] = franchises.get(str(u.get('franchise_id','')), '')
+    return data
+
+def add_user(username, pwd, nom, role, fid=None):
+    users = _all("utilisateurs")
+    if any(u.get('nom_utilisateur') == username for u in users):
+        return False
+    uid = _next_id("utilisateurs")
+    _append("utilisateurs", {"id":uid,"nom_utilisateur":username,"mot_de_passe":hash_pw(pwd),"nom_complet":nom,"role":role,"franchise_id":fid or "","actif":1,"date_creation":datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    return True
+
+def reset_user_password(uid, new_pw):
+    row_num, row = _find_row("utilisateurs", "id", uid)
+    if row_num:
+        row['mot_de_passe'] = hash_pw(new_pw)
+        _update_row("utilisateurs", row_num, row)
