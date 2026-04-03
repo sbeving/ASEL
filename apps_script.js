@@ -41,6 +41,13 @@ function doGet(e) {
   
   try {
     let result;
+    
+    // Check if this is a "POST" action sent via GET (redirect workaround)
+    if (params.payload) {
+      const body = JSON.parse(params.payload);
+      return doPostInternal(body);
+    }
+    
     switch (action) {
       case "ping":
         result = { status: "ok", message: "ASEL API running" };
@@ -72,6 +79,14 @@ function doGet(e) {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
+    return doPostInternal(body);
+  } catch (err) {
+    return jsonResponse({ error: err.message });
+  }
+}
+
+function doPostInternal(body) {
+  try {
     const action = body.action;
     let result;
     
@@ -674,11 +689,11 @@ function seedData() {
   
   // Franchises
   [
-    [1,"ASEL Mobile — Tunis Centre","Av. Habib Bourguiba, Tunis","+216 71 123 456","Ahmed Ben Ali"],
-    [2,"ASEL Mobile — Sfax","Route de Tunis, Sfax","+216 74 234 567","Mohamed Trabelsi"],
-    [3,"ASEL Mobile — Sousse","Bd 14 Janvier, Sousse","+216 73 345 678","Fatma Bouazizi"],
-    [4,"ASEL Mobile — Nabeul","Av. Habib Thameur, Nabeul","+216 72 456 789","Karim Jebali"],
-    [5,"ASEL Mobile — Bizerte","Rue de la République, Bizerte","+216 72 567 890","Sana Mansouri"]
+    [1,"ASEL Mobile — Tunis Centre","Av. Habib Bourguiba, Tunis","'216 71 123 456","Ahmed Ben Ali"],
+    [2,"ASEL Mobile — Sfax","Route de Tunis, Sfax","'216 74 234 567","Mohamed Trabelsi"],
+    [3,"ASEL Mobile — Sousse","Bd 14 Janvier, Sousse","'216 73 345 678","Fatma Bouazizi"],
+    [4,"ASEL Mobile — Nabeul","Av. Habib Thameur, Nabeul","'216 72 456 789","Karim Jebali"],
+    [5,"ASEL Mobile — Bizerte","Rue de la République, Bizerte","'216 72 567 890","Sana Mansouri"]
   ].forEach(f => appendRow("franchises",{id:f[0],nom:f[1],adresse:f[2],telephone:f[3],responsable:f[4],actif:1,date_creation:n}));
   
   // Categories

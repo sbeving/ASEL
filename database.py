@@ -16,7 +16,10 @@ def _get(params):
     return r.json()
 
 def _post(data):
-    r = requests.post(get_api_url(), json=data, timeout=30)
+    """Send data via GET with JSON-encoded payload (Apps Script POST redirect issue workaround)"""
+    import json as _json
+    params = {"action": data.get("action", ""), "payload": _json.dumps(data)}
+    r = requests.get(get_api_url(), params=params, timeout=30)
     return r.json()
 
 # === INIT ===
