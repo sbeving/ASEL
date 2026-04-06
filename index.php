@@ -79,6 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         $_SESSION['flash'] = ['type'=>'success','msg'=>"Vente enregistrée! Facture $numero — <a href='pdf.php?type=facture&id=$facture_id' target='_blank' class='underline font-bold'>📄 Facture PDF</a> | <a href='receipt.php?id=$facture_id' target='_blank' class='underline font-bold'>🧾 Ticket</a>"];
+        auditLog('vente', 'facture', $facture_id, ['numero'=>$numero, 'total'=>$total_ttc, 'items'=>count($items)]);
     }
     elseif ($action === 'entree_stock') {
         $efid = can('view_all_franchises') ? $_POST['franchise_id'] : currentFranchise();
@@ -87,6 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantite=quantite+VALUES(quantite)",
             [$efid, $_POST['produit_id'], $_POST['quantite']]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Stock ajouté!'];
+        auditLog('entree_stock', 'produit', $_POST['produit_id'], ['quantite'=>$_POST['quantite'], 'franchise'=>$efid]);
     }
     elseif ($action === 'transfert') {
         // Prevent transfer to same franchise
@@ -97,6 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         execute("INSERT INTO transferts (franchise_source,franchise_dest,produit_id,quantite,demandeur_id,note) VALUES (?,?,?,?,?,?)",
             [$_POST['source'], $_POST['dest'], $_POST['produit_id'], $_POST['quantite'], $user['id'], $_POST['note'] ?? '']);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Transfert demandé!'];
+        auditLog('transfert_demande', 'produit', $_POST['produit_id'], ['source'=>$_POST['source'], 'dest'=>$_POST['dest'], 'qte'=>$_POST['quantite']]);
     }
     elseif ($action === 'transfert_valider') {
         $t = queryOne("SELECT * FROM transferts WHERE id=?", [$_POST['tid']]);
@@ -302,6 +305,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif ($action === 'add_category' && isAdmin()) {
         execute("INSERT INTO categories (nom,description) VALUES (?,?)", [$_POST['nom'], $_POST['description']??'']);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Catégorie ajoutée!'];
+        auditLog('add_category', 'categorie', null, ['nom'=>$_POST['nom']]);
+    }
+    elseif ($action === 'update_franchise_location' && isAdmin()) {
+        execute("UPDATE franchises SET latitude=?, longitude=? WHERE id=?", [
+            floatval($_POST['latitude']), floatval($_POST['longitude']), intval($_POST['franchise_id'])
+        ]);
+        $_SESSION['flash'] = ['type'=>'success','msg'=>'Coordonnées mises à jour!'];
+        auditLog('update_location', 'franchise', $_POST['franchise_id'], ['lat'=>$_POST['latitude'], 'lng'=>$_POST['longitude']]);
     }
     
     header("Location: index.php?page=$page" . ($fid ? "&fid=$fid" : "")); exit;
@@ -465,6 +476,8 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
             ['gestion_services', 'bi-gear', 'Gérer services'],
             ['gestion_asel', 'bi-sim', 'Gérer offres ASEL'],
             ['franchises_mgmt', 'bi-shop', 'Franchises'],
+            ['franchise_locations', 'bi-geo-alt', 'Coordonnées'],
+            ['audit_log', 'bi-journal-text', 'Journal d\'audit'],
             ['users', 'bi-people', 'Utilisateurs'],
             ['mon_compte', 'bi-person-gear', 'Mon compte'],
         ];
@@ -1579,6 +1592,99 @@ function calcEcart(idx, sys, phys) {
 <div><label class="text-xs font-bold">Actif</label><select name="actif" class="border rounded px-2 py-1 text-sm"><option value="1" <?=$p['actif']?'selected':''?>>Oui</option><option value="0" <?=!$p['actif']?'selected':''?>>Non</option></select></div>
 <button class="bg-asel text-white px-3 py-1 rounded text-sm font-bold">💾</button></form></td></tr>
 <?php endforeach; ?></tbody></table></div></div>
+<?php endif; ?>
+
+<!-- AUDIT LOG (admin only) -->
+<?php if ($page === 'audit_log' && isAdmin()):
+    $audit_logs = query("SELECT * FROM audit_logs ORDER BY date_creation DESC LIMIT 100");
+?>
+<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-journal-text text-asel"></i> Journal d'audit</h1>
+<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider">
+            <th class="px-3 py-3 text-left">Date</th>
+            <th class="px-3 py-3 text-left">Utilisateur</th>
+            <th class="px-3 py-3">Action</th>
+            <th class="px-3 py-3 text-left">Cible</th>
+            <th class="px-3 py-3 text-left hidden md:table-cell">Détails</th>
+            <th class="px-3 py-3 text-left hidden lg:table-cell">IP</th>
+        </tr></thead>
+        <tbody class="divide-y divide-gray-100">
+        <?php foreach ($audit_logs as $log):
+            $action_colors = ['vente'=>'bg-green-100 text-green-800','entree_stock'=>'bg-blue-100 text-blue-800','transfert_demande'=>'bg-yellow-100 text-yellow-800','login'=>'bg-purple-100 text-purple-800','logout'=>'bg-gray-100 text-gray-800'];
+        ?>
+            <tr class="hover:bg-gray-50">
+                <td class="px-3 py-2 text-xs text-gray-400 whitespace-nowrap"><?=date('d/m H:i:s', strtotime($log['date_creation']))?></td>
+                <td class="px-3 py-2 font-medium text-sm"><?=htmlspecialchars($log['utilisateur_nom'] ?? '?')?></td>
+                <td class="px-3 py-2 text-center"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?=$action_colors[$log['action']] ?? 'bg-gray-100'?>"><?=$log['action']?></span></td>
+                <td class="px-3 py-2 text-xs"><?=$log['cible'] ?? '—'?> <?=$log['cible_id'] ? '#'.$log['cible_id'] : ''?></td>
+                <td class="px-3 py-2 text-xs text-gray-500 hidden md:table-cell max-w-xs truncate"><?=htmlspecialchars(substr($log['details'] ?? '', 0, 100))?></td>
+                <td class="px-3 py-2 text-xs font-mono text-gray-400 hidden lg:table-cell"><?=$log['ip_address']?></td>
+            </tr>
+        <?php endforeach; ?>
+        <?php if (empty($audit_logs)): ?>
+            <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">Aucune activité enregistrée</td></tr>
+        <?php endif; ?>
+        </tbody>
+    </table></div>
+</div>
+<?php endif; ?>
+
+<!-- FRANCHISE LOCATION EDITOR (admin only) -->
+<?php if ($page === 'franchise_locations' && isAdmin()):
+    $all_franchises = query("SELECT * FROM franchises WHERE actif=1 ORDER BY nom");
+?>
+<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-geo-alt text-asel"></i> Coordonnées des franchises</h1>
+
+<div class="grid sm:grid-cols-2 gap-4 mb-6">
+    <?php foreach ($all_franchises as $f): ?>
+    <div class="bg-white rounded-xl shadow-sm p-5 border-l-4 border-asel">
+        <h3 class="font-bold text-asel-dark"><?=str_replace('ASEL Mobile — ', '', $f['nom'])?></h3>
+        <p class="text-xs text-gray-400 mb-3">📍 <?=$f['adresse']?></p>
+        <form method="POST" class="space-y-2">
+            <input type="hidden" name="_csrf" value="<?=$csrf?>">
+            <input type="hidden" name="action" value="update_franchise_location">
+            <input type="hidden" name="franchise_id" value="<?=$f['id']?>">
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="text-xs font-bold text-gray-500">Latitude</label>
+                    <input name="latitude" type="number" step="0.000001" value="<?=$f['latitude']?>" class="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" placeholder="36.XXXXXX" id="lat_<?=$f['id']?>">
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-gray-500">Longitude</label>
+                    <input name="longitude" type="number" step="0.000001" value="<?=$f['longitude']?>" class="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" placeholder="10.XXXXXX" id="lng_<?=$f['id']?>">
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button type="submit" class="bg-asel text-white px-4 py-2 rounded-lg text-xs font-bold flex-1">💾 Enregistrer</button>
+                <button type="button" onclick="getLocation(<?=$f['id']?>)" class="bg-green-500 text-white px-4 py-2 rounded-lg text-xs font-bold">📍 Ma position</button>
+            </div>
+        </form>
+        <?php if ($f['latitude'] && $f['longitude']): ?>
+        <a href="https://www.google.com/maps?q=<?=$f['latitude']?>,<?=$f['longitude']?>" target="_blank" class="text-asel text-xs hover:underline mt-2 inline-block">🗺️ Voir sur la carte</a>
+        <?php endif; ?>
+    </div>
+    <?php endforeach; ?>
+</div>
+
+<script>
+function getLocation(fid) {
+    if (!navigator.geolocation) {
+        alert('Géolocalisation non supportée par ce navigateur');
+        return;
+    }
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            document.getElementById('lat_' + fid).value = pos.coords.latitude.toFixed(6);
+            document.getElementById('lng_' + fid).value = pos.coords.longitude.toFixed(6);
+        },
+        (err) => {
+            alert('Erreur géolocalisation: ' + err.message);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+    );
+}
+</script>
 <?php endif; ?>
 
     </div>

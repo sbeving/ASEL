@@ -16,6 +16,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['user'] = $user;
             $_SESSION['csrf'] = bin2hex(random_bytes(32));
             $_SESSION['login_time'] = time();
+            // Audit log
+            try {
+                db()->prepare("INSERT INTO audit_logs (utilisateur_id, utilisateur_nom, action, details, ip_address, user_agent, franchise_id) VALUES (?,?,?,?,?,?,?)")->execute([
+                    $user['id'], $user['nom_complet'], 'login', 'Connexion réussie',
+                    $_SERVER['REMOTE_ADDR'] ?? null, substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255),
+                    $user['franchise_id']
+                ]);
+            } catch (Exception $e) {}
             header('Location: index.php');
             exit;
         }

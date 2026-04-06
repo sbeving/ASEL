@@ -11,7 +11,7 @@ define('PERMISSIONS', [
     'admin' => [
         'dashboard', 'pos', 'stock', 'entree', 'transferts', 'demandes',
         'retours', 'cloture', 'ventes', 'rapports', 'produits', 'users',
-        'franchises_mgmt', 'settings', 'clients', 'services', 'recharges', 'factures',
+        'franchises_mgmt', 'franchise_locations', 'audit_log', 'settings', 'clients', 'services', 'recharges', 'factures',
         'gestion_services', 'gestion_asel', 'echeances', 'inventaire', 'notifications', 'mon_compte',
         // Actions
         'vente', 'entree_stock', 'transfert', 'transfert_valider',
@@ -118,4 +118,25 @@ function roleBadge($role) {
         'viewer' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">Viewer</span>',
         default => '<span class="badge bg-secondary">'.$role.'</span>',
     };
+}
+
+// === AUDIT LOGGING ===
+function auditLog($action, $cible = null, $cible_id = null, $details = null) {
+    $user = currentUser();
+    if (!$user) return;
+    try {
+        execute("INSERT INTO audit_logs (utilisateur_id, utilisateur_nom, action, cible, cible_id, details, ip_address, user_agent, franchise_id) VALUES (?,?,?,?,?,?,?,?,?)", [
+            $user['id'],
+            $user['nom_complet'],
+            $action,
+            $cible,
+            $cible_id,
+            is_array($details) ? json_encode($details, JSON_UNESCAPED_UNICODE) : $details,
+            $_SERVER['REMOTE_ADDR'] ?? null,
+            substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255),
+            currentFranchise()
+        ]);
+    } catch (Exception $e) {
+        // Silent fail — don't break the app for logging
+    }
 }
