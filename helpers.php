@@ -1,8 +1,22 @@
 <?php
 /**
- * ASEL Mobile — Zero Trust RBAC Middleware v2
- * Enhanced audit logging + Stock Central support
+ * ASEL Mobile — Zero Trust RBAC Middleware v3
+ * Security-hardened: XSS, SQLi, CSRF, session fixation, rate limiting
  */
+
+// === SECURITY HEADERS ===
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header('X-XSS-Protection: 1; mode=block');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+
+// === SESSION CONFIG ===
+ini_set('session.cookie_httponly', 1);
+ini_set('session.cookie_samesite', 'Lax');
+ini_set('session.use_strict_mode', 1);
+if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') {
+    ini_set('session.cookie_secure', 1);
+}
 session_start();
 require_once __DIR__ . '/config.php';
 
@@ -183,4 +197,71 @@ function auditLog($action, $cible = null, $cible_id = null, $details = null) {
     } catch (Exception $e) {
         // Silent fail — don't break the app for logging
     }
+}
+
+// === SECURITY UTILITIES ===
+
+/**
+ * Escape for HTML attribute context (data-*, title, value, etc.)
+ */
+function e($str) {
+    return htmlspecialchars($str ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+/**
+ * Escape for JavaScript string context (inside single quotes)
+ */
+function ejs($str) {
+    return str_replace(
+        ["\\", "'", '"', "\n", "\r", "\t", "</"],
+        ["\\\\", "\\'", '\\"', "\\n", "\\r", "\\t", "<\\/"],
+        $str ?? ''
+    );
+}
+
+/**
+ * Sanitize integer input
+ */
+function intParam($key, $source = 'GET') {
+    $val = $source === 'POST' ? ($_POST[$key] ?? 0) : ($_GET[$key] ?? 0);
+    return intval($val);
+}
+
+/**
+ * Sanitize string input (trim + limit length)
+ */
+function strParam($key, $maxLen = 255, $source = 'POST') {
+    $val = $source === 'POST' ? ($_POST[$key] ?? '') : ($_GET[$key] ?? '');
+    return mb_substr(trim($val), 0, $maxLen);
+}
+
+/**
+ * Rate limit check (simple file-based for free hosting)
+ */
+function checkRateLimit($key, $maxAttempts = 5, $windowSeconds = 300) {
+    $file = sys_get_temp_dir() . '/asel_rate_' . md5($key) . '.json';
+    $now = time();
+    $data = [];
+    
+    if (file_exists($file)) {
+        $data = json_decode(file_get_contents($file), true) ?: [];
+        // Clean old entries
+        $data = array_filter($data, fn($t) => ($now - $t) < $windowSeconds);
+    }
+    
+    if (count($data) >= $maxAttempts) {
+        return false; // Rate limited
+    }
+    
+    $data[] = $now;
+    @file_put_contents($file, json_encode($data));
+    return true;
+}
+
+/**
+ * Clear rate limit (on successful action)
+ */
+function clearRateLimit($key) {
+    $file = sys_get_temp_dir() . '/asel_rate_' . md5($key) . '.json';
+    @unlink($file);
 }

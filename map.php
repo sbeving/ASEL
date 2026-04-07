@@ -108,13 +108,13 @@ $statut_labels = ['prospect'=>'Prospect','contact'=>'Contacté','contrat_non_sig
             const m = L.marker([<?=$pt['latitude']?>, <?=$pt['longitude']?>], {icon})
                 .addTo(map)
                 .bindPopup(`<div style="font-family:Inter,sans-serif;min-width:200px">
-                    <strong style="color:#1B3A5C;font-size:13px"><?=addslashes($pt['nom'])?></strong>
+                    <strong style="color:#1B3A5C;font-size:13px"><?=ejs($pt['nom'])?></strong>
                     <br><span style="font-size:11px;color:${color};font-weight:600">${typeLabels[type]||type}</span>
                     <span style="font-size:10px;background:#f3f4f6;padding:1px 6px;border-radius:4px;margin-left:4px">${statutLabels['<?=$pt['statut']?>']||'<?=$pt['statut']?>'}</span>
-                    <?php if($pt['adresse']): ?><br><span style="font-size:11px;color:#666"><i class="bi bi-geo-alt"></i> <?=addslashes($pt['adresse'])?></span><?php endif; ?>
-                    <?php if($pt['telephone']): ?><br><span style="font-size:11px"><i class="bi bi-telephone"></i> <?=addslashes($pt['telephone'])?></span><?php endif; ?>
-                    <?php if($pt['responsable']): ?><br><span style="font-size:11px"><i class="bi bi-person"></i> <?=addslashes($pt['responsable'])?></span><?php endif; ?>
-                    <?php if($pt['notes_internes']): ?><br><span style="font-size:10px;color:#999;font-style:italic"><?=addslashes(substr($pt['notes_internes'],0,80))?></span><?php endif; ?>
+                    <?php if($pt['adresse']): ?><br><span style="font-size:11px;color:#666"><i class="bi bi-geo-alt"></i> <?=ejs($pt['adresse'])?></span><?php endif; ?>
+                    <?php if($pt['telephone']): ?><br><span style="font-size:11px"><i class="bi bi-telephone"></i> <?=ejs($pt['telephone'])?></span><?php endif; ?>
+                    <?php if($pt['responsable']): ?><br><span style="font-size:11px"><i class="bi bi-person"></i> <?=ejs($pt['responsable'])?></span><?php endif; ?>
+                    <?php if($pt['notes_internes']): ?><br><span style="font-size:10px;color:#999;font-style:italic"><?=ejs(substr($pt['notes_internes'],0,80))?></span><?php endif; ?>
                     <br><a href="https://www.google.com/maps/dir/?api=1&destination=<?=$pt['latitude']?>,<?=$pt['longitude']?>" target="_blank" style="color:#2AABE2;font-size:11px;font-weight:600;text-decoration:none">Itinéraire →</a>
                 </div>`);
             

@@ -1,34 +1,79 @@
 <?php
+// === SECURITY HEADERS ===
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header('X-XSS-Protection: 1; mode=block');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+
+ini_set('session.cookie_httponly', 1);
+ini_set('session.cookie_samesite', 'Lax');
+ini_set('session.use_strict_mode', 1);
 session_start();
 require_once 'config.php';
 if (isset($_SESSION['user'])) { header('Location: index.php'); exit; }
 
-$error = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $u = trim($_POST['username'] ?? '');
-    $p = $_POST['password'] ?? '';
-    if ($u && $p) {
-        $stmt = db()->prepare("SELECT * FROM utilisateurs WHERE nom_utilisateur = ? AND actif = 1");
-        $stmt->execute([$u]);
-        $user = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($user && password_verify($p, $user['mot_de_passe'])) {
-            unset($user['mot_de_passe']);
-            $_SESSION['user'] = $user;
-            $_SESSION['csrf'] = bin2hex(random_bytes(32));
-            $_SESSION['login_time'] = time();
-            // Audit log
-            try {
-                db()->prepare("INSERT INTO audit_logs (utilisateur_id, utilisateur_nom, action, details, ip_address, user_agent, franchise_id) VALUES (?,?,?,?,?,?,?)")->execute([
-                    $user['id'], $user['nom_complet'], 'login', 'Connexion réussie',
-                    $_SERVER['REMOTE_ADDR'] ?? null, substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255),
-                    $user['franchise_id']
-                ]);
-            } catch (Exception $e) {}
-            header('Location: index.php');
-            exit;
-        }
+// Rate limiting helper (inline since helpers.php requires login)
+function loginRateCheck($ip, $max = 5, $window = 300) {
+    $file = sys_get_temp_dir() . '/asel_login_' . md5($ip) . '.json';
+    $now = time();
+    $data = [];
+    if (file_exists($file)) {
+        $data = json_decode(@file_get_contents($file), true) ?: [];
+        $data = array_filter($data, fn($t) => ($now - $t) < $window);
     }
-    $error = "Identifiants incorrects";
+    if (count($data) >= $max) return false;
+    $data[] = $now;
+    @file_put_contents($file, json_encode(array_values($data)));
+    return true;
+}
+function loginRateClear($ip) {
+    @unlink(sys_get_temp_dir() . '/asel_login_' . md5($ip) . '.json');
+}
+
+$error = '';
+$rate_limited = false;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    
+    // Rate limit: 5 attempts per 5 minutes per IP
+    if (!loginRateCheck($ip)) {
+        $error = "Trop de tentatives. Réessayez dans 5 minutes.";
+        $rate_limited = true;
+    } else {
+        $u = trim($_POST['username'] ?? '');
+        $p = $_POST['password'] ?? '';
+        if ($u && $p) {
+            $stmt = db()->prepare("SELECT * FROM utilisateurs WHERE nom_utilisateur = ? AND actif = 1");
+            $stmt->execute([$u]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($user && password_verify($p, $user['mot_de_passe'])) {
+                // Session fixation protection
+                session_regenerate_id(true);
+                
+                unset($user['mot_de_passe']);
+                $_SESSION['user'] = $user;
+                $_SESSION['csrf'] = bin2hex(random_bytes(32));
+                $_SESSION['login_time'] = time();
+                $_SESSION['ip'] = $ip;
+                
+                // Clear rate limit on success
+                loginRateClear($ip);
+                
+                // Audit log
+                try {
+                    db()->prepare("INSERT INTO audit_logs (utilisateur_id, utilisateur_nom, action, details, ip_address, user_agent, franchise_id) VALUES (?,?,?,?,?,?,?)")->execute([
+                        $user['id'], $user['nom_complet'], 'login', 'Connexion réussie',
+                        $ip, substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255),
+                        $user['franchise_id']
+                    ]);
+                } catch (Exception $e) {}
+                header('Location: index.php');
+                exit;
+            }
+        }
+        $error = "Identifiants incorrects";
+    }
 }
 ?>
 <!DOCTYPE html>

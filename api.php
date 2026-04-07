@@ -6,6 +6,7 @@
 require_once 'helpers.php';
 requireLogin();
 header('Content-Type: application/json');
+header('X-Content-Type-Options: nosniff');
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 $user = currentUser();

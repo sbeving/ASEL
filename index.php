@@ -567,7 +567,7 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
             <span class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold"><?=min($notif_count,9)?></span>
         </a>
         <?php endif; ?>
-        <button onclick="document.getElementById('sidebar').classList.toggle('-translate-x-full')" class="p-1"><i class="bi bi-list text-2xl"></i></button>
+        <button onclick="document.getElementById('sidebar').classList.toggle('-translate-x-full');document.getElementById('backdrop').classList.toggle('hidden')" class="p-1"><i class="bi bi-list text-2xl"></i></button>
     </div>
 </div>
 
@@ -642,7 +642,7 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
             if (!can($item[0])) continue;
             $active = $page === $item[0];
         ?>
-        <a href="?page=<?=$item[0]?>" class="flex items-center gap-3 px-6 py-2.5 text-sm transition-all <?= $active ? 'bg-white/15 text-white border-l-4 border-asel' : 'text-white/60 hover:text-white hover:bg-white/5' ?>" onclick="document.getElementById('sidebar').classList.add('-translate-x-full')">
+        <a href="?page=<?=$item[0]?>" class="flex items-center gap-3 px-6 py-2.5 text-sm transition-all <?= $active ? 'bg-white/15 text-white border-l-4 border-asel' : 'text-white/60 hover:text-white hover:bg-white/5' ?>" onclick="document.getElementById('sidebar').classList.add('-translate-x-full');document.getElementById('backdrop').classList.add('hidden')">
             <i class="bi <?=$item[1]?> text-base w-5 text-center"></i>
             <span><?=$item[2]?></span>
             <?php
@@ -667,7 +667,6 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
     </div>
 </aside>
 
-<!-- Backdrop for mobile -->
 <div class="lg:hidden fixed inset-0 bg-black/50 z-30 hidden" id="backdrop" onclick="document.getElementById('sidebar').classList.add('-translate-x-full');this.classList.add('hidden')"></div>
 
 <!-- Main content -->
@@ -677,7 +676,7 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
     <?php if ($flash): ?>
     <div class="mb-4 p-4 rounded-xl flex items-center gap-3 <?=$flash['type']==='success'?'bg-green-50 text-green-800 border border-green-200':'bg-red-50 text-red-800 border border-red-200'?>">
         <i class="bi <?=$flash['type']==='success'?'bi-check-circle-fill':'bi-exclamation-circle-fill'?> text-lg"></i>
-        <span class="text-sm font-medium"><?=$flash['msg']?></span>
+        <span class="text-sm font-medium"><?=strip_tags($flash['msg'], '<a><strong><b><i><em><br>')?></span>
     </div>
     <?php endif; ?>
     
@@ -876,9 +875,9 @@ elseif ($page === 'pos'):
         <div class="space-y-1 max-h-[50vh] overflow-y-auto" id="prodGrid">
             <?php foreach ($stock as $s): ?>
             <div class="bg-white rounded-lg p-3 flex items-center justify-between cursor-pointer hover:bg-asel-light/50 hover:border-asel border border-transparent transition-all"
-                 data-search="<?=strtolower($s['pnom'].' '.$s['reference'].' '.$s['code_barre'].' '.$s['marque'])?>"
-                 data-cat="<?=$s['cnom']?>" data-barcode="<?=$s['code_barre']?>"
-                 onclick="addToCart(<?=$s['produit_id']?>,'<?=addslashes($s['pnom'])?>',<?=$s['prix_vente']?>,<?=$s['quantite']?>)">
+                 data-search="<?=e(strtolower($s['pnom'].' '.$s['reference'].' '.$s['code_barre'].' '.$s['marque']))?>"
+                 data-cat="<?=e($s['cnom'])?>" data-barcode="<?=e($s['code_barre'])?>"
+                 onclick="addToCart(<?=$s['produit_id']?>,'<?=ejs($s['pnom'])?>',<?=$s['prix_vente']?>,<?=$s['quantite']?>)">
                 <div>
                     <div class="font-semibold text-sm text-asel-dark"><?=htmlspecialchars($s['pnom'])?></div>
                     <div class="text-xs text-gray-400"><?=$s['marque']?> · <?=$s['reference']?></div>
@@ -2022,7 +2021,7 @@ const aselIcon = L.divIcon({
     className: '', iconSize: [32, 32], iconAnchor: [16, 16]
 });
 <?php foreach ($all_franchises as $f): if ($f['latitude'] && $f['longitude'] && ($f['type_franchise'] ?? '') !== 'central'): ?>
-L.marker([<?=$f['latitude']?>, <?=$f['longitude']?>], {icon: aselIcon}).addTo(locMap).bindPopup('<strong><?=addslashes(shortF($f["nom"]))?></strong>');
+L.marker([<?=$f['latitude']?>, <?=$f['longitude']?>], {icon: aselIcon}).addTo(locMap).bindPopup('<strong><?=ejs(shortF($f["nom"]))?></strong>');
 <?php endif; endforeach; ?>
 
 function getLocation(fid) {
@@ -2351,7 +2350,7 @@ const bounds = [];
     bounds.push([<?=$pt['latitude']?>, <?=$pt['longitude']?>]);
     L.marker([<?=$pt['latitude']?>, <?=$pt['longitude']?>], {icon})
         .addTo(nMap)
-        .bindPopup('<div style="font-family:Inter,sans-serif;min-width:180px"><strong style="color:#1B3A5C"><?=addslashes($pt['nom'])?></strong><br><span style="font-size:11px;color:'+color+';font-weight:600">'+(typeLabels['<?=$pt['type_point']?>']||'')+'</span><br><span style="font-size:11px;color:#666"><?=addslashes($pt['adresse']??'')?></span><?=$pt['telephone']?'<br><span style="font-size:11px">'.addslashes($pt['telephone']).'</span>':''?><br><span style="font-size:10px;background:#f3f4f6;padding:1px 6px;border-radius:4px">'+(statutLabels['<?=$pt['statut']?>']||'<?=$pt['statut']?>')+'</span></div>');
+        .bindPopup('<div style="font-family:Inter,sans-serif;min-width:180px"><strong style="color:#1B3A5C"><?=ejs($pt['nom'])?></strong><br><span style="font-size:11px;color:'+color+';font-weight:600">'+(typeLabels['<?=$pt['type_point']?>']||'')+'</span><br><span style="font-size:11px;color:#666"><?=ejs($pt['adresse']??'')?></span><?=$pt['telephone']?'<br><span style="font-size:11px">'.ejs($pt['telephone']).'</span>':''?><br><span style="font-size:10px;background:#f3f4f6;padding:1px 6px;border-radius:4px">'+(statutLabels['<?=$pt['statut']?>']||'<?=$pt['statut']?>')+'</span></div>');
 })();
 <?php endforeach; ?>
 
@@ -2383,7 +2382,7 @@ function getNewPointLocation() {
     <?php if ($flash): ?>
     <div class="mb-4 p-4 rounded-xl flex items-center gap-3 <?=$flash['type']==='success'?'bg-green-50 text-green-800 border border-green-200':'bg-red-50 text-red-800 border border-red-200'?>">
         <i class="bi <?=$flash['type']==='success'?'bi-check-circle-fill':'bi-exclamation-circle-fill'?> text-lg"></i>
-        <span class="text-sm font-medium"><?=$flash['msg']?></span>
+        <span class="text-sm font-medium"><?=strip_tags($flash['msg'], '<a><strong><b><i><em><br>')?></span>
     </div>
     <?php endif; ?>
     
