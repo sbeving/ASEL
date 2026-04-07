@@ -27,6 +27,7 @@ define('PERMISSIONS', [
         'validate_inventaire', 'add_category', 'toggle_produit',
         'update_franchise_location', 'create_echeances_lot',
         'dispatch_stock', 'manage_central',
+        'add_franchise', 'edit_franchise', 'delete_franchise',
         // Scope
         'view_all_franchises', 'manage_users', 'manage_products',
     ],

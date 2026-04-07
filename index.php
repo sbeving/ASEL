@@ -340,6 +340,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Coordonnées mises à jour!'];
         auditLog('update_location', 'franchise', $_POST['franchise_id'], ['lat'=>$_POST['latitude'], 'lng'=>$_POST['longitude']]);
     }
+    elseif ($action === 'add_franchise' && isAdmin()) {
+        execute("INSERT INTO franchises (nom, adresse, telephone, responsable, type_franchise, horaires) VALUES (?,?,?,?,'point_de_vente',?)",
+            [$_POST['nom'], $_POST['adresse'] ?? '', $_POST['telephone'] ?? '', $_POST['responsable'] ?? '', $_POST['horaires'] ?? 'Lun-Sam: 09:00-19:00']);
+        $new_fid = db()->lastInsertId();
+        // Create stock rows for all products
+        foreach (query("SELECT id FROM produits WHERE actif=1") as $p) {
+            execute("INSERT IGNORE INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,0)", [$new_fid, $p['id']]);
+        }
+        $_SESSION['flash'] = ['type'=>'success','msg'=>'Franchise ajoutée!'];
+        auditLog('add_franchise', 'franchise', $new_fid, ['nom'=>$_POST['nom']]);
+    }
+    elseif ($action === 'edit_franchise' && isAdmin()) {
+        execute("UPDATE franchises SET nom=?, adresse=?, telephone=?, responsable=?, horaires=?, actif=? WHERE id=?",
+            [$_POST['nom'], $_POST['adresse'] ?? '', $_POST['telephone'] ?? '', $_POST['responsable'] ?? '', $_POST['horaires'] ?? '', $_POST['actif'] ?? 1, $_POST['franchise_id']]);
+        $_SESSION['flash'] = ['type'=>'success','msg'=>'Franchise mise à jour!'];
+        auditLog('edit_franchise', 'franchise', $_POST['franchise_id'], ['nom'=>$_POST['nom']]);
+    }
+    elseif ($action === 'delete_franchise' && isAdmin()) {
+        $fcheck = queryOne("SELECT type_franchise FROM franchises WHERE id=?", [$_POST['franchise_id']]);
+        if ($fcheck && $fcheck['type_franchise'] === 'central') {
+            $_SESSION['flash'] = ['type'=>'danger','msg'=>'Impossible de supprimer le Stock Central!'];
+        } else {
+            // Check if franchise has sales or stock
+            $has_data = queryOne("SELECT (SELECT COUNT(*) FROM ventes WHERE franchise_id=?) + (SELECT COALESCE(SUM(quantite),0) FROM stock WHERE franchise_id=?) as total", [$_POST['franchise_id'], $_POST['franchise_id']]);
+            if ($has_data && $has_data['total'] > 0) {
+                // Soft delete — just deactivate
+                execute("UPDATE franchises SET actif=0 WHERE id=?", [$_POST['franchise_id']]);
+                $_SESSION['flash'] = ['type'=>'success','msg'=>'Franchise désactivée (données existantes conservées).'];
+            } else {
+                // Hard delete — no data linked
+                execute("DELETE FROM stock WHERE franchise_id=?", [$_POST['franchise_id']]);
+                execute("DELETE FROM franchises WHERE id=?", [$_POST['franchise_id']]);
+                $_SESSION['flash'] = ['type'=>'success','msg'=>'Franchise supprimée!'];
+            }
+            auditLog('delete_franchise', 'franchise', $_POST['franchise_id']);
+        }
+    }
     elseif ($action === 'dispatch_stock' && isAdminOrGest()) {
         // Dispatch from Stock Central to a franchise
         $cid = getCentralId();
@@ -1129,12 +1166,115 @@ elseif ($page === 'transferts'): $transferts=query("SELECT t.*,p.nom as pnom,fs.
 <button class="bg-asel text-white px-3 py-1 rounded text-sm font-bold">💾</button></form></td></tr>
 <?php endforeach;?></tbody></table></div></div>
 
-<?php elseif ($page === 'franchises_mgmt' && can('franchises_mgmt')): ?>
-<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-shop text-asel"></i> Franchises</h1>
-<div class="grid sm:grid-cols-2 gap-4"><?php foreach($franchises as $f): $fs=queryOne("SELECT COALESCE(SUM(s.quantite),0) as t,COALESCE(SUM(s.quantite*p.prix_vente),0) as v FROM stock s JOIN produits p ON s.produit_id=p.id WHERE s.franchise_id=?",[$f['id']]);$fv=queryOne("SELECT COALESCE(SUM(prix_total),0) as ca FROM ventes WHERE franchise_id=? AND MONTH(date_vente)=MONTH(CURDATE())",[$f['id']]);?>
-<div class="bg-white rounded-xl shadow-sm p-5"><h3 class="font-bold text-asel-dark text-lg flex items-center gap-2"><i class="bi bi-shop text-asel"></i> <?=shortF($f['nom'])?></h3><p class="text-xs text-gray-400 mt-1">📍 <?=$f['adresse']?> · 📞 <?=$f['telephone']?></p>
-<div class="grid grid-cols-3 gap-2 mt-4 text-center"><div class="bg-gray-50 rounded-lg p-2"><div class="text-lg font-black text-asel-dark"><?=number_format($fs['t'])?></div><div class="text-[10px] text-gray-400">articles</div></div><div class="bg-gray-50 rounded-lg p-2"><div class="text-lg font-black text-asel-dark"><?=number_format($fs['v'])?></div><div class="text-[10px] text-gray-400">DT stock</div></div><div class="bg-gray-50 rounded-lg p-2"><div class="text-lg font-black text-asel"><?=number_format($fv['ca'])?></div><div class="text-[10px] text-gray-400">DT/mois</div></div></div></div>
-<?php endforeach;?></div>
+<?php elseif ($page === 'franchises_mgmt' && can('franchises_mgmt')):
+    $all_fr = query("SELECT * FROM franchises ORDER BY type_franchise DESC, actif DESC, nom");
+?>
+<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-shop text-asel"></i> Gestion des franchises</h1>
+
+<?php if (isAdmin()): ?>
+<!-- Add franchise -->
+<div class="form-card mb-6">
+    <h3><i class="bi bi-plus-circle text-asel"></i> Ajouter une franchise</h3>
+    <form method="POST" class="space-y-3">
+        <input type="hidden" name="_csrf" value="<?=$csrf?>">
+        <input type="hidden" name="action" value="add_franchise">
+        <div class="form-row form-row-2">
+            <div><label class="form-label">Nom *</label><input name="nom" class="form-input" placeholder="Ex: ASEL Mobile — Centre Ville" required></div>
+            <div><label class="form-label">Adresse</label><input name="adresse" class="form-input" placeholder="Adresse complète"></div>
+        </div>
+        <div class="form-row form-row-3">
+            <div><label class="form-label">Téléphone</label><input name="telephone" class="form-input" placeholder="+216 XX XXX XXX"></div>
+            <div><label class="form-label">Responsable</label><input name="responsable" class="form-input" placeholder="Nom du gérant"></div>
+            <div><label class="form-label">Horaires</label><input name="horaires" class="form-input" value="Lun-Sam: 09:00-19:00" placeholder="Lun-Sam: 09:00-19:00"></div>
+        </div>
+        <button type="submit" class="btn-submit"><i class="bi bi-plus-circle"></i> Ajouter la franchise</button>
+    </form>
+</div>
+<?php endif; ?>
+
+<!-- Franchise cards -->
+<div class="grid sm:grid-cols-2 gap-4">
+    <?php foreach ($all_fr as $f):
+        if ($f['type_franchise'] === 'central') continue; // Skip Stock Central display here
+        $fs = queryOne("SELECT COALESCE(SUM(s.quantite),0) as t, COALESCE(SUM(s.quantite*p.prix_vente),0) as v FROM stock s JOIN produits p ON s.produit_id=p.id WHERE s.franchise_id=?", [$f['id']]);
+        $fv = queryOne("SELECT COALESCE(SUM(prix_total),0) as ca FROM ventes WHERE franchise_id=? AND MONTH(date_vente)=MONTH(CURDATE())", [$f['id']]);
+        $user_count = queryOne("SELECT COUNT(*) as c FROM utilisateurs WHERE franchise_id=? AND actif=1", [$f['id']]);
+    ?>
+    <div class="bg-white rounded-xl shadow-sm p-5 <?=$f['actif']?'':'opacity-50 border-2 border-dashed border-gray-300'?>">
+        <div class="flex items-start justify-between mb-3">
+            <div>
+                <h3 class="font-bold text-asel-dark text-lg flex items-center gap-2">
+                    <i class="bi bi-shop text-asel"></i> <?=shortF($f['nom'])?>
+                </h3>
+                <div class="text-xs text-gray-400 mt-1 space-y-0.5">
+                    <?php if ($f['adresse']): ?><p><i class="bi bi-geo-alt"></i> <?=$f['adresse']?></p><?php endif; ?>
+                    <?php if ($f['telephone']): ?><p><i class="bi bi-telephone"></i> <?=$f['telephone']?></p><?php endif; ?>
+                    <?php if ($f['responsable']): ?><p><i class="bi bi-person"></i> <?=$f['responsable']?></p><?php endif; ?>
+                    <?php if ($f['horaires'] ?? ''): ?><p><i class="bi bi-clock"></i> <?=$f['horaires']?></p><?php endif; ?>
+                </div>
+                <?php if (!$f['actif']): ?>
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 mt-2">Désactivée</span>
+                <?php endif; ?>
+            </div>
+            <?php if (isAdmin()): ?>
+            <div class="flex gap-1 shrink-0">
+                <button onclick="document.getElementById('ef<?=$f['id']?>').classList.toggle('hidden')" class="text-asel hover:text-asel-dark p-1" title="Modifier"><i class="bi bi-pencil"></i></button>
+                <form method="POST" class="inline" onsubmit="return confirm('Supprimer cette franchise? Si des données existent, elle sera désactivée.')">
+                    <input type="hidden" name="_csrf" value="<?=$csrf?>">
+                    <input type="hidden" name="action" value="delete_franchise">
+                    <input type="hidden" name="franchise_id" value="<?=$f['id']?>">
+                    <button class="text-red-400 hover:text-red-600 p-1" title="Supprimer"><i class="bi bi-trash"></i></button>
+                </form>
+            </div>
+            <?php endif; ?>
+        </div>
+        
+        <!-- Stats -->
+        <div class="grid grid-cols-3 gap-2 text-center">
+            <div class="bg-gray-50 rounded-lg p-2">
+                <div class="text-lg font-black text-asel-dark"><?=number_format($fs['t'])?></div>
+                <div class="text-[10px] text-gray-400">articles</div>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-2">
+                <div class="text-lg font-black text-asel-dark"><?=number_format($fs['v'])?></div>
+                <div class="text-[10px] text-gray-400">DT stock</div>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-2">
+                <div class="text-lg font-black text-asel"><?=number_format($fv['ca'])?></div>
+                <div class="text-[10px] text-gray-400">DT/mois</div>
+            </div>
+        </div>
+        <div class="text-xs text-gray-400 mt-2"><i class="bi bi-people"></i> <?=$user_count['c']?> employé(s) · Coord: <?=$f['latitude']?($f['latitude'].', '.$f['longitude']):'<span class="text-red-400">non défini</span>'?></div>
+        
+        <?php if (isAdmin()): ?>
+        <!-- Edit form (hidden) -->
+        <div id="ef<?=$f['id']?>" class="hidden mt-4 pt-4 border-t border-gray-100">
+            <form method="POST" class="space-y-2">
+                <input type="hidden" name="_csrf" value="<?=$csrf?>">
+                <input type="hidden" name="action" value="edit_franchise">
+                <input type="hidden" name="franchise_id" value="<?=$f['id']?>">
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="text-xs font-bold text-gray-500">Nom</label><input name="nom" value="<?=htmlspecialchars($f['nom'])?>" class="w-full border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm"></div>
+                    <div><label class="text-xs font-bold text-gray-500">Adresse</label><input name="adresse" value="<?=htmlspecialchars($f['adresse'])?>" class="w-full border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm"></div>
+                </div>
+                <div class="grid grid-cols-3 gap-2">
+                    <div><label class="text-xs font-bold text-gray-500">Tél</label><input name="telephone" value="<?=$f['telephone']?>" class="w-full border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm"></div>
+                    <div><label class="text-xs font-bold text-gray-500">Responsable</label><input name="responsable" value="<?=htmlspecialchars($f['responsable'])?>" class="w-full border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm"></div>
+                    <div><label class="text-xs font-bold text-gray-500">Horaires</label><input name="horaires" value="<?=htmlspecialchars($f['horaires']??'')?>" class="w-full border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm"></div>
+                </div>
+                <div class="flex gap-2 items-center">
+                    <select name="actif" class="border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm">
+                        <option value="1" <?=$f['actif']?'selected':''?>>Active</option>
+                        <option value="0" <?=!$f['actif']?'selected':''?>>Désactivée</option>
+                    </select>
+                    <button class="bg-asel text-white px-4 py-1.5 rounded-lg text-sm font-bold flex-1"><i class="bi bi-check-circle"></i> Enregistrer</button>
+                </div>
+            </form>
+        </div>
+        <?php endif; ?>
+    </div>
+    <?php endforeach; ?>
+</div>
 
 <?php elseif ($page === 'users' && can('users')): $users=query("SELECT u.*,f.nom as fnom FROM utilisateurs u LEFT JOIN franchises f ON u.franchise_id=f.id ORDER BY u.role,u.nom_complet"); ?>
 <h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-people text-asel"></i> Utilisateurs</h1>
