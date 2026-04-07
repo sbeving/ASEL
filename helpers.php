@@ -100,15 +100,26 @@ function scopedFranchiseId() {
 function getCentralId() {
     static $id = null;
     if ($id === null) {
-        $row = queryOne("SELECT id FROM franchises WHERE type_franchise='central' LIMIT 1");
-        $id = $row ? $row['id'] : 0;
+        try {
+            $row = queryOne("SELECT id FROM franchises WHERE type_franchise='central' LIMIT 1");
+            $id = $row ? $row['id'] : 0;
+        } catch (Exception $e) {
+            // type_franchise column may not exist yet (pre-migration)
+            $row = queryOne("SELECT id FROM franchises WHERE nom='Stock Central' LIMIT 1");
+            $id = $row ? $row['id'] : 0;
+        }
     }
     return $id;
 }
 
 // Get only point-de-vente franchises (exclude central)
 function getRetailFranchises() {
-    return query("SELECT * FROM franchises WHERE actif=1 AND (type_franchise='point_de_vente' OR type_franchise IS NULL) ORDER BY nom");
+    try {
+        return query("SELECT * FROM franchises WHERE actif=1 AND (type_franchise='point_de_vente' OR type_franchise IS NULL) ORDER BY nom");
+    } catch (Exception $e) {
+        // type_franchise column may not exist yet (pre-migration)
+        return query("SELECT * FROM franchises WHERE actif=1 AND nom!='Stock Central' ORDER BY nom");
+    }
 }
 
 function query($sql, $params = []) {

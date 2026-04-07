@@ -341,8 +341,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         auditLog('update_location', 'franchise', $_POST['franchise_id'], ['lat'=>$_POST['latitude'], 'lng'=>$_POST['longitude']]);
     }
     elseif ($action === 'add_franchise' && isAdmin()) {
-        execute("INSERT INTO franchises (nom, adresse, telephone, responsable, type_franchise, horaires) VALUES (?,?,?,?,'point_de_vente',?)",
-            [$_POST['nom'], $_POST['adresse'] ?? '', $_POST['telephone'] ?? '', $_POST['responsable'] ?? '', $_POST['horaires'] ?? 'Lun-Sam: 09:00-19:00']);
+        try {
+            execute("INSERT INTO franchises (nom, adresse, telephone, responsable, type_franchise, horaires) VALUES (?,?,?,?,'point_de_vente',?)",
+                [$_POST['nom'], $_POST['adresse'] ?? '', $_POST['telephone'] ?? '', $_POST['responsable'] ?? '', $_POST['horaires'] ?? 'Lun-Sam: 09:00-19:00']);
+        } catch (Exception $e) {
+            execute("INSERT INTO franchises (nom, adresse, telephone, responsable) VALUES (?,?,?,?)",
+                [$_POST['nom'], $_POST['adresse'] ?? '', $_POST['telephone'] ?? '', $_POST['responsable'] ?? '']);
+        }
         $new_fid = db()->lastInsertId();
         // Create stock rows for all products
         foreach (query("SELECT id FROM produits WHERE actif=1") as $p) {
@@ -352,14 +357,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         auditLog('add_franchise', 'franchise', $new_fid, ['nom'=>$_POST['nom']]);
     }
     elseif ($action === 'edit_franchise' && isAdmin()) {
-        execute("UPDATE franchises SET nom=?, adresse=?, telephone=?, responsable=?, horaires=?, actif=? WHERE id=?",
-            [$_POST['nom'], $_POST['adresse'] ?? '', $_POST['telephone'] ?? '', $_POST['responsable'] ?? '', $_POST['horaires'] ?? '', $_POST['actif'] ?? 1, $_POST['franchise_id']]);
+        try {
+            execute("UPDATE franchises SET nom=?, adresse=?, telephone=?, responsable=?, horaires=?, actif=? WHERE id=?",
+                [$_POST['nom'], $_POST['adresse'] ?? '', $_POST['telephone'] ?? '', $_POST['responsable'] ?? '', $_POST['horaires'] ?? '', $_POST['actif'] ?? 1, $_POST['franchise_id']]);
+        } catch (Exception $e) {
+            execute("UPDATE franchises SET nom=?, adresse=?, telephone=?, responsable=?, actif=? WHERE id=?",
+                [$_POST['nom'], $_POST['adresse'] ?? '', $_POST['telephone'] ?? '', $_POST['responsable'] ?? '', $_POST['actif'] ?? 1, $_POST['franchise_id']]);
+        }
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Franchise mise à jour!'];
         auditLog('edit_franchise', 'franchise', $_POST['franchise_id'], ['nom'=>$_POST['nom']]);
     }
     elseif ($action === 'delete_franchise' && isAdmin()) {
-        $fcheck = queryOne("SELECT type_franchise FROM franchises WHERE id=?", [$_POST['franchise_id']]);
-        if ($fcheck && $fcheck['type_franchise'] === 'central') {
+        $fcheck = queryOne("SELECT * FROM franchises WHERE id=?", [$_POST['franchise_id']]);
+        if ($fcheck && ($fcheck['type_franchise'] ?? '') === 'central') {
             $_SESSION['flash'] = ['type'=>'danger','msg'=>'Impossible de supprimer le Stock Central!'];
         } else {
             // Check if franchise has sales or stock
@@ -1167,7 +1177,8 @@ elseif ($page === 'transferts'): $transferts=query("SELECT t.*,p.nom as pnom,fs.
 <?php endforeach;?></tbody></table></div></div>
 
 <?php elseif ($page === 'franchises_mgmt' && can('franchises_mgmt')):
-    $all_fr = query("SELECT * FROM franchises ORDER BY type_franchise DESC, actif DESC, nom");
+    try { $all_fr = query("SELECT * FROM franchises ORDER BY type_franchise DESC, actif DESC, nom"); }
+    catch (Exception $e) { $all_fr = query("SELECT * FROM franchises ORDER BY actif DESC, nom"); }
 ?>
 <h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-shop text-asel"></i> Gestion des franchises</h1>
 
@@ -1195,7 +1206,7 @@ elseif ($page === 'transferts'): $transferts=query("SELECT t.*,p.nom as pnom,fs.
 <!-- Franchise cards -->
 <div class="grid sm:grid-cols-2 gap-4">
     <?php foreach ($all_fr as $f):
-        if ($f['type_franchise'] === 'central') continue; // Skip Stock Central display here
+        if (($f['type_franchise'] ?? '') === 'central') continue; // Skip Stock Central display here
         $fs = queryOne("SELECT COALESCE(SUM(s.quantite),0) as t, COALESCE(SUM(s.quantite*p.prix_vente),0) as v FROM stock s JOIN produits p ON s.produit_id=p.id WHERE s.franchise_id=?", [$f['id']]);
         $fv = queryOne("SELECT COALESCE(SUM(prix_total),0) as ca FROM ventes WHERE franchise_id=? AND MONTH(date_vente)=MONTH(CURDATE())", [$f['id']]);
         $user_count = queryOne("SELECT COUNT(*) as c FROM utilisateurs WHERE franchise_id=? AND actif=1", [$f['id']]);
@@ -1901,7 +1912,8 @@ function calcEcart(idx, sys, phys) {
 
 <!-- FRANCHISE LOCATION EDITOR (admin only) -->
 <?php if ($page === 'franchise_locations' && isAdmin()):
-    $all_franchises = query("SELECT * FROM franchises WHERE actif=1 ORDER BY type_franchise DESC, nom");
+    try { $all_franchises = query("SELECT * FROM franchises WHERE actif=1 ORDER BY type_franchise DESC, nom"); }
+    catch (Exception $e) { $all_franchises = query("SELECT * FROM franchises WHERE actif=1 ORDER BY nom"); }
 ?>
 <h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-geo-alt text-asel"></i> Coordonnées des franchises</h1>
 
@@ -1911,7 +1923,7 @@ function calcEcart(idx, sys, phys) {
 </div>
 
 <div class="grid sm:grid-cols-2 gap-4 mb-6">
-    <?php foreach ($all_franchises as $f): if ($f['type_franchise'] === 'central') continue; ?>
+    <?php foreach ($all_franchises as $f): if (($f['type_franchise'] ?? '') === 'central') continue; ?>
     <div class="bg-white rounded-xl shadow-sm p-5 border-l-4 border-asel">
         <h3 class="font-bold text-asel-dark"><?=shortF($f['nom'])?></h3>
         <p class="text-xs text-gray-400 mb-3"><i class="bi bi-geo-alt"></i> <?=$f['adresse']?></p>
@@ -1952,7 +1964,7 @@ const aselIcon = L.divIcon({
     html: '<div style="background:#2AABE2;color:white;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.3);border:2px solid white">A</div>',
     className: '', iconSize: [32, 32], iconAnchor: [16, 16]
 });
-<?php foreach ($all_franchises as $f): if ($f['latitude'] && $f['longitude'] && $f['type_franchise'] !== 'central'): ?>
+<?php foreach ($all_franchises as $f): if ($f['latitude'] && $f['longitude'] && ($f['type_franchise'] ?? '') !== 'central'): ?>
 L.marker([<?=$f['latitude']?>, <?=$f['longitude']?>], {icon: aselIcon}).addTo(locMap).bindPopup('<strong><?=addslashes(shortF($f["nom"]))?></strong>');
 <?php endif; endforeach; ?>
 
