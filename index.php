@@ -535,6 +535,9 @@ $csrf = csrfToken();
     ::-webkit-scrollbar-track { background:#f1f1f1; }
     /* Print hide sidebar */
     @media print { .sidebar, nav, .no-print { display:none!important; } .main, main { margin:0!important; padding:0!important; } }
+    /* Force Leaflet maps below sidebar/nav */
+    .leaflet-pane, .leaflet-control, .leaflet-top, .leaflet-bottom { z-index: 1 !important; }
+    .leaflet-container { z-index: 0 !important; position: relative; }
     /* Hover card effect */
     .hover-lift { transition: transform 0.2s, box-shadow 0.2s; }
     .hover-lift:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
@@ -2104,9 +2107,6 @@ function getLocation(fid) {
 <style>@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }</style>
 <?php endif; ?>
 
-    </div>
-</main>
-
 <!-- POINTS RESEAU & CARTE PAGE -->
 <?php if ($page === 'points_reseau' && can('points_reseau')):
     $filter_type = $_GET['pt'] ?? '';
@@ -2376,16 +2376,7 @@ function getNewPointLocation() {
     foreach ($central_stock as $cs) $central_total_val += $cs['quantite'] * $cs['prix_vente'];
     $recent_dispatches = query("SELECT t.*,p.nom as pnom,fd.nom as dest_nom FROM transferts t JOIN produits p ON t.produit_id=p.id JOIN franchises fd ON t.franchise_dest=fd.id WHERE t.franchise_source=? ORDER BY t.date_demande DESC LIMIT 20", [$cid]);
 ?>
-<main class="lg:ml-64 pt-14 lg:pt-0 min-h-screen">
-    <div class="p-4 lg:p-6 max-w-7xl mx-auto">
-    
-    <?php if ($flash): ?>
-    <div class="mb-4 p-4 rounded-xl flex items-center gap-3 <?=$flash['type']==='success'?'bg-green-50 text-green-800 border border-green-200':'bg-red-50 text-red-800 border border-red-200'?>">
-        <i class="bi <?=$flash['type']==='success'?'bi-check-circle-fill':'bi-exclamation-circle-fill'?> text-lg"></i>
-        <span class="text-sm font-medium"><?=strip_tags($flash['msg'], '<a><strong><b><i><em><br>')?></span>
-    </div>
-    <?php endif; ?>
-    
+
     <div class="flex justify-between items-center mb-6">
         <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-building text-asel"></i> Stock Central (Entrepôt)</h1>
         <a href="api.php?action=export_stock&fid=<?=$cid?>" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export</a>
@@ -2513,9 +2504,10 @@ function getNewPointLocation() {
     </div>
     <?php endif; ?>
     
+<?php endif; ?>
+
     </div>
 </main>
-<?php endif; ?>
 
 <!-- Footer -->
 <footer class="lg:ml-64 bg-white border-t py-3 px-6 text-center text-xs text-gray-400">

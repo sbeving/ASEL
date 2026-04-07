@@ -39,7 +39,11 @@ $statut_labels = ['prospect'=>'Prospect','contact'=>'Contacté','contrat_non_sig
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>tailwind.config={theme:{extend:{colors:{asel:'#2AABE2','asel-dark':'#1B3A5C','asel-light':'#F0F8FF'},fontFamily:{sans:['Inter','sans-serif']}}}}</script>
-    <style>#map { height: calc(100vh - 120px); min-height: 400px; }</style>
+    <style>
+        #map { height: calc(100vh - 120px); min-height: 400px; }
+        .leaflet-pane, .leaflet-control, .leaflet-top, .leaflet-bottom { z-index: 1 !important; }
+        .leaflet-container { z-index: 0 !important; position: relative; }
+    </style>
 </head>
 <body class="bg-gray-50 font-sans h-screen">
     <!-- Header -->
