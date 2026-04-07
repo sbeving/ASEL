@@ -1177,48 +1177,209 @@ elseif ($page === 'transferts'): $transferts=query("SELECT t.*,p.nom as pnom,fs.
 <div class="grid sm:grid-cols-2 gap-4 mb-6"><?php foreach($by_f as $f):?><div class="bg-white rounded-xl p-5 shadow-sm border-l-4 border-asel"><h3 class="font-bold text-asel-dark"><?=shortF($f['nom'])?></h3><div class="text-2xl font-black text-asel mt-1"><?=number_format($f['ca'])?> DT</div><div class="text-xs text-gray-400"><?=number_format($f['art'])?> articles</div></div><?php endforeach;?></div>
 <?php if($top):?><div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="px-4 py-3 border-b font-semibold text-sm">🏆 Top produits</div><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-gray-50 text-xs"><th class="px-3 py-2 text-left">Produit</th><th class="px-3 py-2">Qté</th><th class="px-3 py-2 text-right">CA</th></tr></thead><tbody class="divide-y"><?php foreach($top as $t):?><tr><td class="px-3 py-2 font-medium"><?=$t['nom']?></td><td class="px-3 py-2 text-center"><?=$t['qty']?></td><td class="px-3 py-2 text-right font-bold"><?=number_format($t['ca'])?> DT</td></tr><?php endforeach;?></tbody></table></div></div><?php endif;?>
 
-<?php elseif ($page === 'produits' && can('produits')): ?>
-<div class="flex justify-between items-center mb-6">
-    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-tags text-asel"></i> Produits</h1>
+<?php elseif ($page === 'produits' && can('produits')):
+    // Filters
+    $pf_cat = $_GET['pf_cat'] ?? '';
+    $pf_marque = $_GET['pf_marque'] ?? '';
+    $pf_search = $_GET['pf_q'] ?? '';
+    $pf_sort = $_GET['pf_sort'] ?? 'cat';
+    $pf_stock = $_GET['pf_stock'] ?? '';
+    
+    $pw = ["p.actif=1"]; $pp = [];
+    if ($pf_cat) { $pw[] = "p.categorie_id=?"; $pp[] = $pf_cat; }
+    if ($pf_marque) { $pw[] = "p.marque=?"; $pp[] = $pf_marque; }
+    if ($pf_search) { $pw[] = "(p.nom LIKE ? OR p.reference LIKE ? OR p.code_barre LIKE ? OR p.marque LIKE ?)"; $pp = array_merge($pp, ["%$pf_search%","%$pf_search%","%$pf_search%","%$pf_search%"]); }
+    
+    $order = match($pf_sort) {
+        'nom' => 'p.nom ASC',
+        'prix_asc' => 'p.prix_vente ASC',
+        'prix_desc' => 'p.prix_vente DESC',
+        'marge' => '((p.prix_vente-p.prix_achat)/GREATEST(p.prix_vente,0.01)*100) DESC',
+        'ref' => 'p.reference ASC',
+        'marque' => 'p.marque ASC, p.nom ASC',
+        default => 'c.nom ASC, p.nom ASC',
+    };
+    
+    $filtered_produits = query("SELECT p.*,c.nom as cat_nom FROM produits p JOIN categories c ON p.categorie_id=c.id WHERE " . implode(' AND ', $pw) . " ORDER BY $order", $pp);
+    $all_marques = query("SELECT DISTINCT marque FROM produits WHERE actif=1 AND marque!='' ORDER BY marque");
+    $total_produits = count($filtered_produits);
+?>
+<div class="flex justify-between items-center mb-4">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-tags text-asel"></i> Produits <span class="text-sm font-normal text-gray-400">(<?=$total_produits?>)</span></h1>
     <a href="api.php?action=export_produits" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export CSV</a>
 </div>
+
+<!-- Filters -->
+<form class="bg-white rounded-xl shadow-sm p-3 mb-3 flex flex-wrap gap-2 items-end">
+    <input type="hidden" name="page" value="produits">
+    <div class="flex-1 min-w-[150px]">
+        <label class="text-[10px] font-bold text-gray-400 uppercase block mb-0.5">Recherche</label>
+        <div class="relative">
+            <i class="bi bi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+            <input name="pf_q" value="<?=e($pf_search)?>" class="w-full pl-8 pr-3 py-1.5 border-2 border-gray-200 rounded-lg text-sm focus:border-asel outline-none" placeholder="Nom, réf, code-barres...">
+        </div>
+    </div>
+    <div>
+        <label class="text-[10px] font-bold text-gray-400 uppercase block mb-0.5">Catégorie</label>
+        <select name="pf_cat" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+            <option value="">Toutes</option>
+            <?php foreach($categories as $c): ?><option value="<?=$c['id']?>" <?=$pf_cat==$c['id']?'selected':''?>><?=e($c['nom'])?></option><?php endforeach; ?>
+        </select>
+    </div>
+    <div>
+        <label class="text-[10px] font-bold text-gray-400 uppercase block mb-0.5">Marque</label>
+        <select name="pf_marque" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+            <option value="">Toutes</option>
+            <?php foreach($all_marques as $m): ?><option value="<?=e($m['marque'])?>" <?=$pf_marque===$m['marque']?'selected':''?>><?=e($m['marque'])?></option><?php endforeach; ?>
+        </select>
+    </div>
+    <div>
+        <label class="text-[10px] font-bold text-gray-400 uppercase block mb-0.5">Tri</label>
+        <select name="pf_sort" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+            <option value="cat" <?=$pf_sort==='cat'?'selected':''?>>Catégorie</option>
+            <option value="nom" <?=$pf_sort==='nom'?'selected':''?>>Nom A→Z</option>
+            <option value="ref" <?=$pf_sort==='ref'?'selected':''?>>Référence</option>
+            <option value="marque" <?=$pf_sort==='marque'?'selected':''?>>Marque</option>
+            <option value="prix_asc" <?=$pf_sort==='prix_asc'?'selected':''?>>Prix ↑</option>
+            <option value="prix_desc" <?=$pf_sort==='prix_desc'?'selected':''?>>Prix ↓</option>
+            <option value="marge" <?=$pf_sort==='marge'?'selected':''?>>Marge ↓</option>
+        </select>
+    </div>
+    <button class="bg-asel text-white px-3 py-1.5 rounded-lg text-sm font-semibold"><i class="bi bi-funnel"></i></button>
+    <?php if ($pf_search || $pf_cat || $pf_marque || $pf_sort !== 'cat'): ?>
+    <a href="?page=produits" class="text-gray-400 hover:text-red-500 text-xs px-2 py-1.5"><i class="bi bi-x-circle"></i></a>
+    <?php endif; ?>
+</form>
+
 <!-- Quick add category -->
 <div class="bg-white rounded-xl shadow-sm p-3 mb-3">
     <form method="POST" class="flex gap-2 items-center"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="add_category">
-    <span class="text-xs font-bold text-gray-500">📂 Catégorie:</span>
+    <span class="text-xs font-bold text-gray-500"><i class="bi bi-folder-plus"></i> Catégorie:</span>
     <input name="nom" class="border-2 rounded-lg px-3 py-1.5 text-sm flex-1" placeholder="Nouvelle catégorie" required>
     <input name="description" class="border-2 rounded-lg px-3 py-1.5 text-sm flex-1" placeholder="Description">
     <button class="bg-gray-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold">+</button>
     </form>
 </div>
-<div class="bg-white rounded-xl shadow-sm p-4 mb-4"><h3 class="font-bold text-sm mb-3">➕ Ajouter un produit</h3><form method="POST" class="flex flex-wrap gap-2"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="add_produit">
-<input name="nom" class="border-2 rounded-lg px-3 py-2 text-sm flex-1 min-w-[150px]" placeholder="Nom" required>
-<select name="categorie_id" class="form-input"><?php foreach($categories as $c):?><option value="<?=$c['id']?>"><?=$c['nom']?></option><?php endforeach;?></select>
-<input name="marque" class="form-input w-24" placeholder="Marque">
-<input name="prix_achat" type="number" step="0.01" class="form-input w-20" placeholder="PA" required>
-<input name="prix_vente" type="number" step="0.01" class="form-input w-20" placeholder="PV" required>
-<input name="reference" class="form-input w-24" placeholder="Réf.">
-<input name="code_barre" class="form-input w-32" placeholder="Code-barres" id="add_barcode"><button type="button" onclick="openScanner('add_barcode')" class="bg-asel text-white px-3 py-2 rounded-lg text-sm" title="Scanner"><i class="bi bi-camera"></i></button>
-<button type="button" onclick="openScanner('add_barcode')" class="bg-asel text-white px-3 py-2 rounded-lg text-sm" title="Scanner"><i class="bi bi-camera"></i></button>
-<button class="btn-submit" style="width:auto;padding:10px 20px">+ Ajouter</button></form></div>
-<div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3 text-left hidden sm:table-cell">Cat.</th><th class="px-3 py-3 text-left hidden md:table-cell">Marque</th><th class="px-3 py-3 hidden md:table-cell">Code-barres</th><th class="px-3 py-3 text-right">PA</th><th class="px-3 py-3 text-right">PV</th><th class="px-3 py-3 text-center">Marge</th><th class="px-3 py-3">Edit</th></tr></thead>
-<tbody class="divide-y"><?php foreach($produits as $p):$m=$p['prix_vente']>0?(($p['prix_vente']-$p['prix_achat'])/$p['prix_vente']*100):0;?>
-<tr class="hover:bg-gray-50"><td class="px-3 py-2 font-medium"><?=htmlspecialchars($p['nom'])?></td><td class="px-3 py-2 text-xs hidden sm:table-cell"><?=$p['cat_nom']?></td><td class="px-3 py-2 text-xs hidden md:table-cell"><?=$p['marque']?></td><td class="px-3 py-2 text-xs font-mono hidden md:table-cell"><?=$p['code_barre']?:'-'?></td><td class="px-3 py-2 text-right"><?=number_format($p['prix_achat'],1)?></td><td class="px-3 py-2 text-right"><?=number_format($p['prix_vente'],1)?></td><td class="px-3 py-2 text-center"><span class="inline-flex px-2 py-0.5 rounded text-xs font-bold <?=$m>=30?'bg-green-100 text-green-800':($m>=15?'bg-yellow-100 text-yellow-800':'bg-red-100 text-red-800')?>"><?=number_format($m,0)?>%</span></td>
-<td class="px-3 py-2 flex gap-1">
-    <button onclick="document.getElementById('ep<?=$p['id']?>').classList.toggle('hidden')" class="text-asel hover:text-asel-dark" title="Modifier"><i class="bi bi-pencil"></i></button>
-    <?php if($p['code_barre']): ?><a href="api.php?action=barcode_label&code=<?=urlencode($p['code_barre'])?>&name=<?=urlencode($p['nom'])?>&price=<?=$p['prix_vente']?>" target="_blank" class="text-gray-400 hover:text-gray-600" title="Étiquette code-barres"><i class="bi bi-upc"></i></a><?php endif; ?>
-</td></tr>
-<tr id="ep<?=$p['id']?>" class="hidden bg-blue-50"><td colspan="8" class="px-4 py-3"><form method="POST" class="flex flex-wrap gap-2 items-end"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="edit_produit"><input type="hidden" name="produit_id" value="<?=$p['id']?>">
-<div><label class="text-xs font-bold">Nom</label><input name="nom" value="<?=htmlspecialchars($p['nom'])?>" class="border rounded px-2 py-1 text-sm w-40"></div>
-<div><label class="text-xs font-bold">Cat.</label><select name="categorie_id" class="border rounded px-2 py-1 text-sm"><?php foreach($categories as $c):?><option value="<?=$c['id']?>" <?=$p['categorie_id']==$c['id']?'selected':''?>><?=$c['nom']?></option><?php endforeach;?></select></div>
-<div><label class="text-xs font-bold">Marque</label><input name="marque" value="<?=$p['marque']?>" class="border rounded px-2 py-1 text-sm w-20"></div>
-<div><label class="text-xs font-bold">Réf.</label><input name="reference" value="<?=$p['reference']?>" class="border rounded px-2 py-1 text-sm w-24"></div>
-<div><label class="text-xs font-bold">📷 Code-barres</label><div class="flex gap-1"><input name="code_barre" value="<?=$p['code_barre']?>" class="border rounded px-2 py-1 text-sm w-28 font-mono" id="eb_<?=$p['id']?>"><button type="button" onclick="openScanner('eb_<?=$p['id']?>')" class="bg-asel text-white px-2 py-1 rounded text-xs"><i class="bi bi-camera"></i></button></div></div>
-<div><label class="text-xs font-bold">PA</label><input name="prix_achat" type="number" step="0.01" value="<?=$p['prix_achat']?>" class="border rounded px-2 py-1 text-sm w-20"></div>
-<div><label class="text-xs font-bold">PV</label><input name="prix_vente" type="number" step="0.01" value="<?=$p['prix_vente']?>" class="border rounded px-2 py-1 text-sm w-20"></div>
-<div><label class="text-xs font-bold">Seuil</label><input name="seuil" type="number" value="<?=$p['seuil_alerte']?>" class="border rounded px-2 py-1 text-sm w-14"></div>
-<button class="bg-asel text-white px-3 py-1 rounded text-sm font-bold">💾</button></form></td></tr>
-<?php endforeach;?></tbody></table></div></div>
+
+<!-- Add product -->
+<div class="bg-white rounded-xl shadow-sm p-4 mb-4">
+    <h3 class="font-bold text-sm mb-3"><i class="bi bi-plus-circle text-asel"></i> Ajouter un produit</h3>
+    <form method="POST" class="flex flex-wrap gap-2"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="add_produit">
+        <input name="nom" class="border-2 rounded-lg px-3 py-2 text-sm flex-1 min-w-[150px]" placeholder="Nom *" required>
+        <select name="categorie_id" class="form-input"><?php foreach($categories as $c):?><option value="<?=$c['id']?>"><?=e($c['nom'])?></option><?php endforeach;?></select>
+        <input name="marque" class="form-input w-24" placeholder="Marque">
+        <input name="reference" class="form-input w-28" placeholder="Référence">
+        <input name="prix_achat" type="number" step="0.01" class="form-input w-20" placeholder="PA" required>
+        <input name="prix_vente" type="number" step="0.01" class="form-input w-20" placeholder="PV" required>
+        <input name="code_barre" class="form-input w-32" placeholder="Code-barres" id="add_barcode">
+        <button type="button" onclick="openScanner('add_barcode')" class="bg-asel text-white px-3 py-2 rounded-lg text-sm" title="Scanner"><i class="bi bi-camera"></i></button>
+        <button class="btn-submit" style="width:auto;padding:10px 20px"><i class="bi bi-plus-circle"></i> Ajouter</button>
+    </form>
+</div>
+
+<!-- Products table -->
+<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm" id="productsTable">
+            <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider">
+                <th class="px-3 py-3 text-left cursor-pointer hover:bg-white/10" onclick="sortTable(0)">Produit <i class="bi bi-arrow-down-up text-white/40"></i></th>
+                <th class="px-3 py-3 text-left cursor-pointer hover:bg-white/10" onclick="sortTable(1)">Réf. <i class="bi bi-arrow-down-up text-white/40"></i></th>
+                <th class="px-3 py-3 text-left hidden sm:table-cell cursor-pointer hover:bg-white/10" onclick="sortTable(2)">Cat. <i class="bi bi-arrow-down-up text-white/40"></i></th>
+                <th class="px-3 py-3 text-left hidden md:table-cell cursor-pointer hover:bg-white/10" onclick="sortTable(3)">Marque <i class="bi bi-arrow-down-up text-white/40"></i></th>
+                <th class="px-3 py-3 hidden lg:table-cell">Code-barres</th>
+                <th class="px-3 py-3 text-right cursor-pointer hover:bg-white/10" onclick="sortTable(5)">PA <i class="bi bi-arrow-down-up text-white/40"></i></th>
+                <th class="px-3 py-3 text-right cursor-pointer hover:bg-white/10" onclick="sortTable(6)">PV <i class="bi bi-arrow-down-up text-white/40"></i></th>
+                <th class="px-3 py-3 text-center cursor-pointer hover:bg-white/10" onclick="sortTable(7)">Marge <i class="bi bi-arrow-down-up text-white/40"></i></th>
+                <th class="px-3 py-3 text-center">Seuil</th>
+                <th class="px-3 py-3">Actions</th>
+            </tr></thead>
+            <tbody class="divide-y">
+            <?php foreach($filtered_produits as $p):
+                $m = $p['prix_vente'] > 0 ? (($p['prix_vente'] - $p['prix_achat']) / $p['prix_vente'] * 100) : 0;
+            ?>
+                <tr class="hover:bg-gray-50 prod-row">
+                    <td class="px-3 py-2">
+                        <div class="font-medium"><?=e($p['nom'])?></div>
+                    </td>
+                    <td class="px-3 py-2 text-xs font-mono text-gray-500"><?=e($p['reference'])?:'-'?></td>
+                    <td class="px-3 py-2 text-xs hidden sm:table-cell"><span class="inline-flex px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px]"><?=e($p['cat_nom'])?></span></td>
+                    <td class="px-3 py-2 text-xs text-gray-500 hidden md:table-cell"><?=e($p['marque'])?></td>
+                    <td class="px-3 py-2 text-xs font-mono text-gray-400 hidden lg:table-cell"><?=$p['code_barre']?e($p['code_barre']):'—'?></td>
+                    <td class="px-3 py-2 text-right text-gray-500"><?=number_format($p['prix_achat'],1)?></td>
+                    <td class="px-3 py-2 text-right font-semibold"><?=number_format($p['prix_vente'],1)?></td>
+                    <td class="px-3 py-2 text-center">
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs font-bold <?=$m>=30?'bg-green-100 text-green-800':($m>=15?'bg-yellow-100 text-yellow-800':'bg-red-100 text-red-800')?>"><?=number_format($m,0)?>%</span>
+                    </td>
+                    <td class="px-3 py-2 text-center text-xs text-gray-400"><?=$p['seuil_alerte']?></td>
+                    <td class="px-3 py-2">
+                        <div class="flex gap-1">
+                            <button onclick="document.getElementById('ep<?=$p['id']?>').classList.toggle('hidden')" class="text-asel hover:text-asel-dark" title="Modifier"><i class="bi bi-pencil"></i></button>
+                            <?php if($p['code_barre']): ?><a href="api.php?action=barcode_label&code=<?=urlencode($p['code_barre'])?>&name=<?=urlencode($p['nom'])?>&price=<?=$p['prix_vente']?>" target="_blank" class="text-gray-400 hover:text-gray-600" title="Étiquette"><i class="bi bi-upc"></i></a><?php endif; ?>
+                            <?php if(isAdmin()): ?>
+                            <form method="POST" class="inline" onsubmit="return confirm('Désactiver ce produit?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="toggle_produit"><input type="hidden" name="produit_id" value="<?=$p['id']?>">
+                            <button class="text-gray-300 hover:text-red-500" title="Désactiver"><i class="bi bi-eye-slash"></i></button></form>
+                            <?php endif; ?>
+                        </div>
+                    </td>
+                </tr>
+                <!-- Edit row -->
+                <tr id="ep<?=$p['id']?>" class="hidden bg-blue-50"><td colspan="10" class="px-4 py-3">
+                    <form method="POST" class="flex flex-wrap gap-2 items-end"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="edit_produit"><input type="hidden" name="produit_id" value="<?=$p['id']?>">
+                        <div><label class="text-xs font-bold">Nom</label><input name="nom" value="<?=e($p['nom'])?>" class="border rounded px-2 py-1 text-sm w-40"></div>
+                        <div><label class="text-xs font-bold">Cat.</label><select name="categorie_id" class="border rounded px-2 py-1 text-sm"><?php foreach($categories as $c):?><option value="<?=$c['id']?>" <?=$p['categorie_id']==$c['id']?'selected':''?>><?=e($c['nom'])?></option><?php endforeach;?></select></div>
+                        <div><label class="text-xs font-bold">Marque</label><input name="marque" value="<?=e($p['marque'])?>" class="border rounded px-2 py-1 text-sm w-20"></div>
+                        <div><label class="text-xs font-bold">Réf.</label><input name="reference" value="<?=e($p['reference'])?>" class="border rounded px-2 py-1 text-sm w-28"></div>
+                        <div><label class="text-xs font-bold">Code-barres</label><div class="flex gap-1"><input name="code_barre" value="<?=e($p['code_barre'])?>" class="border rounded px-2 py-1 text-sm w-28 font-mono" id="eb_<?=$p['id']?>"><button type="button" onclick="openScanner('eb_<?=$p['id']?>')" class="bg-asel text-white px-2 py-1 rounded text-xs"><i class="bi bi-camera"></i></button></div></div>
+                        <div><label class="text-xs font-bold">PA</label><input name="prix_achat" type="number" step="0.01" value="<?=$p['prix_achat']?>" class="border rounded px-2 py-1 text-sm w-20"></div>
+                        <div><label class="text-xs font-bold">PV</label><input name="prix_vente" type="number" step="0.01" value="<?=$p['prix_vente']?>" class="border rounded px-2 py-1 text-sm w-20"></div>
+                        <div><label class="text-xs font-bold">Seuil</label><input name="seuil" type="number" value="<?=$p['seuil_alerte']?>" class="border rounded px-2 py-1 text-sm w-14"></div>
+                        <button class="bg-asel text-white px-3 py-1 rounded text-sm font-bold"><i class="bi bi-check-circle"></i> Sauvegarder</button>
+                    </form>
+                </td></tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Client-side column sorting -->
+<script>
+let sortDir = {};
+function sortTable(colIdx) {
+    const table = document.getElementById('productsTable');
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr.prod-row'));
+    
+    sortDir[colIdx] = !sortDir[colIdx]; // toggle direction
+    const dir = sortDir[colIdx] ? 1 : -1;
+    
+    rows.sort((a, b) => {
+        const aCell = a.cells[colIdx]?.textContent.trim() || '';
+        const bCell = b.cells[colIdx]?.textContent.trim() || '';
+        
+        // Try numeric sort for PA, PV, Marge columns
+        const aNum = parseFloat(aCell.replace(/[^0-9.-]/g, ''));
+        const bNum = parseFloat(bCell.replace(/[^0-9.-]/g, ''));
+        
+        if (!isNaN(aNum) && !isNaN(bNum) && colIdx >= 5) {
+            return (aNum - bNum) * dir;
+        }
+        return aCell.localeCompare(bCell, 'fr') * dir;
+    });
+    
+    // Rebuild tbody with sorted rows + their edit rows
+    const frag = document.createDocumentFragment();
+    rows.forEach(row => {
+        frag.appendChild(row);
+        // Find the edit row that follows
+        const editRow = row.nextElementSibling;
+        if (editRow && editRow.id && editRow.id.startsWith('ep')) {
+            frag.appendChild(editRow);
+        }
+    });
+    tbody.appendChild(frag);
+}
+</script>
 
 <?php elseif ($page === 'franchises_mgmt' && can('franchises_mgmt')):
     try { $all_fr = query("SELECT * FROM franchises ORDER BY type_franchise DESC, actif DESC, nom"); }
