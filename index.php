@@ -1183,7 +1183,6 @@ elseif ($page === 'transferts'): $transferts=query("SELECT t.*,p.nom as pnom,fs.
     $pf_marque = $_GET['pf_marque'] ?? '';
     $pf_search = $_GET['pf_q'] ?? '';
     $pf_sort = $_GET['pf_sort'] ?? 'cat';
-    $pf_stock = $_GET['pf_stock'] ?? '';
     
     $pw = ["p.actif=1"]; $pp = [];
     if ($pf_cat) { $pw[] = "p.categorie_id=?"; $pp[] = $pf_cat; }
@@ -1203,53 +1202,68 @@ elseif ($page === 'transferts'): $transferts=query("SELECT t.*,p.nom as pnom,fs.
     $filtered_produits = query("SELECT p.*,c.nom as cat_nom FROM produits p JOIN categories c ON p.categorie_id=c.id WHERE " . implode(' AND ', $pw) . " ORDER BY $order", $pp);
     $all_marques = query("SELECT DISTINCT marque FROM produits WHERE actif=1 AND marque!='' ORDER BY marque");
     $total_produits = count($filtered_produits);
+    
+    // Load stock per franchise for each product
+    $stock_by_product = [];
+    $stock_rows = query("SELECT s.produit_id, s.franchise_id, s.quantite, f.nom as fnom FROM stock s JOIN franchises f ON s.franchise_id=f.id WHERE f.actif=1 ORDER BY f.nom");
+    foreach ($stock_rows as $sr) {
+        $stock_by_product[$sr['produit_id']][$sr['franchise_id']] = ['qty' => $sr['quantite'], 'name' => shortF($sr['fnom'])];
+    }
+    // Get franchise list for column headers (exclude Stock Central)
+    $stock_franchises = getRetailFranchises();
+    $central_id = getCentralId();
 ?>
 <div class="flex justify-between items-center mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-tags text-asel"></i> Produits <span class="text-sm font-normal text-gray-400">(<?=$total_produits?>)</span></h1>
-    <a href="api.php?action=export_produits" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export CSV</a>
+    <a href="api.php?action=export_produits" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export</a>
 </div>
 
-<!-- Filters -->
-<form class="bg-white rounded-xl shadow-sm p-3 mb-3 flex flex-wrap gap-2 items-end">
-    <input type="hidden" name="page" value="produits">
-    <div class="flex-1 min-w-[150px]">
-        <label class="text-[10px] font-bold text-gray-400 uppercase block mb-0.5">Recherche</label>
-        <div class="relative">
-            <i class="bi bi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
-            <input name="pf_q" value="<?=e($pf_search)?>" class="w-full pl-8 pr-3 py-1.5 border-2 border-gray-200 rounded-lg text-sm focus:border-asel outline-none" placeholder="Nom, réf, code-barres...">
-        </div>
+<!-- Instant search + server filters -->
+<div class="bg-white rounded-xl shadow-sm p-3 mb-3 space-y-2">
+    <!-- Instant search (client-side, no reload) -->
+    <div class="relative">
+        <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+        <input type="text" id="instantSearch" class="w-full pl-10 pr-4 py-2.5 border-2 border-asel/30 rounded-xl bg-asel-light/20 text-sm focus:border-asel focus:ring-2 focus:ring-asel/20 outline-none" placeholder="Recherche instantanée — nom, réf, marque, code-barres..." oninput="instantFilter()" autofocus>
+        <span id="instantCount" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400"></span>
     </div>
-    <div>
-        <label class="text-[10px] font-bold text-gray-400 uppercase block mb-0.5">Catégorie</label>
-        <select name="pf_cat" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm">
-            <option value="">Toutes</option>
-            <?php foreach($categories as $c): ?><option value="<?=$c['id']?>" <?=$pf_cat==$c['id']?'selected':''?>><?=e($c['nom'])?></option><?php endforeach; ?>
-        </select>
-    </div>
-    <div>
-        <label class="text-[10px] font-bold text-gray-400 uppercase block mb-0.5">Marque</label>
-        <select name="pf_marque" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm">
-            <option value="">Toutes</option>
-            <?php foreach($all_marques as $m): ?><option value="<?=e($m['marque'])?>" <?=$pf_marque===$m['marque']?'selected':''?>><?=e($m['marque'])?></option><?php endforeach; ?>
-        </select>
-    </div>
-    <div>
-        <label class="text-[10px] font-bold text-gray-400 uppercase block mb-0.5">Tri</label>
-        <select name="pf_sort" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm">
-            <option value="cat" <?=$pf_sort==='cat'?'selected':''?>>Catégorie</option>
-            <option value="nom" <?=$pf_sort==='nom'?'selected':''?>>Nom A→Z</option>
-            <option value="ref" <?=$pf_sort==='ref'?'selected':''?>>Référence</option>
-            <option value="marque" <?=$pf_sort==='marque'?'selected':''?>>Marque</option>
-            <option value="prix_asc" <?=$pf_sort==='prix_asc'?'selected':''?>>Prix ↑</option>
-            <option value="prix_desc" <?=$pf_sort==='prix_desc'?'selected':''?>>Prix ↓</option>
-            <option value="marge" <?=$pf_sort==='marge'?'selected':''?>>Marge ↓</option>
-        </select>
-    </div>
-    <button class="bg-asel text-white px-3 py-1.5 rounded-lg text-sm font-semibold"><i class="bi bi-funnel"></i></button>
-    <?php if ($pf_search || $pf_cat || $pf_marque || $pf_sort !== 'cat'): ?>
-    <a href="?page=produits" class="text-gray-400 hover:text-red-500 text-xs px-2 py-1.5"><i class="bi bi-x-circle"></i></a>
-    <?php endif; ?>
-</form>
+    <!-- Server-side filters (collapsible) -->
+    <details class="text-sm">
+        <summary class="text-xs text-gray-400 cursor-pointer hover:text-asel"><i class="bi bi-sliders"></i> Filtres avancés <?=($pf_cat||$pf_marque||$pf_sort!=='cat')?'<span class="text-asel font-bold">(actifs)</span>':''?></summary>
+        <form class="flex flex-wrap gap-2 items-end mt-2 pt-2 border-t border-gray-100">
+            <input type="hidden" name="page" value="produits">
+            <div>
+                <label class="text-[10px] font-bold text-gray-400 uppercase block mb-0.5">Catégorie</label>
+                <select name="pf_cat" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+                    <option value="">Toutes</option>
+                    <?php foreach($categories as $c): ?><option value="<?=$c['id']?>" <?=$pf_cat==$c['id']?'selected':''?>><?=e($c['nom'])?></option><?php endforeach; ?>
+                </select>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-gray-400 uppercase block mb-0.5">Marque</label>
+                <select name="pf_marque" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+                    <option value="">Toutes</option>
+                    <?php foreach($all_marques as $m): ?><option value="<?=e($m['marque'])?>" <?=$pf_marque===$m['marque']?'selected':''?>><?=e($m['marque'])?></option><?php endforeach; ?>
+                </select>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-gray-400 uppercase block mb-0.5">Tri</label>
+                <select name="pf_sort" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm">
+                    <option value="cat" <?=$pf_sort==='cat'?'selected':''?>>Catégorie</option>
+                    <option value="nom" <?=$pf_sort==='nom'?'selected':''?>>Nom A→Z</option>
+                    <option value="ref" <?=$pf_sort==='ref'?'selected':''?>>Référence</option>
+                    <option value="marque" <?=$pf_sort==='marque'?'selected':''?>>Marque</option>
+                    <option value="prix_asc" <?=$pf_sort==='prix_asc'?'selected':''?>>Prix ↑</option>
+                    <option value="prix_desc" <?=$pf_sort==='prix_desc'?'selected':''?>>Prix ↓</option>
+                    <option value="marge" <?=$pf_sort==='marge'?'selected':''?>>Marge ↓</option>
+                </select>
+            </div>
+            <button class="bg-asel text-white px-3 py-1.5 rounded-lg text-sm font-semibold"><i class="bi bi-funnel"></i> Appliquer</button>
+            <?php if ($pf_search || $pf_cat || $pf_marque || $pf_sort !== 'cat'): ?>
+            <a href="?page=produits" class="text-gray-400 hover:text-red-500 text-xs px-2 py-1.5"><i class="bi bi-x-circle"></i> Reset</a>
+            <?php endif; ?>
+        </form>
+    </details>
+</div>
 
 <!-- Quick add category -->
 <div class="bg-white rounded-xl shadow-sm p-3 mb-3">
@@ -1281,49 +1295,68 @@ elseif ($page === 'transferts'): $transferts=query("SELECT t.*,p.nom as pnom,fs.
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <div class="overflow-x-auto">
         <table class="w-full text-sm" id="productsTable">
-            <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider">
-                <th class="px-3 py-3 text-left cursor-pointer hover:bg-white/10" onclick="sortTable(0)">Produit <i class="bi bi-arrow-down-up text-white/40"></i></th>
-                <th class="px-3 py-3 text-left cursor-pointer hover:bg-white/10" onclick="sortTable(1)">Réf. <i class="bi bi-arrow-down-up text-white/40"></i></th>
-                <th class="px-3 py-3 text-left hidden sm:table-cell cursor-pointer hover:bg-white/10" onclick="sortTable(2)">Cat. <i class="bi bi-arrow-down-up text-white/40"></i></th>
-                <th class="px-3 py-3 text-left hidden md:table-cell cursor-pointer hover:bg-white/10" onclick="sortTable(3)">Marque <i class="bi bi-arrow-down-up text-white/40"></i></th>
-                <th class="px-3 py-3 hidden lg:table-cell">Code-barres</th>
-                <th class="px-3 py-3 text-right cursor-pointer hover:bg-white/10" onclick="sortTable(5)">PA <i class="bi bi-arrow-down-up text-white/40"></i></th>
-                <th class="px-3 py-3 text-right cursor-pointer hover:bg-white/10" onclick="sortTable(6)">PV <i class="bi bi-arrow-down-up text-white/40"></i></th>
-                <th class="px-3 py-3 text-center cursor-pointer hover:bg-white/10" onclick="sortTable(7)">Marge <i class="bi bi-arrow-down-up text-white/40"></i></th>
-                <th class="px-3 py-3 text-center">Seuil</th>
-                <th class="px-3 py-3">Actions</th>
+            <thead><tr class="bg-asel-dark text-white text-[10px] uppercase tracking-wider">
+                <th class="px-2 py-3 text-left cursor-pointer hover:bg-white/10" onclick="sortTable(0)">Produit <i class="bi bi-arrow-down-up text-white/30"></i></th>
+                <th class="px-2 py-3 text-left cursor-pointer hover:bg-white/10" onclick="sortTable(1)">Réf. <i class="bi bi-arrow-down-up text-white/30"></i></th>
+                <th class="px-2 py-3 text-left hidden sm:table-cell cursor-pointer hover:bg-white/10" onclick="sortTable(2)">Cat.</th>
+                <th class="px-2 py-3 text-left hidden md:table-cell cursor-pointer hover:bg-white/10" onclick="sortTable(3)">Marque</th>
+                <th class="px-2 py-3 text-right cursor-pointer hover:bg-white/10" onclick="sortTable(4)">PV</th>
+                <th class="px-2 py-3 text-center cursor-pointer hover:bg-white/10" onclick="sortTable(5)">Marge</th>
+                <?php if ($central_id): ?>
+                <th class="px-2 py-3 text-center bg-indigo-900 cursor-pointer hover:bg-indigo-800" onclick="sortTable(6)" title="Stock Central">Central</th>
+                <?php endif; ?>
+                <?php foreach ($stock_franchises as $fi => $sf): ?>
+                <th class="px-2 py-3 text-center cursor-pointer hover:bg-white/10" onclick="sortTable(<?=7+$fi?>)" title="<?=e($sf['nom'])?>"><?=e(mb_substr(shortF($sf['nom']),0,6))?></th>
+                <?php endforeach; ?>
+                <th class="px-2 py-3 text-center font-bold cursor-pointer hover:bg-white/10" onclick="sortTable(<?=7+count($stock_franchises)?>)">Total</th>
+                <th class="px-2 py-3">Act.</th>
             </tr></thead>
             <tbody class="divide-y">
             <?php foreach($filtered_produits as $p):
                 $m = $p['prix_vente'] > 0 ? (($p['prix_vente'] - $p['prix_achat']) / $p['prix_vente'] * 100) : 0;
+                $total_stock = 0;
+                $central_qty = $stock_by_product[$p['id']][$central_id]['qty'] ?? 0;
             ?>
-                <tr class="hover:bg-gray-50 prod-row">
-                    <td class="px-3 py-2">
-                        <div class="font-medium"><?=e($p['nom'])?></div>
+                <tr class="hover:bg-gray-50 prod-row" data-search="<?=e(strtolower($p['nom'].' '.$p['reference'].' '.$p['marque'].' '.$p['code_barre'].' '.$p['cat_nom']))?>">
+                    <td class="px-2 py-1.5">
+                        <div class="font-medium text-sm"><?=e($p['nom'])?></div>
                     </td>
-                    <td class="px-3 py-2 text-xs font-mono text-gray-500"><?=e($p['reference'])?:'-'?></td>
-                    <td class="px-3 py-2 text-xs hidden sm:table-cell"><span class="inline-flex px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px]"><?=e($p['cat_nom'])?></span></td>
-                    <td class="px-3 py-2 text-xs text-gray-500 hidden md:table-cell"><?=e($p['marque'])?></td>
-                    <td class="px-3 py-2 text-xs font-mono text-gray-400 hidden lg:table-cell"><?=$p['code_barre']?e($p['code_barre']):'—'?></td>
-                    <td class="px-3 py-2 text-right text-gray-500"><?=number_format($p['prix_achat'],1)?></td>
-                    <td class="px-3 py-2 text-right font-semibold"><?=number_format($p['prix_vente'],1)?></td>
-                    <td class="px-3 py-2 text-center">
-                        <span class="inline-flex px-2 py-0.5 rounded text-xs font-bold <?=$m>=30?'bg-green-100 text-green-800':($m>=15?'bg-yellow-100 text-yellow-800':'bg-red-100 text-red-800')?>"><?=number_format($m,0)?>%</span>
+                    <td class="px-2 py-1.5 text-xs font-mono text-gray-500"><?=e($p['reference'])?:'-'?></td>
+                    <td class="px-2 py-1.5 text-xs hidden sm:table-cell"><span class="inline-flex px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px]"><?=e($p['cat_nom'])?></span></td>
+                    <td class="px-2 py-1.5 text-xs text-gray-500 hidden md:table-cell"><?=e($p['marque'])?></td>
+                    <td class="px-2 py-1.5 text-right font-semibold text-sm"><?=number_format($p['prix_vente'],1)?></td>
+                    <td class="px-2 py-1.5 text-center">
+                        <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold <?=$m>=30?'bg-green-100 text-green-800':($m>=15?'bg-yellow-100 text-yellow-800':'bg-red-100 text-red-800')?>"><?=number_format($m,0)?>%</span>
                     </td>
-                    <td class="px-3 py-2 text-center text-xs text-gray-400"><?=$p['seuil_alerte']?></td>
-                    <td class="px-3 py-2">
-                        <div class="flex gap-1">
-                            <button onclick="document.getElementById('ep<?=$p['id']?>').classList.toggle('hidden')" class="text-asel hover:text-asel-dark" title="Modifier"><i class="bi bi-pencil"></i></button>
-                            <?php if($p['code_barre']): ?><a href="api.php?action=barcode_label&code=<?=urlencode($p['code_barre'])?>&name=<?=urlencode($p['nom'])?>&price=<?=$p['prix_vente']?>" target="_blank" class="text-gray-400 hover:text-gray-600" title="Étiquette"><i class="bi bi-upc"></i></a><?php endif; ?>
+                    <?php if ($central_id): ?>
+                    <td class="px-2 py-1.5 text-center bg-indigo-50">
+                        <span class="font-bold text-xs <?=$central_qty<=0?'text-red-500':($central_qty<=3?'text-amber-600':'text-indigo-700')?>"><?=$central_qty?></span>
+                    </td>
+                    <?php endif; ?>
+                    <?php foreach ($stock_franchises as $sf):
+                        $sq = $stock_by_product[$p['id']][$sf['id']]['qty'] ?? 0;
+                        $total_stock += $sq;
+                    ?>
+                    <td class="px-2 py-1.5 text-center">
+                        <span class="text-xs font-semibold <?=$sq<=0?'text-red-400':($sq<=$p['seuil_alerte']?'text-amber-600':'text-green-700')?>"><?=$sq?></span>
+                    </td>
+                    <?php endforeach; ?>
+                    <?php $total_stock += $central_qty; ?>
+                    <td class="px-2 py-1.5 text-center">
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs font-black <?=$total_stock<=0?'bg-red-100 text-red-800':($total_stock<=$p['seuil_alerte']?'bg-amber-100 text-amber-800':'bg-green-100 text-green-800')?>"><?=$total_stock?></span>
+                    </td>
+                    <td class="px-2 py-1.5">
+                        <div class="flex gap-0.5">
+                            <button onclick="document.getElementById('ep<?=$p['id']?>').classList.toggle('hidden')" class="text-asel hover:text-asel-dark" title="Modifier"><i class="bi bi-pencil text-sm"></i></button>
                             <?php if(isAdmin()): ?>
-                            <form method="POST" class="inline" onsubmit="return confirm('Désactiver ce produit?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="toggle_produit"><input type="hidden" name="produit_id" value="<?=$p['id']?>">
-                            <button class="text-gray-300 hover:text-red-500" title="Désactiver"><i class="bi bi-eye-slash"></i></button></form>
+                            <form method="POST" class="inline" onsubmit="return confirm('Désactiver?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="toggle_produit"><input type="hidden" name="produit_id" value="<?=$p['id']?>">
+                            <button class="text-gray-300 hover:text-red-500" title="Désactiver"><i class="bi bi-eye-slash text-sm"></i></button></form>
                             <?php endif; ?>
                         </div>
                     </td>
                 </tr>
                 <!-- Edit row -->
-                <tr id="ep<?=$p['id']?>" class="hidden bg-blue-50"><td colspan="10" class="px-4 py-3">
+                <tr id="ep<?=$p['id']?>" class="hidden bg-blue-50 edit-row"><td colspan="<?=8+count($stock_franchises)+($central_id?1:0)?>" class="px-4 py-3">
                     <form method="POST" class="flex flex-wrap gap-2 items-end"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="edit_produit"><input type="hidden" name="produit_id" value="<?=$p['id']?>">
                         <div><label class="text-xs font-bold">Nom</label><input name="nom" value="<?=e($p['nom'])?>" class="border rounded px-2 py-1 text-sm w-40"></div>
                         <div><label class="text-xs font-bold">Cat.</label><select name="categorie_id" class="border rounded px-2 py-1 text-sm"><?php foreach($categories as $c):?><option value="<?=$c['id']?>" <?=$p['categorie_id']==$c['id']?'selected':''?>><?=e($c['nom'])?></option><?php endforeach;?></select></div>
@@ -1342,43 +1375,65 @@ elseif ($page === 'transferts'): $transferts=query("SELECT t.*,p.nom as pnom,fs.
     </div>
 </div>
 
-<!-- Client-side column sorting -->
+<!-- Instant filter + column sorting -->
 <script>
+// Instant client-side search
+function instantFilter() {
+    const q = document.getElementById('instantSearch').value.toLowerCase().trim();
+    const rows = document.querySelectorAll('#productsTable .prod-row');
+    let visible = 0;
+    rows.forEach(row => {
+        const match = !q || row.dataset.search.includes(q);
+        row.style.display = match ? '' : 'none';
+        // Also hide/show edit row
+        const editRow = row.nextElementSibling;
+        if (editRow && editRow.classList.contains('edit-row')) {
+            if (!match) editRow.style.display = 'none';
+        }
+        if (match) visible++;
+    });
+    document.getElementById('instantCount').textContent = q ? visible + '/' + rows.length : '';
+}
+
+// Column sorting
 let sortDir = {};
 function sortTable(colIdx) {
     const table = document.getElementById('productsTable');
     const tbody = table.querySelector('tbody');
     const rows = Array.from(tbody.querySelectorAll('tr.prod-row'));
     
-    sortDir[colIdx] = !sortDir[colIdx]; // toggle direction
+    sortDir[colIdx] = !sortDir[colIdx];
     const dir = sortDir[colIdx] ? 1 : -1;
     
     rows.sort((a, b) => {
         const aCell = a.cells[colIdx]?.textContent.trim() || '';
         const bCell = b.cells[colIdx]?.textContent.trim() || '';
-        
-        // Try numeric sort for PA, PV, Marge columns
         const aNum = parseFloat(aCell.replace(/[^0-9.-]/g, ''));
         const bNum = parseFloat(bCell.replace(/[^0-9.-]/g, ''));
-        
-        if (!isNaN(aNum) && !isNaN(bNum) && colIdx >= 5) {
+        if (!isNaN(aNum) && !isNaN(bNum) && colIdx >= 4) {
             return (aNum - bNum) * dir;
         }
         return aCell.localeCompare(bCell, 'fr') * dir;
     });
     
-    // Rebuild tbody with sorted rows + their edit rows
     const frag = document.createDocumentFragment();
     rows.forEach(row => {
         frag.appendChild(row);
-        // Find the edit row that follows
         const editRow = row.nextElementSibling;
-        if (editRow && editRow.id && editRow.id.startsWith('ep')) {
+        if (editRow && editRow.classList.contains('edit-row')) {
             frag.appendChild(editRow);
         }
     });
     tbody.appendChild(frag);
 }
+
+// Keyboard shortcut: / to focus search
+document.addEventListener('keydown', e => {
+    if (e.key === '/' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) {
+        e.preventDefault();
+        document.getElementById('instantSearch').focus();
+    }
+});
 </script>
 
 <?php elseif ($page === 'franchises_mgmt' && can('franchises_mgmt')):
