@@ -358,11 +358,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     elseif ($action === 'edit_franchise' && isAdmin()) {
         try {
-            execute("UPDATE franchises SET nom=?, adresse=?, telephone=?, responsable=?, horaires=?, actif=? WHERE id=?",
-                [$_POST['nom'], $_POST['adresse'] ?? '', $_POST['telephone'] ?? '', $_POST['responsable'] ?? '', $_POST['horaires'] ?? '', $_POST['actif'] ?? 1, $_POST['franchise_id']]);
+            execute("UPDATE franchises SET nom=?, adresse=?, telephone=?, responsable=?, horaires=?, notes_internes=?, statut_commercial=?, actif=? WHERE id=?",
+                [$_POST['nom'], $_POST['adresse'] ?? '', $_POST['telephone'] ?? '', $_POST['responsable'] ?? '', $_POST['horaires'] ?? '', $_POST['notes_internes'] ?? '', $_POST['statut_commercial'] ?? 'actif', $_POST['actif'] ?? 1, $_POST['franchise_id']]);
         } catch (Exception $e) {
-            execute("UPDATE franchises SET nom=?, adresse=?, telephone=?, responsable=?, actif=? WHERE id=?",
-                [$_POST['nom'], $_POST['adresse'] ?? '', $_POST['telephone'] ?? '', $_POST['responsable'] ?? '', $_POST['actif'] ?? 1, $_POST['franchise_id']]);
+            try {
+                execute("UPDATE franchises SET nom=?, adresse=?, telephone=?, responsable=?, horaires=?, actif=? WHERE id=?",
+                    [$_POST['nom'], $_POST['adresse'] ?? '', $_POST['telephone'] ?? '', $_POST['responsable'] ?? '', $_POST['horaires'] ?? '', $_POST['actif'] ?? 1, $_POST['franchise_id']]);
+            } catch (Exception $e2) {
+                execute("UPDATE franchises SET nom=?, adresse=?, telephone=?, responsable=?, actif=? WHERE id=?",
+                    [$_POST['nom'], $_POST['adresse'] ?? '', $_POST['telephone'] ?? '', $_POST['responsable'] ?? '', $_POST['actif'] ?? 1, $_POST['franchise_id']]);
+            }
         }
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Franchise mise à jour!'];
         auditLog('edit_franchise', 'franchise', $_POST['franchise_id'], ['nom'=>$_POST['nom']]);
@@ -386,6 +391,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             auditLog('delete_franchise', 'franchise', $_POST['franchise_id']);
         }
+    }
+    elseif ($action === 'add_point' && can('add_point')) {
+        try {
+            execute("INSERT INTO points_reseau (nom,type_point,statut,adresse,ville,gouvernorat,telephone,telephone2,email,responsable,horaires,latitude,longitude,notes_internes,commission_pct,date_contact,cree_par) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                [$_POST['nom'], $_POST['type_point'], $_POST['statut'] ?? 'prospect', $_POST['adresse'] ?? '', $_POST['ville'] ?? '', $_POST['gouvernorat'] ?? '',
+                 $_POST['telephone'] ?? '', $_POST['telephone2'] ?? '', $_POST['email'] ?? '', $_POST['responsable'] ?? '',
+                 $_POST['horaires'] ?? 'Lun-Sam: 09:00-19:00',
+                 $_POST['latitude'] ?: null, $_POST['longitude'] ?: null,
+                 $_POST['notes_internes'] ?? '', $_POST['commission_pct'] ?? 0,
+                 $_POST['date_contact'] ?: null, $user['id']]);
+            $_SESSION['flash'] = ['type'=>'success','msg'=>'Point ajouté au réseau!'];
+            auditLog('add_point', 'point_reseau', db()->lastInsertId(), ['nom'=>$_POST['nom'], 'type'=>$_POST['type_point']]);
+        } catch (Exception $e) {
+            $_SESSION['flash'] = ['type'=>'danger','msg'=>'Erreur: '.$e->getMessage()];
+        }
+    }
+    elseif ($action === 'edit_point' && can('edit_point')) {
+        try {
+            execute("UPDATE points_reseau SET nom=?,type_point=?,statut=?,adresse=?,ville=?,gouvernorat=?,telephone=?,telephone2=?,email=?,responsable=?,horaires=?,latitude=?,longitude=?,notes_internes=?,commission_pct=?,date_contact=?,date_contrat=?,date_activation=?,actif=? WHERE id=?",
+                [$_POST['nom'], $_POST['type_point'], $_POST['statut'], $_POST['adresse'] ?? '', $_POST['ville'] ?? '', $_POST['gouvernorat'] ?? '',
+                 $_POST['telephone'] ?? '', $_POST['telephone2'] ?? '', $_POST['email'] ?? '', $_POST['responsable'] ?? '',
+                 $_POST['horaires'] ?? '',
+                 $_POST['latitude'] ?: null, $_POST['longitude'] ?: null,
+                 $_POST['notes_internes'] ?? '', $_POST['commission_pct'] ?? 0,
+                 $_POST['date_contact'] ?: null, $_POST['date_contrat'] ?: null, $_POST['date_activation'] ?: null,
+                 $_POST['actif'] ?? 1, $_POST['point_id']]);
+            $_SESSION['flash'] = ['type'=>'success','msg'=>'Point mis à jour!'];
+            auditLog('edit_point', 'point_reseau', $_POST['point_id'], ['nom'=>$_POST['nom'], 'statut'=>$_POST['statut']]);
+        } catch (Exception $e) {
+            $_SESSION['flash'] = ['type'=>'danger','msg'=>'Erreur: '.$e->getMessage()];
+        }
+    }
+    elseif ($action === 'delete_point' && can('delete_point')) {
+        execute("UPDATE points_reseau SET actif=0 WHERE id=?", [$_POST['point_id']]);
+        $_SESSION['flash'] = ['type'=>'success','msg'=>'Point désactivé!'];
+        auditLog('delete_point', 'point_reseau', $_POST['point_id']);
     }
     elseif ($action === 'dispatch_stock' && isAdminOrGest()) {
         // Dispatch from Stock Central to a franchise
@@ -580,7 +621,8 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
             ['gestion_services', 'bi-gear', 'Gérer services'],
             ['gestion_asel', 'bi-sim', 'Gérer offres ASEL'],
             ['franchises_mgmt', 'bi-shop', 'Franchises'],
-            ['franchise_locations', 'bi-geo-alt', 'Coordonnées'],
+            ['points_reseau', 'bi-geo-alt', 'Réseau & Carte'],
+            ['franchise_locations', 'bi-pin-map', 'Coordonnées GPS'],
             ['audit_log', 'bi-journal-text', 'Journal d\'audit'],
             ['users', 'bi-people', 'Utilisateurs'],
             ['mon_compte', 'bi-person-gear', 'Mon compte'],
@@ -1226,6 +1268,15 @@ elseif ($page === 'transferts'): $transferts=query("SELECT t.*,p.nom as pnom,fs.
                 <?php if (!$f['actif']): ?>
                 <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 mt-2">Désactivée</span>
                 <?php endif; ?>
+                <?php
+                $fc_statut = $f['statut_commercial'] ?? 'actif';
+                $fc_badges = ['prospect'=>'bg-gray-100 text-gray-800','contact'=>'bg-blue-100 text-blue-800','contrat_non_signe'=>'bg-yellow-100 text-yellow-800','contrat_signe'=>'bg-indigo-100 text-indigo-800','actif'=>'bg-green-100 text-green-800','suspendu'=>'bg-orange-100 text-orange-800','resilie'=>'bg-red-100 text-red-800'];
+                $fc_labels = ['prospect'=>'Prospect','contact'=>'Contacté','contrat_non_signe'=>'Contrat non signé','contrat_signe'=>'Contrat signé','actif'=>'Actif','suspendu'=>'Suspendu','resilie'=>'Résilié'];
+                ?>
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium <?=$fc_badges[$fc_statut]??'bg-gray-100'?> mt-1"><?=$fc_labels[$fc_statut]??$fc_statut?></span>
+                <?php if ($f['notes_internes'] ?? ''): ?>
+                <p class="text-xs text-gray-400 mt-1 italic"><i class="bi bi-sticky"></i> <?=htmlspecialchars(substr($f['notes_internes'],0,80))?><?=strlen($f['notes_internes']??'')>80?'...':''?></p>
+                <?php endif; ?>
             </div>
             <?php if (isAdmin()): ?>
             <div class="flex gap-1 shrink-0">
@@ -1278,8 +1329,14 @@ elseif ($page === 'transferts'): $transferts=query("SELECT t.*,p.nom as pnom,fs.
                         <option value="1" <?=$f['actif']?'selected':''?>>Active</option>
                         <option value="0" <?=!$f['actif']?'selected':''?>>Désactivée</option>
                     </select>
+                    <select name="statut_commercial" class="border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm">
+                        <?php foreach(['prospect'=>'Prospect','contact'=>'Contacté','contrat_non_signe'=>'Contrat non signé','contrat_signe'=>'Contrat signé','actif'=>'Actif','suspendu'=>'Suspendu','resilie'=>'Résilié'] as $sk=>$sl): ?>
+                        <option value="<?=$sk?>" <?=($f['statut_commercial']??'actif')===$sk?'selected':''?>><?=$sl?></option>
+                        <?php endforeach; ?>
+                    </select>
                     <button class="bg-asel text-white px-4 py-1.5 rounded-lg text-sm font-bold flex-1"><i class="bi bi-check-circle"></i> Enregistrer</button>
                 </div>
+                <div><label class="text-xs font-bold text-gray-500">Notes internes</label><textarea name="notes_internes" class="w-full border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm" rows="2" placeholder="Notes confidentielles..."><?=htmlspecialchars($f['notes_internes']??'')?></textarea></div>
             </form>
         </div>
         <?php endif; ?>
@@ -2050,6 +2107,266 @@ function getLocation(fid) {
 
     </div>
 </main>
+
+<!-- POINTS RESEAU & CARTE PAGE -->
+<?php if ($page === 'points_reseau' && can('points_reseau')):
+    $filter_type = $_GET['pt'] ?? '';
+    $filter_statut = $_GET['ps'] ?? '';
+    $filter_ville = $_GET['pv'] ?? '';
+    
+    $pw = ["1=1"]; $pp = [];
+    if ($filter_type) { $pw[] = "type_point=?"; $pp[] = $filter_type; }
+    if ($filter_statut) { $pw[] = "statut=?"; $pp[] = $filter_statut; }
+    if ($filter_ville) { $pw[] = "ville LIKE ?"; $pp[] = "%$filter_ville%"; }
+    
+    try {
+        $points = query("SELECT * FROM points_reseau WHERE actif=1 AND " . implode(' AND ', $pw) . " ORDER BY type_point, nom", $pp);
+    } catch (Exception $e) {
+        $points = [];
+    }
+    $points_map = array_filter($points, fn($p) => $p['latitude'] && $p['longitude']);
+    
+    $type_labels = ['franchise'=>'Franchise','activation'=>'Point d\'activation','recharge'=>'Point de recharge','activation_recharge'=>'Activation & Recharge'];
+    $type_icons = ['franchise'=>'bi-shop','activation'=>'bi-phone','recharge'=>'bi-credit-card-2-front','activation_recharge'=>'bi-sim'];
+    $type_colors = ['franchise'=>'#2AABE2','activation'=>'#10B981','recharge'=>'#F59E0B','activation_recharge'=>'#8B5CF6'];
+    $statut_badges = [
+        'prospect'=>'bg-gray-100 text-gray-800',
+        'contact'=>'bg-blue-100 text-blue-800',
+        'contrat_non_signe'=>'bg-yellow-100 text-yellow-800',
+        'contrat_signe'=>'bg-indigo-100 text-indigo-800',
+        'actif'=>'bg-green-100 text-green-800',
+        'suspendu'=>'bg-orange-100 text-orange-800',
+        'resilie'=>'bg-red-100 text-red-800',
+    ];
+    $statut_labels = ['prospect'=>'Prospect','contact'=>'Contacté','contrat_non_signe'=>'Contrat non signé','contrat_signe'=>'Contrat signé','actif'=>'Actif','suspendu'=>'Suspendu','resilie'=>'Résilié'];
+    $gouvernorats = ['Tunis','Ariana','Ben Arous','Manouba','Nabeul','Zaghouan','Bizerte','Béja','Jendouba','Le Kef','Siliana','Sousse','Monastir','Mahdia','Sfax','Kairouan','Kasserine','Sidi Bouzid','Gabès','Médenine','Tataouine','Gafsa','Tozeur','Kébili'];
+?>
+<div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-geo-alt text-asel"></i> Réseau ASEL — Points & Carte</h1>
+    <span class="text-sm text-gray-400"><?=count($points)?> point(s)</span>
+</div>
+
+<!-- Map -->
+<div class="bg-white rounded-2xl shadow-lg overflow-hidden mb-6">
+    <div id="networkMap" style="height:400px"></div>
+</div>
+
+<!-- Legend -->
+<div class="flex flex-wrap gap-3 mb-4">
+    <?php foreach ($type_labels as $tk => $tl): $count = count(array_filter($points, fn($p)=>$p['type_point']===$tk)); ?>
+    <div class="flex items-center gap-1.5 text-xs">
+        <span class="w-3 h-3 rounded-full" style="background:<?=$type_colors[$tk]?>"></span>
+        <span class="font-medium"><?=$tl?></span>
+        <span class="text-gray-400">(<?=$count?>)</span>
+    </div>
+    <?php endforeach; ?>
+</div>
+
+<!-- Filters -->
+<form class="bg-white rounded-xl shadow-sm p-4 mb-4 flex flex-wrap gap-3 items-end">
+    <input type="hidden" name="page" value="points_reseau">
+    <div>
+        <label class="text-xs font-bold text-gray-500 block mb-1">Type</label>
+        <select name="pt" class="border-2 border-gray-200 rounded-lg px-3 py-2 text-sm">
+            <option value="">Tous</option>
+            <?php foreach ($type_labels as $tk=>$tl): ?><option value="<?=$tk?>" <?=$filter_type===$tk?'selected':''?>><?=$tl?></option><?php endforeach; ?>
+        </select>
+    </div>
+    <div>
+        <label class="text-xs font-bold text-gray-500 block mb-1">Statut</label>
+        <select name="ps" class="border-2 border-gray-200 rounded-lg px-3 py-2 text-sm">
+            <option value="">Tous</option>
+            <?php foreach ($statut_labels as $sk=>$sl): ?><option value="<?=$sk?>" <?=$filter_statut===$sk?'selected':''?>><?=$sl?></option><?php endforeach; ?>
+        </select>
+    </div>
+    <div>
+        <label class="text-xs font-bold text-gray-500 block mb-1">Ville</label>
+        <input type="text" name="pv" value="<?=htmlspecialchars($filter_ville)?>" class="border-2 border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="Rechercher...">
+    </div>
+    <button class="bg-asel text-white px-4 py-2 rounded-lg text-sm font-semibold"><i class="bi bi-funnel"></i> Filtrer</button>
+    <a href="?page=points_reseau" class="text-gray-400 hover:text-gray-600 text-sm px-2 py-2">Réinitialiser</a>
+</form>
+
+<?php if (can('add_point')): ?>
+<!-- Add Point Form -->
+<div class="form-card mb-6">
+    <h3><i class="bi bi-plus-circle text-asel"></i> Ajouter un point au réseau</h3>
+    <form method="POST" class="space-y-3">
+        <input type="hidden" name="_csrf" value="<?=$csrf?>">
+        <input type="hidden" name="action" value="add_point">
+        <div class="form-row form-row-3">
+            <div><label class="form-label">Nom *</label><input name="nom" class="form-input" required placeholder="Nom du point / boutique"></div>
+            <div><label class="form-label">Type *</label>
+                <select name="type_point" class="form-input" required>
+                    <option value="activation_recharge">Activation & Recharge</option>
+                    <option value="activation">Point d'activation</option>
+                    <option value="recharge">Point de recharge</option>
+                    <option value="franchise">Franchise</option>
+                </select>
+            </div>
+            <div><label class="form-label">Statut</label>
+                <select name="statut" class="form-input">
+                    <?php foreach ($statut_labels as $sk=>$sl): ?><option value="<?=$sk?>"><?=$sl?></option><?php endforeach; ?>
+                </select>
+            </div>
+        </div>
+        <div class="form-row form-row-3">
+            <div><label class="form-label">Adresse</label><input name="adresse" class="form-input" placeholder="Rue, quartier..."></div>
+            <div><label class="form-label">Ville</label><input name="ville" class="form-input" placeholder="Ex: Mourouj"></div>
+            <div><label class="form-label">Gouvernorat</label>
+                <select name="gouvernorat" class="form-input">
+                    <option value="">—</option>
+                    <?php foreach ($gouvernorats as $g): ?><option value="<?=$g?>"><?=$g?></option><?php endforeach; ?>
+                </select>
+            </div>
+        </div>
+        <div class="form-row form-row-4">
+            <div><label class="form-label">Téléphone</label><input name="telephone" class="form-input" placeholder="+216..."></div>
+            <div><label class="form-label">Tél 2</label><input name="telephone2" class="form-input" placeholder="Optionnel"></div>
+            <div><label class="form-label">Email</label><input name="email" class="form-input" type="email" placeholder="email@..."></div>
+            <div><label class="form-label">Responsable</label><input name="responsable" class="form-input" placeholder="Nom"></div>
+        </div>
+        <div class="form-row form-row-4">
+            <div><label class="form-label">Latitude</label><input name="latitude" type="number" step="0.000001" class="form-input font-mono" placeholder="36.XXXX" id="new_pt_lat"></div>
+            <div><label class="form-label">Longitude</label><input name="longitude" type="number" step="0.000001" class="form-input font-mono" placeholder="10.XXXX" id="new_pt_lng"></div>
+            <div><label class="form-label">Commission %</label><input name="commission_pct" type="number" step="0.1" class="form-input" placeholder="0"></div>
+            <div><label class="form-label">Date contact</label><input name="date_contact" type="date" class="form-input"></div>
+        </div>
+        <div class="form-row form-row-2">
+            <div><label class="form-label">Horaires</label><input name="horaires" class="form-input" value="Lun-Sam: 09:00-19:00"></div>
+            <div class="flex items-end gap-2">
+                <button type="button" onclick="getNewPointLocation()" class="bg-green-500 text-white px-4 py-2.5 rounded-lg text-xs font-bold"><i class="bi bi-crosshair"></i> Ma position</button>
+            </div>
+        </div>
+        <div><label class="form-label">Notes internes</label><textarea name="notes_internes" class="form-input" rows="2" placeholder="Notes confidentielles (visibles uniquement par l'équipe)..."></textarea></div>
+        <button type="submit" class="btn-submit"><i class="bi bi-plus-circle"></i> Ajouter le point</button>
+    </form>
+</div>
+<?php endif; ?>
+
+<!-- Points list -->
+<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider">
+            <th class="px-3 py-3 text-left">Point</th>
+            <th class="px-3 py-3">Type</th>
+            <th class="px-3 py-3">Statut</th>
+            <th class="px-3 py-3 text-left hidden sm:table-cell">Ville</th>
+            <th class="px-3 py-3 text-left hidden md:table-cell">Contact</th>
+            <th class="px-3 py-3 hidden lg:table-cell">Notes</th>
+            <?php if (can('edit_point')): ?><th class="px-3 py-3">Actions</th><?php endif; ?>
+        </tr></thead>
+        <tbody class="divide-y divide-gray-100">
+        <?php foreach ($points as $pt): ?>
+            <tr class="hover:bg-gray-50">
+                <td class="px-3 py-2">
+                    <div class="font-medium flex items-center gap-1.5">
+                        <i class="bi <?=$type_icons[$pt['type_point']]??'bi-geo-alt'?>" style="color:<?=$type_colors[$pt['type_point']]??'#666'?>"></i>
+                        <?=htmlspecialchars($pt['nom'])?>
+                    </div>
+                    <div class="text-xs text-gray-400"><?=$pt['responsable']?></div>
+                </td>
+                <td class="px-3 py-2 text-center"><span class="inline-flex px-2 py-0.5 rounded text-[10px] font-medium" style="background:<?=$type_colors[$pt['type_point']]??'#eee'?>20;color:<?=$type_colors[$pt['type_point']]??'#666'?>"><?=$type_labels[$pt['type_point']]??$pt['type_point']?></span></td>
+                <td class="px-3 py-2 text-center"><span class="inline-flex px-2 py-0.5 rounded text-[10px] font-medium <?=$statut_badges[$pt['statut']]??'bg-gray-100'?>"><?=$statut_labels[$pt['statut']]??$pt['statut']?></span></td>
+                <td class="px-3 py-2 text-xs text-gray-500 hidden sm:table-cell"><?=$pt['ville']?> <?=$pt['gouvernorat']?'('.$pt['gouvernorat'].')':''?></td>
+                <td class="px-3 py-2 text-xs hidden md:table-cell"><?=$pt['telephone']?></td>
+                <td class="px-3 py-2 text-xs text-gray-400 hidden lg:table-cell max-w-[200px] truncate" title="<?=htmlspecialchars($pt['notes_internes'])?>"><?=$pt['notes_internes']?htmlspecialchars(substr($pt['notes_internes'],0,60)).'...':'—'?></td>
+                <?php if (can('edit_point')): ?>
+                <td class="px-3 py-2 flex gap-1">
+                    <button onclick="document.getElementById('ept<?=$pt['id']?>').classList.toggle('hidden')" class="text-asel hover:text-asel-dark" title="Modifier"><i class="bi bi-pencil"></i></button>
+                    <?php if (can('delete_point')): ?>
+                    <form method="POST" class="inline" onsubmit="return confirm('Désactiver ce point?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="delete_point"><input type="hidden" name="point_id" value="<?=$pt['id']?>"><button class="text-red-400 hover:text-red-600" title="Supprimer"><i class="bi bi-trash"></i></button></form>
+                    <?php endif; ?>
+                </td>
+                <?php endif; ?>
+            </tr>
+            <?php if (can('edit_point')): ?>
+            <tr id="ept<?=$pt['id']?>" class="hidden bg-blue-50/50">
+                <td colspan="7" class="px-4 py-3">
+                    <form method="POST" class="space-y-2">
+                        <input type="hidden" name="_csrf" value="<?=$csrf?>">
+                        <input type="hidden" name="action" value="edit_point">
+                        <input type="hidden" name="point_id" value="<?=$pt['id']?>">
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <div><label class="text-xs font-bold">Nom</label><input name="nom" value="<?=htmlspecialchars($pt['nom'])?>" class="w-full border rounded px-2 py-1 text-sm"></div>
+                            <div><label class="text-xs font-bold">Type</label><select name="type_point" class="w-full border rounded px-2 py-1 text-sm"><?php foreach($type_labels as $tk=>$tl):?><option value="<?=$tk?>" <?=$pt['type_point']===$tk?'selected':''?>><?=$tl?></option><?php endforeach;?></select></div>
+                            <div><label class="text-xs font-bold">Statut</label><select name="statut" class="w-full border rounded px-2 py-1 text-sm"><?php foreach($statut_labels as $sk=>$sl):?><option value="<?=$sk?>" <?=$pt['statut']===$sk?'selected':''?>><?=$sl?></option><?php endforeach;?></select></div>
+                            <div><label class="text-xs font-bold">Actif</label><select name="actif" class="w-full border rounded px-2 py-1 text-sm"><option value="1" <?=$pt['actif']?'selected':''?>>Oui</option><option value="0" <?=!$pt['actif']?'selected':''?>>Non</option></select></div>
+                        </div>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <div><label class="text-xs font-bold">Adresse</label><input name="adresse" value="<?=htmlspecialchars($pt['adresse'])?>" class="w-full border rounded px-2 py-1 text-sm"></div>
+                            <div><label class="text-xs font-bold">Ville</label><input name="ville" value="<?=htmlspecialchars($pt['ville']??'')?>" class="w-full border rounded px-2 py-1 text-sm"></div>
+                            <div><label class="text-xs font-bold">Gouvernorat</label><select name="gouvernorat" class="w-full border rounded px-2 py-1 text-sm"><option value="">—</option><?php foreach($gouvernorats as $g):?><option value="<?=$g?>" <?=($pt['gouvernorat']??'')===$g?'selected':''?>><?=$g?></option><?php endforeach;?></select></div>
+                            <div><label class="text-xs font-bold">Horaires</label><input name="horaires" value="<?=htmlspecialchars($pt['horaires']??'')?>" class="w-full border rounded px-2 py-1 text-sm"></div>
+                        </div>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <div><label class="text-xs font-bold">Tél</label><input name="telephone" value="<?=$pt['telephone']?>" class="w-full border rounded px-2 py-1 text-sm"></div>
+                            <div><label class="text-xs font-bold">Tél 2</label><input name="telephone2" value="<?=$pt['telephone2']??''?>" class="w-full border rounded px-2 py-1 text-sm"></div>
+                            <div><label class="text-xs font-bold">Email</label><input name="email" value="<?=$pt['email']??''?>" class="w-full border rounded px-2 py-1 text-sm"></div>
+                            <div><label class="text-xs font-bold">Responsable</label><input name="responsable" value="<?=htmlspecialchars($pt['responsable'])?>" class="w-full border rounded px-2 py-1 text-sm"></div>
+                        </div>
+                        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                            <div><label class="text-xs font-bold">Lat</label><input name="latitude" type="number" step="0.000001" value="<?=$pt['latitude']?>" class="w-full border rounded px-2 py-1 text-sm font-mono"></div>
+                            <div><label class="text-xs font-bold">Lng</label><input name="longitude" type="number" step="0.000001" value="<?=$pt['longitude']?>" class="w-full border rounded px-2 py-1 text-sm font-mono"></div>
+                            <div><label class="text-xs font-bold">Comm. %</label><input name="commission_pct" type="number" step="0.1" value="<?=$pt['commission_pct']?>" class="w-full border rounded px-2 py-1 text-sm"></div>
+                            <div><label class="text-xs font-bold">Date contact</label><input name="date_contact" type="date" value="<?=$pt['date_contact']?>" class="w-full border rounded px-2 py-1 text-sm"></div>
+                            <div><label class="text-xs font-bold">Date contrat</label><input name="date_contrat" type="date" value="<?=$pt['date_contrat']??''?>" class="w-full border rounded px-2 py-1 text-sm"></div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div><label class="text-xs font-bold">Date activation</label><input name="date_activation" type="date" value="<?=$pt['date_activation']??''?>" class="w-full border rounded px-2 py-1 text-sm"></div>
+                            <div></div>
+                        </div>
+                        <div><label class="text-xs font-bold">Notes internes</label><textarea name="notes_internes" class="w-full border rounded px-2 py-1 text-sm" rows="2"><?=htmlspecialchars($pt['notes_internes']??'')?></textarea></div>
+                        <button class="bg-asel text-white px-4 py-1.5 rounded-lg text-sm font-bold w-full"><i class="bi bi-check-circle"></i> Enregistrer</button>
+                    </form>
+                </td>
+            </tr>
+            <?php endif; ?>
+        <?php endforeach; ?>
+        <?php if (empty($points)): ?>
+            <tr><td colspan="7" class="px-4 py-8 text-center text-gray-400"><i class="bi bi-geo-alt text-3xl"></i><p class="mt-2">Aucun point trouvé</p></td></tr>
+        <?php endif; ?>
+        </tbody>
+    </table></div>
+</div>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const nMap = L.map('networkMap').setView([36.79, 10.17], 8);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(nMap);
+
+const typeColors = <?=json_encode($type_colors)?>;
+const typeLabels = <?=json_encode($type_labels)?>;
+const statutLabels = <?=json_encode($statut_labels)?>;
+const bounds = [];
+
+<?php foreach ($points_map as $pt): ?>
+(function(){
+    const color = typeColors['<?=$pt['type_point']?>'] || '#666';
+    const icon = L.divIcon({
+        html: '<div style="background:'+color+';color:white;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,0.3);border:2px solid white"><?=substr($type_labels[$pt['type_point']]??'?',0,1)?></div>',
+        className: '', iconSize: [28, 28], iconAnchor: [14, 14]
+    });
+    bounds.push([<?=$pt['latitude']?>, <?=$pt['longitude']?>]);
+    L.marker([<?=$pt['latitude']?>, <?=$pt['longitude']?>], {icon})
+        .addTo(nMap)
+        .bindPopup('<div style="font-family:Inter,sans-serif;min-width:180px"><strong style="color:#1B3A5C"><?=addslashes($pt['nom'])?></strong><br><span style="font-size:11px;color:'+color+';font-weight:600">'+(typeLabels['<?=$pt['type_point']?>']||'')+'</span><br><span style="font-size:11px;color:#666"><?=addslashes($pt['adresse']??'')?></span><?=$pt['telephone']?'<br><span style="font-size:11px">'.addslashes($pt['telephone']).'</span>':''?><br><span style="font-size:10px;background:#f3f4f6;padding:1px 6px;border-radius:4px">'+(statutLabels['<?=$pt['statut']?>']||'<?=$pt['statut']?>')+'</span></div>');
+})();
+<?php endforeach; ?>
+
+if (bounds.length > 0) nMap.fitBounds(bounds, {padding: [30, 30]});
+else nMap.setView([36.79, 10.17], 7);
+
+function getNewPointLocation() {
+    if (!navigator.geolocation) { alert('Non supporté'); return; }
+    navigator.geolocation.getCurrentPosition(pos => {
+        document.getElementById('new_pt_lat').value = pos.coords.latitude.toFixed(6);
+        document.getElementById('new_pt_lng').value = pos.coords.longitude.toFixed(6);
+    }, err => { alert('Erreur: ' + err.message); }, {enableHighAccuracy:true,timeout:15000});
+}
+</script>
+<?php endif; ?>
 
 <!-- STOCK CENTRAL PAGE -->
 <?php if ($page === 'stock_central' && can('stock_central')):

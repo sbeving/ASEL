@@ -28,6 +28,7 @@ define('PERMISSIONS', [
         'update_franchise_location', 'create_echeances_lot',
         'dispatch_stock', 'manage_central',
         'add_franchise', 'edit_franchise', 'delete_franchise',
+        'points_reseau', 'add_point', 'edit_point', 'delete_point',
         // Scope
         'view_all_franchises', 'manage_users', 'manage_products',
     ],
@@ -35,6 +36,7 @@ define('PERMISSIONS', [
         'dashboard', 'stock', 'stock_central', 'entree', 'transferts', 'demandes',
         'ventes', 'rapports', 'clients', 'services', 'recharges', 'factures',
         'echeances', 'inventaire', 'notifications', 'mon_compte',
+        'points_reseau',
         // Actions
         'entree_stock', 'transfert', 'transfert_valider',
         'traiter_demande', 'dispatch', 'dispatch_stock', 'export',
