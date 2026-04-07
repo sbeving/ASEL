@@ -4,6 +4,8 @@ requireLogin();
 $page = $_GET['page'] ?? 'dashboard';
 $user = currentUser();
 $fid = scopedFranchiseId();
+$centralId = getCentralId();
+$retailFranchises = getRetailFranchises();
 
 // === RBAC: Check page permission ===
 requirePermission($page);
@@ -120,6 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($_POST['type_retour'] === 'retour')
             execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantite=quantite+VALUES(quantite)", [$rfid, $_POST['produit_id'], $_POST['quantite']]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Retour enregistré!'];
+        auditLog('retour', 'produit', $_POST['produit_id'], ['type'=>$_POST['type_retour'], 'qte'=>$_POST['quantite'], 'franchise'=>$rfid]);
     }
     elseif ($action === 'cloture_submit') {
         $cfid = can('view_all_franchises') ? $_POST['franchise_id'] : currentFranchise();
@@ -127,6 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         execute("INSERT INTO clotures (franchise_id,date_cloture,total_ventes_declare,total_articles_declare,total_ventes_systeme,total_articles_systeme,commentaire,utilisateur_id) VALUES (?,?,?,?,?,?,?,?)",
             [$cfid, $_POST['date_cloture'], $_POST['total_declare'], $_POST['articles_declare'], $sys['t'], $sys['a'], $_POST['commentaire'] ?? '', $user['id']]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Clôture soumise!'];
+        auditLog('cloture_submit', 'franchise', $cfid, ['date'=>$_POST['date_cloture'], 'declare'=>$_POST['total_declare'], 'systeme'=>$sys['t']]);
     }
     elseif ($action === 'add_produit') {
         execute("INSERT INTO produits (nom,categorie_id,prix_achat,prix_vente,reference,code_barre,marque,seuil_alerte) VALUES (?,?,?,?,?,?,?,?)",
@@ -134,17 +138,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pid = db()->lastInsertId();
         foreach (query("SELECT id FROM franchises WHERE actif=1") as $f) execute("INSERT IGNORE INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,0)", [$f['id'], $pid]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Produit ajouté!'];
+        auditLog('add_produit', 'produit', $pid, ['nom'=>$_POST['nom'], 'prix_vente'=>$_POST['prix_vente']]);
     }
     elseif ($action === 'edit_produit') {
         execute("UPDATE produits SET nom=?,categorie_id=?,prix_achat=?,prix_vente=?,reference=?,code_barre=?,marque=?,seuil_alerte=? WHERE id=?",
             [$_POST['nom'], $_POST['categorie_id'], $_POST['prix_achat'], $_POST['prix_vente'], $_POST['reference'] ?? '', $_POST['code_barre'] ?? '', $_POST['marque'] ?? '', $_POST['seuil'] ?? 3, $_POST['produit_id']]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Produit mis à jour!'];
+        auditLog('edit_produit', 'produit', $_POST['produit_id'], ['nom'=>$_POST['nom'], 'prix_vente'=>$_POST['prix_vente']]);
     }
     elseif ($action === 'demande_produit') {
         $dfid = can('view_all_franchises') ? $_POST['franchise_id'] : currentFranchise();
         execute("INSERT INTO demandes_produits (franchise_id,produit_id,nom_produit,quantite,urgence,note,demandeur_id) VALUES (?,?,?,?,?,?,?)",
             [$dfid, $_POST['produit_id'] ?: null, $_POST['nom_produit'] ?? '', $_POST['quantite'], $_POST['urgence'] ?? 'normal', $_POST['note'] ?? '', $user['id']]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Demande envoyée!'];
+        auditLog('demande_produit', 'franchise', $dfid, ['produit'=>$_POST['produit_id'], 'qte'=>$_POST['quantite'], 'urgence'=>$_POST['urgence']??'normal']);
     }
     elseif ($action === 'traiter_demande') {
         execute("UPDATE demandes_produits SET statut=?,gestionnaire_id=?,reponse=?,date_traitement=NOW() WHERE id=?",
@@ -154,15 +161,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($dem && $dem['produit_id']) {
                 execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantite=quantite+VALUES(quantite)", [$dem['franchise_id'], $dem['produit_id'], $dem['quantite']]);
                 execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,note,utilisateur_id) VALUES (?,?,'dispatch_in',?,?,?)", [$dem['franchise_id'], $dem['produit_id'], $dem['quantite'], 'Demande #'.$dem['id'], $user['id']]);
+                // Deduct from Stock Central
+                $cid = getCentralId();
+                if ($cid) {
+                    execute("UPDATE stock SET quantite=GREATEST(0,quantite-?) WHERE franchise_id=? AND produit_id=?", [$dem['quantite'], $cid, $dem['produit_id']]);
+                    execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,note,utilisateur_id) VALUES (?,?,'dispatch_out',?,?,?)", [$cid, $dem['produit_id'], $dem['quantite'], 'Dispatch → Demande #'.$dem['id'], $user['id']]);
+                }
             }
         }
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Demande traitée!'];
+        auditLog('traiter_demande', 'demande', $_POST['demande_id'], ['decision'=>$_POST['decision']]);
     }
     elseif ($action === 'add_user') {
         $pw = password_hash($_POST['password'], PASSWORD_DEFAULT);
         execute("INSERT INTO utilisateurs (nom_utilisateur,mot_de_passe,nom_complet,role,franchise_id) VALUES (?,?,?,?,?)",
             [$_POST['username'], $pw, $_POST['nom_complet'], $_POST['role'], $_POST['franchise_id'] ?: null]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Utilisateur créé!'];
+        auditLog('add_user', 'utilisateur', db()->lastInsertId(), ['username'=>$_POST['username'], 'role'=>$_POST['role']]);
     }
     elseif ($action === 'edit_user') {
         execute("UPDATE utilisateurs SET nom_complet=?,role=?,franchise_id=?,actif=? WHERE id=?",
@@ -170,36 +185,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!empty($_POST['new_password']))
             execute("UPDATE utilisateurs SET mot_de_passe=? WHERE id=?", [password_hash($_POST['new_password'], PASSWORD_DEFAULT), $_POST['user_id']]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Utilisateur mis à jour!'];
+        auditLog('edit_user', 'utilisateur', $_POST['user_id'], ['nom'=>$_POST['nom_complet'], 'role'=>$_POST['role'], 'actif'=>$_POST['actif']??1]);
     }
     elseif ($action === 'add_client') {
         $cfid = can('view_all_franchises') ? ($_POST['franchise_id'] ?? null) : currentFranchise();
         execute("INSERT INTO clients (nom,prenom,telephone,email,type_client,entreprise,matricule_fiscal,franchise_id) VALUES (?,?,?,?,?,?,?,?)",
             [$_POST['nom'], $_POST['prenom'] ?? '', $_POST['telephone'] ?? '', $_POST['email'] ?? '', $_POST['type_client'] ?? 'passager', $_POST['entreprise'] ?? '', $_POST['matricule_fiscal'] ?? '', $cfid]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Client ajouté!'];
+        auditLog('add_client', 'client', db()->lastInsertId(), ['nom'=>$_POST['nom'], 'type'=>$_POST['type_client']??'passager']);
     }
     elseif ($action === 'add_service') {
         execute("INSERT INTO services (nom,categorie_service,prix,description,duree_minutes) VALUES (?,?,?,?,?)",
             [$_POST['nom'], $_POST['categorie_service'], $_POST['prix'], $_POST['description'] ?? '', $_POST['duree_minutes'] ?? 15]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Service ajouté!'];
+        auditLog('add_service', 'service', db()->lastInsertId(), ['nom'=>$_POST['nom'], 'prix'=>$_POST['prix']]);
     }
     elseif ($action === 'edit_service') {
         execute("UPDATE services SET nom=?,categorie_service=?,prix=?,description=?,duree_minutes=?,actif=? WHERE id=?",
             [$_POST['nom'], $_POST['categorie_service'], $_POST['prix'], $_POST['description'] ?? '', $_POST['duree_minutes'] ?? 15, $_POST['actif'] ?? 1, $_POST['service_id']]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Service mis à jour!'];
+        auditLog('edit_service', 'service', $_POST['service_id'], ['nom'=>$_POST['nom']]);
     }
     elseif ($action === 'add_asel_product') {
         execute("INSERT INTO produits_asel (nom,type_produit,operateur,valeur_nominale,prix_vente,commission) VALUES (?,?,'ASEL',?,?,?)",
             [$_POST['nom'], $_POST['type_produit'], $_POST['valeur_nominale'], $_POST['prix_vente'], $_POST['commission'] ?? 0]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Produit ASEL ajouté!'];
+        auditLog('add_asel_product', 'produit_asel', db()->lastInsertId(), ['nom'=>$_POST['nom']]);
     }
     elseif ($action === 'edit_asel_product') {
         execute("UPDATE produits_asel SET nom=?,type_produit=?,valeur_nominale=?,prix_vente=?,commission=?,actif=? WHERE id=?",
             [$_POST['nom'], $_POST['type_produit'], $_POST['valeur_nominale'], $_POST['prix_vente'], $_POST['commission'] ?? 0, $_POST['actif'] ?? 1, $_POST['produit_id']]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Produit ASEL mis à jour!'];
+        auditLog('edit_asel_product', 'produit_asel', $_POST['produit_id'], ['nom'=>$_POST['nom']]);
     }
     elseif ($action === 'pay_echeance') {
         execute("UPDATE echeances SET statut='payee',date_paiement=NOW(),mode_paiement='especes' WHERE id=?", [$_POST['echeance_id']]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Échéance encaissée!'];
+        auditLog('pay_echeance', 'echeance', $_POST['echeance_id']);
     }
     elseif ($action === 'create_echeance') {
         execute("INSERT INTO echeances (facture_id,franchise_id,client_id,montant,date_echeance,note,utilisateur_id) VALUES (?,?,?,?,?,?,?)",
@@ -265,6 +287,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         execute("UPDATE clients SET nom=?,prenom=?,telephone=?,email=?,type_client=?,entreprise=?,matricule_fiscal=?,actif=? WHERE id=?",
             [$_POST['nom'], $_POST['prenom']??'', $_POST['telephone']??'', $_POST['email']??'', $_POST['type_client']??'passager', $_POST['entreprise']??'', $_POST['matricule_fiscal']??'', $_POST['actif']??1, $_POST['client_id']]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Client mis à jour!'];
+        auditLog('edit_client', 'client', $_POST['client_id'], ['nom'=>$_POST['nom']]);
     }
     elseif ($action === 'cancel_facture' && isAdmin()) {
         $fac = queryOne("SELECT * FROM factures WHERE id=?", [$_POST['facture_id']]);
@@ -283,10 +306,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             execute("UPDATE echeances SET statut='payee',note=CONCAT(IFNULL(note,''),' [Annulée]') WHERE facture_id=? AND statut='en_attente'", [$_POST['facture_id']]);
         }
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Facture annulée! Stock restauré.'];
+        auditLog('cancel_facture', 'facture', $_POST['facture_id'], ['numero'=>$fac['numero']]);
     }
     elseif ($action === 'validate_cloture' && isAdmin()) {
         execute("UPDATE clotures SET valide=1,validateur_id=?,date_validation=NOW() WHERE id=?", [$user['id'], $_POST['cloture_id']]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Clôture validée!'];
+        auditLog('validate_cloture', 'cloture', $_POST['cloture_id']);
     }
     elseif ($action === 'validate_inventaire' && isAdmin()) {
         execute("UPDATE inventaires SET statut='valide',validateur_id=?,date_validation=NOW() WHERE id=?", [$user['id'], $_POST['inventaire_id']]);
@@ -301,6 +326,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Inventaire validé! Stock ajusté.'];
+        auditLog('validate_inventaire', 'inventaire', $_POST['inventaire_id']);
     }
     elseif ($action === 'add_category' && isAdmin()) {
         execute("INSERT INTO categories (nom,description) VALUES (?,?)", [$_POST['nom'], $_POST['description']??'']);
@@ -314,19 +340,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Coordonnées mises à jour!'];
         auditLog('update_location', 'franchise', $_POST['franchise_id'], ['lat'=>$_POST['latitude'], 'lng'=>$_POST['longitude']]);
     }
+    elseif ($action === 'dispatch_stock' && isAdminOrGest()) {
+        // Dispatch from Stock Central to a franchise
+        $cid = getCentralId();
+        $dest_fid = intval($_POST['franchise_id']);
+        $pid = intval($_POST['produit_id']);
+        $qty = intval($_POST['quantite']);
+        $note = $_POST['note'] ?? '';
+        
+        // Check central stock
+        $cs = queryOne("SELECT quantite FROM stock WHERE franchise_id=? AND produit_id=?", [$cid, $pid]);
+        if (!$cs || $cs['quantite'] < $qty) {
+            $_SESSION['flash'] = ['type'=>'danger','msg'=>'Stock Central insuffisant! Disponible: '.($cs['quantite']??0)];
+            header("Location: index.php?page=stock_central"); exit;
+        }
+        
+        // Deduct from central
+        execute("UPDATE stock SET quantite=quantite-? WHERE franchise_id=? AND produit_id=?", [$qty, $cid, $pid]);
+        execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,note,utilisateur_id) VALUES (?,?,'dispatch_out',?,?,?)", [$cid, $pid, $qty, "Dispatch → franchise #$dest_fid".($note?" — $note":''), $user['id']]);
+        
+        // Add to destination franchise
+        execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantite=quantite+VALUES(quantite)", [$dest_fid, $pid, $qty]);
+        execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,note,utilisateur_id) VALUES (?,?,'dispatch_in',?,?,?)", [$dest_fid, $pid, $qty, "Dispatch depuis Stock Central".($note?" — $note":''), $user['id']]);
+        
+        // Record as transfert
+        execute("INSERT INTO transferts (franchise_source,franchise_dest,produit_id,quantite,type_transfert,statut,demandeur_id,validateur_id,date_validation,note) VALUES (?,?,?,?,'dispatch','accepte',?,?,NOW(),?)", [$cid, $dest_fid, $pid, $qty, $user['id'], $user['id'], $note]);
+        
+        $pnom = queryOne("SELECT nom FROM produits WHERE id=?", [$pid])['nom'] ?? '';
+        $fname = queryOne("SELECT nom FROM franchises WHERE id=?", [$dest_fid])['nom'] ?? '';
+        $_SESSION['flash'] = ['type'=>'success','msg'=>"Dispatché $qty × $pnom vers ".shortF($fname)."!"];
+        auditLog('dispatch_stock', 'produit', $pid, ['qte'=>$qty, 'dest'=>$dest_fid, 'dest_nom'=>$fname]);
+        $page = 'stock_central';
+    }
     
     header("Location: index.php?page=$page" . ($fid ? "&fid=$fid" : "")); exit;
 }
 
 // === Load data ===
-$franchises = query("SELECT * FROM franchises WHERE actif=1 ORDER BY nom");
+$franchises = getRetailFranchises();
+$allFranchises = query("SELECT * FROM franchises WHERE actif=1 ORDER BY nom");
 $categories = query("SELECT * FROM categories ORDER BY nom");
 $produits = query("SELECT p.*,c.nom as cat_nom FROM produits p JOIN categories c ON p.categorie_id=c.id WHERE p.actif=1 ORDER BY c.nom,p.nom");
 $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
 $csrf = csrfToken();
-
-// Short franchise name
-function shortF($name) { return str_replace('ASEL Mobile — ', '', $name); }
 ?>
 <!DOCTYPE html>
 <html lang="fr" class="h-full">
@@ -456,6 +512,7 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
             ['pos', 'bi-cart3', 'Point de vente'],
             ['stock', 'bi-box-seam', 'Stock'],
             ['---', '', 'OPÉRATIONS'],
+            ['stock_central', 'bi-building', 'Stock Central'],
             ['entree', 'bi-box-arrow-in-down', 'Entrée stock'],
             ['transferts', 'bi-arrow-left-right', 'Transferts'],
             ['demandes', 'bi-megaphone', 'Demandes'],
@@ -481,9 +538,15 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
             ['users', 'bi-people', 'Utilisateurs'],
             ['mon_compte', 'bi-person-gear', 'Mon compte'],
         ];
-        foreach ($nav as $item):
+        foreach ($nav as $idx => $item):
             if ($item[0] === '---'):
-                if (can($nav[array_search($item, $nav) + 1][0] ?? 'xxx')):
+                // Check if any item in this section is accessible
+                $section_has_items = false;
+                for ($si = $idx + 1; $si < count($nav); $si++) {
+                    if ($nav[$si][0] === '---') break;
+                    if (can($nav[$si][0])) { $section_has_items = true; break; }
+                }
+                if ($section_has_items):
         ?>
                 <div class="px-6 pt-4 pb-1 text-[10px] font-bold text-white/40 tracking-[0.2em]"><?= $item[2] ?></div>
         <?php endif; continue; endif;
@@ -1526,11 +1589,15 @@ function calcEcart(idx, sys, phys) {
     <div class="px-4 py-3 border-b font-semibold text-sm"><i class="bi bi-clock-history text-asel"></i> Mon activité récente</div>
     <div id="activityLog" class="p-4 text-sm text-gray-500">Chargement...</div>
     <script>
-    fetch('api.php?action=activity_log&limit=15').then(r=>r.json()).then(data=>{
+    fetch('api.php?action=my_audit_log&limit=20').then(r=>r.json()).then(data=>{
         const el=document.getElementById('activityLog');
         if(!data.length){el.innerHTML='<p class="text-center text-gray-300">Aucune activité</p>';return;}
-        el.innerHTML=data.map(m=>'<div class="py-2 border-b border-gray-100 flex justify-between"><div><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium '+(m.type_mouvement==='vente'?'bg-green-100 text-green-800':m.type_mouvement==='entree'?'bg-blue-100 text-blue-800':'bg-gray-100')+'">'+m.type_mouvement+'</span> <strong>'+m.pnom+'</strong> ×'+m.quantite+' <span class="text-gray-400">('+m.fnom+')</span></div><span class="text-xs text-gray-400">'+m.date_mouvement.substring(5,16)+'</span></div>').join('');
-    });
+        const colors={'vente':'bg-green-100 text-green-800','entree_stock':'bg-blue-100 text-blue-800','login':'bg-purple-100 text-purple-800','dispatch_stock':'bg-indigo-100 text-indigo-800','retour':'bg-orange-100 text-orange-800','transfert_demande':'bg-yellow-100 text-yellow-800','add_produit':'bg-cyan-100 text-cyan-800','edit_produit':'bg-cyan-100 text-cyan-800','add_client':'bg-pink-100 text-pink-800'};
+        el.innerHTML=data.map(m=>{
+            const c=colors[m.action]||'bg-gray-100';
+            return '<div class="py-2 border-b border-gray-100 flex justify-between"><div><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium '+c+'">'+m.action+'</span> '+(m.cible?'<strong>'+m.cible+(m.cible_id?' #'+m.cible_id:'')+'</strong>':'')+'</div><span class="text-xs text-gray-400">'+m.date_creation.substring(5,16)+'</span></div>';
+        }).join('');
+    }).catch(()=>{document.getElementById('activityLog').innerHTML='<p class="text-center text-gray-300">Erreur de chargement</p>';});
     </script>
 </div>
 <?php endif; ?>
@@ -1596,9 +1663,57 @@ function calcEcart(idx, sys, phys) {
 
 <!-- AUDIT LOG (admin only) -->
 <?php if ($page === 'audit_log' && isAdmin()):
-    $audit_logs = query("SELECT * FROM audit_logs ORDER BY date_creation DESC LIMIT 100");
+    $filter_user = $_GET['audit_user'] ?? '';
+    $filter_action = $_GET['audit_action'] ?? '';
+    $filter_d1 = $_GET['audit_d1'] ?? date('Y-m-d', strtotime('-7 days'));
+    $filter_d2 = $_GET['audit_d2'] ?? date('Y-m-d');
+    
+    $where = ["date_creation BETWEEN ? AND DATE_ADD(?, INTERVAL 1 DAY)"];
+    $params = [$filter_d1, $filter_d2];
+    if ($filter_user) { $where[] = "utilisateur_id=?"; $params[] = $filter_user; }
+    if ($filter_action) { $where[] = "action=?"; $params[] = $filter_action; }
+    
+    $audit_logs = query("SELECT * FROM audit_logs WHERE " . implode(' AND ', $where) . " ORDER BY date_creation DESC LIMIT 200", $params);
+    $all_users_audit = query("SELECT DISTINCT utilisateur_id, utilisateur_nom FROM audit_logs ORDER BY utilisateur_nom");
+    $all_actions_audit = query("SELECT DISTINCT action FROM audit_logs ORDER BY action");
 ?>
 <h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-journal-text text-asel"></i> Journal d'audit</h1>
+
+<!-- Filters -->
+<form class="bg-white rounded-xl shadow-sm p-4 mb-4 flex flex-wrap gap-3 items-end">
+    <input type="hidden" name="page" value="audit_log">
+    <div>
+        <label class="text-xs font-bold text-gray-500 block mb-1">Utilisateur</label>
+        <select name="audit_user" class="border-2 border-gray-200 rounded-lg px-3 py-2 text-sm">
+            <option value="">Tous</option>
+            <?php foreach ($all_users_audit as $au): ?>
+            <option value="<?=$au['utilisateur_id']?>" <?=$filter_user==$au['utilisateur_id']?'selected':''?>><?=htmlspecialchars($au['utilisateur_nom'])?></option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+    <div>
+        <label class="text-xs font-bold text-gray-500 block mb-1">Action</label>
+        <select name="audit_action" class="border-2 border-gray-200 rounded-lg px-3 py-2 text-sm">
+            <option value="">Toutes</option>
+            <?php foreach ($all_actions_audit as $aa): ?>
+            <option value="<?=$aa['action']?>" <?=$filter_action==$aa['action']?'selected':''?>><?=$aa['action']?></option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+    <div>
+        <label class="text-xs font-bold text-gray-500 block mb-1">Du</label>
+        <input type="date" name="audit_d1" value="<?=$filter_d1?>" class="border-2 border-gray-200 rounded-lg px-3 py-2 text-sm">
+    </div>
+    <div>
+        <label class="text-xs font-bold text-gray-500 block mb-1">Au</label>
+        <input type="date" name="audit_d2" value="<?=$filter_d2?>" class="border-2 border-gray-200 rounded-lg px-3 py-2 text-sm">
+    </div>
+    <button class="bg-asel text-white px-4 py-2 rounded-lg text-sm font-semibold"><i class="bi bi-funnel"></i> Filtrer</button>
+    <a href="?page=audit_log" class="text-gray-400 hover:text-gray-600 text-sm px-2 py-2">Réinitialiser</a>
+</form>
+
+<div class="text-xs text-gray-400 mb-2"><?=count($audit_logs)?> entrée(s) trouvée(s)</div>
+
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <div class="overflow-x-auto"><table class="w-full text-sm">
         <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider">
@@ -1611,7 +1726,21 @@ function calcEcart(idx, sys, phys) {
         </tr></thead>
         <tbody class="divide-y divide-gray-100">
         <?php foreach ($audit_logs as $log):
-            $action_colors = ['vente'=>'bg-green-100 text-green-800','entree_stock'=>'bg-blue-100 text-blue-800','transfert_demande'=>'bg-yellow-100 text-yellow-800','login'=>'bg-purple-100 text-purple-800','logout'=>'bg-gray-100 text-gray-800'];
+            $action_colors = [
+                'vente'=>'bg-green-100 text-green-800',
+                'entree_stock'=>'bg-blue-100 text-blue-800',
+                'dispatch_stock'=>'bg-indigo-100 text-indigo-800',
+                'transfert_demande'=>'bg-yellow-100 text-yellow-800',
+                'login'=>'bg-purple-100 text-purple-800',
+                'add_produit'=>'bg-cyan-100 text-cyan-800',
+                'edit_produit'=>'bg-cyan-100 text-cyan-800',
+                'add_user'=>'bg-pink-100 text-pink-800',
+                'edit_user'=>'bg-pink-100 text-pink-800',
+                'retour'=>'bg-orange-100 text-orange-800',
+                'cancel_facture'=>'bg-red-100 text-red-800',
+                'validate_inventaire'=>'bg-emerald-100 text-emerald-800',
+                'validate_cloture'=>'bg-emerald-100 text-emerald-800',
+            ];
         ?>
             <tr class="hover:bg-gray-50">
                 <td class="px-3 py-2 text-xs text-gray-400 whitespace-nowrap"><?=date('d/m H:i:s', strtotime($log['date_creation']))?></td>
@@ -1623,7 +1752,7 @@ function calcEcart(idx, sys, phys) {
             </tr>
         <?php endforeach; ?>
         <?php if (empty($audit_logs)): ?>
-            <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">Aucune activité enregistrée</td></tr>
+            <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">Aucune activité enregistrée pour ces filtres</td></tr>
         <?php endif; ?>
         </tbody>
     </table></div>
@@ -1632,16 +1761,21 @@ function calcEcart(idx, sys, phys) {
 
 <!-- FRANCHISE LOCATION EDITOR (admin only) -->
 <?php if ($page === 'franchise_locations' && isAdmin()):
-    $all_franchises = query("SELECT * FROM franchises WHERE actif=1 ORDER BY nom");
+    $all_franchises = query("SELECT * FROM franchises WHERE actif=1 ORDER BY type_franchise DESC, nom");
 ?>
 <h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-geo-alt text-asel"></i> Coordonnées des franchises</h1>
 
+<div class="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
+    <div class="px-4 py-3 border-b font-semibold text-sm text-asel-dark"><i class="bi bi-map text-asel"></i> Aperçu carte</div>
+    <div id="locationPreviewMap" style="height:300px"></div>
+</div>
+
 <div class="grid sm:grid-cols-2 gap-4 mb-6">
-    <?php foreach ($all_franchises as $f): ?>
+    <?php foreach ($all_franchises as $f): if ($f['type_franchise'] === 'central') continue; ?>
     <div class="bg-white rounded-xl shadow-sm p-5 border-l-4 border-asel">
-        <h3 class="font-bold text-asel-dark"><?=str_replace('ASEL Mobile — ', '', $f['nom'])?></h3>
-        <p class="text-xs text-gray-400 mb-3">📍 <?=$f['adresse']?></p>
-        <form method="POST" class="space-y-2">
+        <h3 class="font-bold text-asel-dark"><?=shortF($f['nom'])?></h3>
+        <p class="text-xs text-gray-400 mb-3"><i class="bi bi-geo-alt"></i> <?=$f['adresse']?></p>
+        <form method="POST" class="space-y-2" id="locForm_<?=$f['id']?>">
             <input type="hidden" name="_csrf" value="<?=$csrf?>">
             <input type="hidden" name="action" value="update_franchise_location">
             <input type="hidden" name="franchise_id" value="<?=$f['id']?>">
@@ -1656,45 +1790,270 @@ function calcEcart(idx, sys, phys) {
                 </div>
             </div>
             <div class="flex gap-2">
-                <button type="submit" class="bg-asel text-white px-4 py-2 rounded-lg text-xs font-bold flex-1">💾 Enregistrer</button>
-                <button type="button" onclick="getLocation(<?=$f['id']?>)" class="bg-green-500 text-white px-4 py-2 rounded-lg text-xs font-bold">📍 Ma position</button>
+                <button type="submit" class="bg-asel text-white px-4 py-2 rounded-lg text-xs font-bold flex-1"><i class="bi bi-check-circle"></i> Enregistrer</button>
+                <button type="button" onclick="getLocation(<?=$f['id']?>)" id="geoBtn_<?=$f['id']?>" class="bg-green-500 text-white px-4 py-2 rounded-lg text-xs font-bold"><i class="bi bi-crosshair" id="geoIcon_<?=$f['id']?>"></i> Ma position</button>
             </div>
+            <div id="geoStatus_<?=$f['id']?>" class="text-xs mt-1 hidden"></div>
         </form>
         <?php if ($f['latitude'] && $f['longitude']): ?>
-        <a href="https://www.google.com/maps?q=<?=$f['latitude']?>,<?=$f['longitude']?>" target="_blank" class="text-asel text-xs hover:underline mt-2 inline-block">🗺️ Voir sur la carte</a>
+        <a href="https://www.google.com/maps?q=<?=$f['latitude']?>,<?=$f['longitude']?>" target="_blank" class="text-asel text-xs hover:underline mt-2 inline-flex items-center gap-1"><i class="bi bi-map"></i> Voir sur Google Maps</a>
         <?php endif; ?>
     </div>
     <?php endforeach; ?>
 </div>
 
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+// Initialize preview map
+const locMap = L.map('locationPreviewMap').setView([36.79, 10.17], 11);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(locMap);
+const aselIcon = L.divIcon({
+    html: '<div style="background:#2AABE2;color:white;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.3);border:2px solid white">A</div>',
+    className: '', iconSize: [32, 32], iconAnchor: [16, 16]
+});
+<?php foreach ($all_franchises as $f): if ($f['latitude'] && $f['longitude'] && $f['type_franchise'] !== 'central'): ?>
+L.marker([<?=$f['latitude']?>, <?=$f['longitude']?>], {icon: aselIcon}).addTo(locMap).bindPopup('<strong><?=addslashes(shortF($f["nom"]))?></strong>');
+<?php endif; endforeach; ?>
+
 function getLocation(fid) {
+    const btn = document.getElementById('geoBtn_' + fid);
+    const icon = document.getElementById('geoIcon_' + fid);
+    const status = document.getElementById('geoStatus_' + fid);
+    
+    // Check if geolocation is available
     if (!navigator.geolocation) {
-        alert('Géolocalisation non supportée par ce navigateur');
+        status.className = 'text-xs mt-1 text-red-500';
+        status.textContent = 'Géolocalisation non supportée par ce navigateur';
+        status.classList.remove('hidden');
         return;
     }
+    
+    // Check HTTPS (geolocation requires secure context)
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+        status.className = 'text-xs mt-1 text-amber-600';
+        status.textContent = '⚠️ HTTPS requis pour la géolocalisation. Saisissez les coordonnées manuellement.';
+        status.classList.remove('hidden');
+        return;
+    }
+    
+    // Show loading state
+    btn.disabled = true;
+    icon.className = 'bi bi-arrow-repeat animate-spin';
+    btn.innerHTML = '<i class="bi bi-arrow-repeat" style="animation:spin 1s linear infinite"></i> Localisation...';
+    status.className = 'text-xs mt-1 text-blue-500';
+    status.textContent = 'Acquisition de la position GPS...';
+    status.classList.remove('hidden');
+    
     navigator.geolocation.getCurrentPosition(
         (pos) => {
             document.getElementById('lat_' + fid).value = pos.coords.latitude.toFixed(6);
             document.getElementById('lng_' + fid).value = pos.coords.longitude.toFixed(6);
+            
+            // Update map
+            L.marker([pos.coords.latitude, pos.coords.longitude], {icon: aselIcon}).addTo(locMap);
+            locMap.setView([pos.coords.latitude, pos.coords.longitude], 15);
+            
+            // Success state
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> Position trouvée!';
+            btn.className = 'bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold';
+            status.className = 'text-xs mt-1 text-green-600';
+            status.textContent = '✅ Position: ' + pos.coords.latitude.toFixed(4) + ', ' + pos.coords.longitude.toFixed(4) + ' (précision: ±' + Math.round(pos.coords.accuracy) + 'm)';
+            
+            // Reset button after 3s
+            setTimeout(() => {
+                btn.innerHTML = '<i class="bi bi-crosshair"></i> Ma position';
+                btn.className = 'bg-green-500 text-white px-4 py-2 rounded-lg text-xs font-bold';
+            }, 3000);
         },
         (err) => {
-            alert('Erreur géolocalisation: ' + err.message);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-crosshair"></i> Ma position';
+            status.classList.remove('hidden');
+            
+            let msg = '';
+            switch(err.code) {
+                case err.PERMISSION_DENIED:
+                    msg = '❌ Permission refusée. Autorisez la géolocalisation dans les paramètres du navigateur.';
+                    break;
+                case err.POSITION_UNAVAILABLE:
+                    msg = '❌ Position non disponible. Vérifiez que le GPS est activé.';
+                    break;
+                case err.TIMEOUT:
+                    msg = '❌ Délai dépassé. Réessayez dans un endroit avec meilleur signal.';
+                    break;
+                default:
+                    msg = '❌ Erreur inconnue: ' + err.message;
+            }
+            status.className = 'text-xs mt-1 text-red-500';
+            status.textContent = msg;
         },
-        { enableHighAccuracy: true, timeout: 10000 }
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
 }
 </script>
+<style>@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }</style>
 <?php endif; ?>
 
     </div>
 </main>
 
+<!-- STOCK CENTRAL PAGE -->
+<?php if ($page === 'stock_central' && can('stock_central')):
+    $cid = getCentralId();
+    $central_stock = query("SELECT s.*,p.nom as pnom,p.prix_vente,p.prix_achat,p.reference,p.marque,c.nom as cnom FROM stock s JOIN produits p ON s.produit_id=p.id JOIN categories c ON p.categorie_id=c.id WHERE s.franchise_id=? AND p.actif=1 ORDER BY c.nom,p.nom", [$cid]);
+    $central_total_qty = array_sum(array_column($central_stock, 'quantite'));
+    $central_total_val = 0;
+    foreach ($central_stock as $cs) $central_total_val += $cs['quantite'] * $cs['prix_vente'];
+    $recent_dispatches = query("SELECT t.*,p.nom as pnom,fd.nom as dest_nom FROM transferts t JOIN produits p ON t.produit_id=p.id JOIN franchises fd ON t.franchise_dest=fd.id WHERE t.franchise_source=? ORDER BY t.date_demande DESC LIMIT 20", [$cid]);
+?>
+<main class="lg:ml-64 pt-14 lg:pt-0 min-h-screen">
+    <div class="p-4 lg:p-6 max-w-7xl mx-auto">
+    
+    <?php if ($flash): ?>
+    <div class="mb-4 p-4 rounded-xl flex items-center gap-3 <?=$flash['type']==='success'?'bg-green-50 text-green-800 border border-green-200':'bg-red-50 text-red-800 border border-red-200'?>">
+        <i class="bi <?=$flash['type']==='success'?'bi-check-circle-fill':'bi-exclamation-circle-fill'?> text-lg"></i>
+        <span class="text-sm font-medium"><?=$flash['msg']?></span>
+    </div>
+    <?php endif; ?>
+    
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-building text-asel"></i> Stock Central (Entrepôt)</h1>
+        <a href="api.php?action=export_stock&fid=<?=$cid?>" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export</a>
+    </div>
+    
+    <!-- KPIs -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-xl p-5 shadow-sm border-l-4 border-indigo-500 hover-lift">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Articles en stock</div>
+            <div class="text-2xl font-black text-asel-dark mt-1"><?=number_format($central_total_qty)?></div>
+        </div>
+        <div class="bg-white rounded-xl p-5 shadow-sm border-l-4 border-emerald-500 hover-lift">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Valeur totale</div>
+            <div class="text-2xl font-black text-asel-dark mt-1"><?=number_format($central_total_val)?> DT</div>
+        </div>
+        <div class="bg-white rounded-xl p-5 shadow-sm border-l-4 border-amber-500 hover-lift">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Références</div>
+            <div class="text-2xl font-black text-asel-dark mt-1"><?=count(array_filter($central_stock, fn($s)=>$s['quantite']>0))?></div>
+            <div class="text-xs text-gray-400">avec stock &gt; 0</div>
+        </div>
+        <div class="bg-white rounded-xl p-5 shadow-sm border-l-4 border-purple-500 hover-lift">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Dispatches récents</div>
+            <div class="text-2xl font-black text-asel-dark mt-1"><?=count($recent_dispatches)?></div>
+        </div>
+    </div>
+    
+    <!-- Dispatch Form -->
+    <div class="form-card mb-6">
+        <h3><i class="bi bi-truck text-indigo-500"></i> Dispatcher vers une franchise</h3>
+        <form method="POST" class="space-y-3">
+            <input type="hidden" name="_csrf" value="<?=$csrf?>">
+            <input type="hidden" name="action" value="dispatch_stock">
+            <div class="form-row form-row-4">
+                <div class="col-span-2 sm:col-span-1">
+                    <label class="form-label">Produit</label>
+                    <select name="produit_id" class="ts-select w-full" data-placeholder="Rechercher un produit..." required>
+                        <?php foreach ($central_stock as $cs): if ($cs['quantite'] <= 0) continue; ?>
+                        <option value="<?=$cs['produit_id']?>"><?=htmlspecialchars($cs['pnom'])?> (<?=$cs['cnom']?>) — Stock: <?=$cs['quantite']?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Franchise destination</label>
+                    <select name="franchise_id" class="form-input" required>
+                        <?php foreach ($franchises as $f): ?>
+                        <option value="<?=$f['id']?>"><?=shortF($f['nom'])?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Quantité</label>
+                    <input type="number" name="quantite" min="1" value="1" required class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Note</label>
+                    <input type="text" name="note" class="form-input" placeholder="Optionnel...">
+                </div>
+            </div>
+            <button type="submit" class="btn-submit" style="background:#4f46e5"><i class="bi bi-truck"></i> Dispatcher</button>
+        </form>
+    </div>
+    
+    <!-- Entrée stock central -->
+    <div class="form-card mb-6">
+        <h3><i class="bi bi-box-arrow-in-down text-asel"></i> Réception au Stock Central</h3>
+        <form method="POST" class="space-y-3">
+            <input type="hidden" name="_csrf" value="<?=$csrf?>">
+            <input type="hidden" name="action" value="entree_stock">
+            <input type="hidden" name="franchise_id" value="<?=$cid?>">
+            <div class="form-row form-row-3">
+                <div>
+                    <label class="form-label">Produit</label>
+                    <select name="produit_id" class="ts-select w-full" data-placeholder="Rechercher un produit..."><?php foreach ($produits as $p): ?><option value="<?=$p['id']?>"><?=$p['nom']?> (<?=$p['cat_nom']?>)</option><?php endforeach; ?></select>
+                </div>
+                <div>
+                    <label class="form-label">Quantité</label>
+                    <input type="number" name="quantite" min="1" value="1" required class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Note</label>
+                    <input type="text" name="note" class="form-input" placeholder="Fournisseur, BL...">
+                </div>
+            </div>
+            <button type="submit" class="btn-submit"><i class="bi bi-box-arrow-in-down"></i> Réceptionner</button>
+        </form>
+    </div>
+    
+    <!-- Central Stock Table -->
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
+        <div class="px-4 py-3 border-b font-semibold text-sm text-asel-dark flex items-center gap-2"><i class="bi bi-box-seam text-asel"></i> Inventaire Stock Central</div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead><tr class="bg-indigo-900 text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Catégorie</th><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3 text-left hidden sm:table-cell">Marque</th><th class="px-3 py-3 text-center">Qté</th><th class="px-3 py-3 text-right">P.V.</th><th class="px-3 py-3 text-right hidden sm:table-cell">Valeur</th></tr></thead>
+                <tbody class="divide-y divide-gray-100"><?php foreach ($central_stock as $s): $v=$s['quantite']*$s['prix_vente']; ?>
+                    <tr class="hover:bg-gray-50 <?=$s['quantite']<=0?'bg-red-50/50':($s['quantite']<=3?'bg-amber-50/30':'')?>">
+                        <td class="px-3 py-2 text-xs"><?=$s['cnom']?></td>
+                        <td class="px-3 py-2 font-medium"><?=htmlspecialchars($s['pnom'])?></td>
+                        <td class="px-3 py-2 text-xs text-gray-400 hidden sm:table-cell"><?=$s['marque']?></td>
+                        <td class="px-3 py-2 text-center"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold <?=$s['quantite']<=0?'bg-red-100 text-red-800':($s['quantite']<=3?'bg-amber-100 text-amber-800':'bg-green-100 text-green-800')?>"><?=$s['quantite']?></span></td>
+                        <td class="px-3 py-2 text-right"><?=number_format($s['prix_vente'],1)?></td>
+                        <td class="px-3 py-2 text-right font-medium hidden sm:table-cell"><?=number_format($v,0)?></td>
+                    </tr>
+                <?php endforeach; ?></tbody>
+                <tfoot><tr class="bg-indigo-900 text-white font-bold"><td colspan="3" class="px-3 py-3">TOTAL</td><td class="px-3 py-3 text-center"><?=number_format($central_total_qty)?></td><td class="px-3 py-3"></td><td class="px-3 py-3 text-right hidden sm:table-cell"><?=number_format($central_total_val)?> DT</td></tr></tfoot>
+            </table>
+        </div>
+    </div>
+    
+    <!-- Recent Dispatches -->
+    <?php if ($recent_dispatches): ?>
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div class="px-4 py-3 border-b font-semibold text-sm text-asel-dark"><i class="bi bi-truck text-indigo-500"></i> Derniers dispatches</div>
+        <div class="overflow-x-auto"><table class="w-full text-sm">
+            <thead><tr class="bg-gray-50 text-xs"><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Produit</th><th class="px-3 py-2">Qté</th><th class="px-3 py-2 text-left">Destination</th><th class="px-3 py-2">Statut</th></tr></thead>
+            <tbody class="divide-y"><?php foreach ($recent_dispatches as $d): ?>
+                <tr class="hover:bg-gray-50">
+                    <td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m H:i',strtotime($d['date_demande']))?></td>
+                    <td class="px-3 py-2 font-medium"><?=htmlspecialchars($d['pnom'])?></td>
+                    <td class="px-3 py-2 text-center font-bold"><?=$d['quantite']?></td>
+                    <td class="px-3 py-2 text-xs"><?=shortF($d['dest_nom'])?></td>
+                    <td class="px-3 py-2 text-center"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800"><?=$d['statut']?></span></td>
+                </tr>
+            <?php endforeach; ?></tbody>
+        </table></div>
+    </div>
+    <?php endif; ?>
+    
+    </div>
+</main>
+<?php endif; ?>
+
 <!-- Footer -->
 <footer class="lg:ml-64 bg-white border-t py-3 px-6 text-center text-xs text-gray-400">
-    <span>© <?=date('Y')?> ASEL Mobile</span> · 
-    <a href="map.php" target="_blank" class="text-asel hover:underline">🗺️ Nos franchises</a> · 
-    <span>v10.0</span>
+    <span>&copy; <?=date('Y')?> ASEL Mobile</span> &middot; 
+    <a href="map.php" target="_blank" class="text-asel hover:underline"><i class="bi bi-map"></i> Nos franchises</a> &middot; 
+    <span>v11.0</span>
 </footer>
 
 <!-- Global Barcode Scanner Modal -->

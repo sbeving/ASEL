@@ -147,6 +147,13 @@ case 'activity_log':
     echo json_encode($data);
     break;
 
+// === MY AUDIT LOG (for Mon Compte page) ===
+case 'my_audit_log':
+    $limit = intval($_GET['limit'] ?? 20);
+    $data = query("SELECT * FROM audit_logs WHERE utilisateur_id=? ORDER BY date_creation DESC LIMIT ?", [$user['id'], $limit]);
+    echo json_encode($data);
+    break;
+
 // === RECEIPT (thermal printer format) ===
 case 'receipt':
     $facture_id = intval($_GET['id'] ?? 0);

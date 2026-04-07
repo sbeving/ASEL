@@ -1,7 +1,7 @@
 <?php
 /**
- * ASEL Mobile — Zero Trust RBAC Middleware
- * Every request goes through permission checks
+ * ASEL Mobile — Zero Trust RBAC Middleware v2
+ * Enhanced audit logging + Stock Central support
  */
 session_start();
 require_once __DIR__ . '/config.php';
@@ -9,28 +9,38 @@ require_once __DIR__ . '/config.php';
 // === ROLE PERMISSIONS MATRIX ===
 define('PERMISSIONS', [
     'admin' => [
+        // Pages
         'dashboard', 'pos', 'stock', 'entree', 'transferts', 'demandes',
         'retours', 'cloture', 'ventes', 'rapports', 'produits', 'users',
-        'franchises_mgmt', 'franchise_locations', 'audit_log', 'settings', 'clients', 'services', 'recharges', 'factures',
-        'gestion_services', 'gestion_asel', 'echeances', 'inventaire', 'notifications', 'mon_compte',
+        'franchises_mgmt', 'franchise_locations', 'audit_log', 'settings',
+        'clients', 'services', 'recharges', 'factures',
+        'gestion_services', 'gestion_asel', 'echeances', 'inventaire',
+        'notifications', 'mon_compte', 'stock_central',
         // Actions
         'vente', 'entree_stock', 'transfert', 'transfert_valider',
         'retour', 'cloture_submit', 'add_produit', 'edit_produit',
         'demande_produit', 'traiter_demande', 'edit_user', 'add_user',
         'dispatch', 'export', 'add_client', 'edit_client', 'add_service',
         'edit_service', 'add_asel_product', 'edit_asel_product',
-        'vente_recharge', 'create_facture', 'pay_echeance', 'create_echeance', 'submit_inventaire', 'edit_client', 'cancel_facture', 'validate_cloture', 'validate_inventaire', 'add_category',
+        'vente_recharge', 'create_facture', 'pay_echeance', 'create_echeance',
+        'submit_inventaire', 'cancel_facture', 'validate_cloture',
+        'validate_inventaire', 'add_category', 'toggle_produit',
+        'update_franchise_location', 'create_echeances_lot',
+        'dispatch_stock', 'manage_central',
         // Scope
         'view_all_franchises', 'manage_users', 'manage_products',
     ],
     'gestionnaire' => [
-        'dashboard', 'stock', 'entree', 'transferts', 'demandes',
-        'ventes', 'rapports', 'dispatch', 'clients', 'services', 'recharges', 'factures',
+        'dashboard', 'stock', 'stock_central', 'entree', 'transferts', 'demandes',
+        'ventes', 'rapports', 'clients', 'services', 'recharges', 'factures',
         'echeances', 'inventaire', 'notifications', 'mon_compte',
         // Actions
         'entree_stock', 'transfert', 'transfert_valider',
-        'traiter_demande', 'dispatch', 'export', 'add_client',
-        'vente_recharge', 'create_facture', 'pay_echeance', 'create_echeance', 'submit_inventaire', 'edit_client', 'cancel_facture', 'validate_cloture', 'validate_inventaire', 'add_category',
+        'traiter_demande', 'dispatch', 'dispatch_stock', 'export',
+        'add_client', 'edit_client',
+        'vente_recharge', 'create_facture', 'pay_echeance', 'create_echeance',
+        'submit_inventaire', 'cancel_facture', 'validate_cloture',
+        'validate_inventaire', 'add_category', 'create_echeances_lot',
         // Scope
         'view_all_franchises',
     ],
@@ -41,11 +51,13 @@ define('PERMISSIONS', [
         'echeances', 'inventaire', 'notifications', 'mon_compte',
         // Actions
         'vente', 'entree_stock', 'transfert', 'retour',
-        'cloture_submit', 'demande_produit', 'add_client',
-        'vente_recharge', 'create_facture', 'pay_echeance', 'create_echeance', 'submit_inventaire', 'edit_client', 'cancel_facture', 'validate_cloture', 'validate_inventaire', 'add_category',
+        'cloture_submit', 'demande_produit', 'add_client', 'edit_client',
+        'vente_recharge', 'create_facture', 'pay_echeance', 'create_echeance',
+        'submit_inventaire', 'validate_cloture', 'validate_inventaire',
+        'add_category', 'create_echeances_lot',
     ],
     'viewer' => [
-        'dashboard', 'stock', 'ventes',
+        'dashboard', 'stock', 'ventes', 'mon_compte', 'notifications',
     ],
 ]);
 
@@ -64,7 +76,7 @@ function can($permission) {
 function requirePermission($permission) {
     if (!can($permission)) {
         http_response_code(403);
-        die('<div style="text-align:center;padding:60px;font-family:Inter,sans-serif"><h1>🔒 Accès refusé</h1><p>Vous n\'avez pas la permission d\'accéder à cette page.</p><a href="index.php">← Retour</a></div>');
+        die('<div style="text-align:center;padding:60px;font-family:Inter,sans-serif"><h1 style="color:#E63946">🔒 Accès refusé</h1><p style="color:#666">Vous n\'avez pas la permission d\'accéder à cette ressource.</p><a href="index.php" style="color:#2AABE2">← Retour au tableau de bord</a></div>');
     }
 }
 
@@ -81,6 +93,21 @@ function scopedFranchiseId() {
         return $_GET['fid'] ?? null; // Admin/gestionnaire can filter
     }
     return currentFranchise(); // Franchise users locked to their own
+}
+
+// Get Stock Central franchise ID
+function getCentralId() {
+    static $id = null;
+    if ($id === null) {
+        $row = queryOne("SELECT id FROM franchises WHERE type_franchise='central' LIMIT 1");
+        $id = $row ? $row['id'] : 0;
+    }
+    return $id;
+}
+
+// Get only point-de-vente franchises (exclude central)
+function getRetailFranchises() {
+    return query("SELECT * FROM franchises WHERE actif=1 AND (type_franchise='point_de_vente' OR type_franchise IS NULL) ORDER BY nom");
 }
 
 function query($sql, $params = []) {
@@ -120,7 +147,10 @@ function roleBadge($role) {
     };
 }
 
-// === AUDIT LOGGING ===
+// Short franchise name
+function shortF($name) { return str_replace(['ASEL Mobile — ', 'ASEL Mobile - '], '', $name); }
+
+// === AUDIT LOGGING (Enhanced) ===
 function auditLog($action, $cible = null, $cible_id = null, $details = null) {
     $user = currentUser();
     if (!$user) return;
