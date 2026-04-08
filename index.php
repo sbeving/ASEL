@@ -1027,10 +1027,30 @@ elseif ($page === 'pos'):
             </div>
             <div id="barcodeResult" class="mt-2 text-sm"></div>
             <div id="cameraZone" style="display:none" class="mt-3">
-                <div id="reader" class="rounded-lg overflow-hidden"></div>
-                <div class="flex justify-between items-center mt-2">
-                    <p class="text-xs text-gray-400">Pointez vers le code-barres</p>
-                    <button onclick="toggleCamera()" class="text-xs text-red-500 hover:text-red-700"><i class="bi bi-x-circle"></i> Fermer</button>
+                <div class="relative rounded-xl overflow-hidden bg-black">
+                    <div id="reader" class="rounded-xl overflow-hidden"></div>
+                    <!-- Scan guide overlay -->
+                    <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+                        <div class="border-2 border-asel/60 rounded-lg" style="width:260px;height:110px;box-shadow:0 0 0 9999px rgba(0,0,0,0.4)">
+                            <div class="w-full h-full relative">
+                                <div class="absolute top-0 left-0 w-5 h-5 border-t-3 border-l-3 border-asel rounded-tl-sm"></div>
+                                <div class="absolute top-0 right-0 w-5 h-5 border-t-3 border-r-3 border-asel rounded-tr-sm"></div>
+                                <div class="absolute bottom-0 left-0 w-5 h-5 border-b-3 border-l-3 border-asel rounded-bl-sm"></div>
+                                <div class="absolute bottom-0 right-0 w-5 h-5 border-b-3 border-r-3 border-asel rounded-br-sm"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Animated scan line -->
+                    <div class="absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 pointer-events-none" style="width:240px">
+                        <div class="h-0.5 bg-gradient-to-r from-transparent via-red-500 to-transparent animate-pulse"></div>
+                    </div>
+                </div>
+                <div class="flex justify-between items-center mt-2 px-1">
+                    <p class="text-xs text-gray-400"><i class="bi bi-lightbulb"></i> Alignez le code-barres dans le cadre</p>
+                    <div class="flex gap-3">
+                        <button onclick="toggleTorch()" class="text-xs text-gray-500 hover:text-yellow-500 flex items-center gap-1" id="torchBtn"><i class="bi bi-lightning-fill"></i> Flash</button>
+                        <button onclick="toggleCamera()" class="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"><i class="bi bi-x-circle"></i> Fermer</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1224,7 +1244,83 @@ document.addEventListener('keydown',e=>{
     if(bi&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)&&/^[a-zA-Z0-9]$/.test(e.key))bi.focus();
 });
 let html5QrcodeScanner=null,cameraActive=false;
-function toggleCamera(){const z=document.getElementById('cameraZone'),ic=document.getElementById('cameraIcon');if(cameraActive){if(html5QrcodeScanner){html5QrcodeScanner.stop().then(()=>{html5QrcodeScanner.clear();html5QrcodeScanner=null}).catch(e=>{})}z.style.display='none';ic.className='bi bi-camera';cameraActive=false}else{z.style.display='block';ic.className='bi bi-camera-video-off';cameraActive=true;html5QrcodeScanner=new Html5Qrcode("reader");html5QrcodeScanner.start({facingMode:"environment"},{fps:10,qrbox:{width:250,height:100},aspectRatio:2.0},(t)=>{scanBarcode(t);html5QrcodeScanner.pause(true);setTimeout(()=>{if(cameraActive&&html5QrcodeScanner)try{html5QrcodeScanner.resume()}catch(e){}},1500)},(e)=>{}).catch(e=>{document.getElementById('barcodeResult').innerHTML='<span class="text-red-500">Caméra non disponible</span>';z.style.display='none';ic.className='bi bi-camera';cameraActive=false})}}
+let torchOn=false;
+
+function toggleTorch(){
+    if(!html5QrcodeScanner)return;
+    try{
+        const track=html5QrcodeScanner.getRunningTrackCameraCapabilities?.()?.torchFeature?.();
+        if(track){
+            torchOn=!torchOn;
+            track.apply(torchOn);
+            document.getElementById('torchBtn').classList.toggle('text-yellow-500',torchOn);
+            document.getElementById('torchBtn').classList.toggle('text-gray-500',!torchOn);
+        }else{
+            // Fallback: try via video track directly
+            const videoEl = document.querySelector('#reader video');
+            if(videoEl && videoEl.srcObject){
+                const track = videoEl.srcObject.getVideoTracks()[0];
+                if(track){
+                    torchOn=!torchOn;
+                    track.applyConstraints({advanced:[{torch:torchOn}]}).catch(()=>{});
+                    const btn=document.getElementById('torchBtn');
+                    if(btn){btn.classList.toggle('text-yellow-500',torchOn);btn.classList.toggle('text-gray-500',!torchOn);}
+                }
+            }
+        }
+    }catch(e){showToast('Flash non supporté','error');}
+}
+
+function toggleCamera(){
+    const z=document.getElementById('cameraZone'),ic=document.getElementById('cameraIcon'),badge=document.getElementById('cameraBadge');
+    if(cameraActive){
+        if(html5QrcodeScanner){html5QrcodeScanner.stop().then(()=>{html5QrcodeScanner.clear();html5QrcodeScanner=null}).catch(e=>{})}
+        z.style.display='none';ic.className='bi bi-camera';cameraActive=false;
+        if(badge)badge.classList.add('hidden');
+    } else {
+        z.style.display='block';ic.className='bi bi-camera-video-off';cameraActive=true;
+        if(badge)badge.classList.remove('hidden');
+        html5QrcodeScanner=new Html5Qrcode("reader");
+        // Optimized for PHONE CAMERA barcode scanning
+        html5QrcodeScanner.start(
+            {facingMode:"environment"},
+            {
+                fps: 15,                    // Higher FPS for faster detection
+                qrbox: {width:280,height:120}, // Wide box for barcodes
+                aspectRatio: 1.777,         // 16:9 for phone cameras
+                disableFlip: false,
+                experimentalFeatures: {useBarCodeDetectorIfSupported: true}, // Use native BarcodeDetector API if available
+                formatsToSupport: [
+                    0, // QR_CODE
+                    2, // CODE_128
+                    3, // CODE_39
+                    4, // CODE_93
+                    7, // EAN_13
+                    8, // EAN_8
+                    10, // ITF
+                    11, // UPC_A
+                    12, // UPC_E
+                ],
+            },
+            (decodedText)=>{
+                beepOk();
+                scanBarcode(decodedText);
+                // Brief pause then auto-resume for continuous scanning
+                html5QrcodeScanner.pause(true);
+                setTimeout(()=>{
+                    if(cameraActive&&html5QrcodeScanner){
+                        try{html5QrcodeScanner.resume()}catch(e){}
+                    }
+                },800); // Shorter pause = faster continuous scanning
+            },
+            (error)=>{/* ignore scan errors */}
+        ).catch(e=>{
+            document.getElementById('barcodeResult').innerHTML='<span class="text-red-500"><i class="bi bi-exclamation-triangle"></i> Caméra non disponible. Vérifiez les permissions.</span>';
+            z.style.display='none';ic.className='bi bi-camera';cameraActive=false;
+            if(badge)badge.classList.add('hidden');
+        });
+    }
+}
 </script>
 
 <?php
@@ -3195,8 +3291,14 @@ function closeFab(){document.getElementById('fabActions').classList.add('hidden'
             <button onclick="closeScanner()" class="text-white/70 hover:text-white text-xl leading-none">&times;</button>
         </div>
         <div class="p-4">
-            <div id="globalReader" class="rounded-lg overflow-hidden bg-gray-900"></div>
-            <p class="text-xs text-gray-400 text-center mt-2">Pointez la caméra vers le code-barres</p>
+            <div class="relative rounded-xl overflow-hidden bg-black">
+                <div id="globalReader" class="rounded-xl overflow-hidden"></div>
+                <!-- Scan guide -->
+                <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+                    <div class="border-2 border-white/40 rounded-lg" style="width:240px;height:100px;box-shadow:0 0 0 9999px rgba(0,0,0,0.5)"></div>
+                </div>
+            </div>
+            <p class="text-xs text-gray-400 text-center mt-2"><i class="bi bi-lightbulb"></i> Alignez le code-barres dans le cadre</p>
             <div id="scannerResult" class="mt-2 text-center text-sm"></div>
         </div>
         <div class="px-4 pb-4">
@@ -3224,7 +3326,13 @@ function openScanner(inputId) {
     globalScanner = new Html5Qrcode("globalReader");
     globalScanner.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 100 }, aspectRatio: 2.0 },
+        {
+            fps: 15,
+            qrbox: { width: 240, height: 100 },
+            aspectRatio: 1.777,
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+            formatsToSupport: [0, 2, 3, 4, 7, 8, 10, 11, 12],
+        },
         (decodedText) => {
             // Success!
             if (scannerTargetInput) {
