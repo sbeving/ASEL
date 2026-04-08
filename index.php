@@ -1351,19 +1351,51 @@ elseif ($page === 'ventes'):
 // TRANSFERTS / RETOURS / CLOTURE / RAPPORTS / PRODUITS / FRANCHISES / USERS
 // Same pattern — keeping compact for file size. Let me include remaining pages:
 // =====================================================
-elseif ($page === 'transferts'): $transferts=query("SELECT t.*,p.nom as pnom,fs.nom as src,fd.nom as dst FROM transferts t JOIN produits p ON t.produit_id=p.id JOIN franchises fs ON t.franchise_source=fs.id JOIN franchises fd ON t.franchise_dest=fd.id ORDER BY t.date_demande DESC LIMIT 50"); ?>
-<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-arrow-left-right text-asel"></i> Transferts</h1>
+elseif ($page === 'transferts'):
+    $transferts=query("SELECT t.*,p.nom as pnom,fs.nom as src,fd.nom as dst,u.nom_complet as demandeur_nom FROM transferts t JOIN produits p ON t.produit_id=p.id JOIN franchises fs ON t.franchise_source=fs.id JOIN franchises fd ON t.franchise_dest=fd.id LEFT JOIN utilisateurs u ON t.demandeur_id=u.id ORDER BY t.date_demande DESC LIMIT 50");
+    $pending = count(array_filter($transferts, fn($t) => $t['statut'] === 'en_attente'));
+?>
+<div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-arrow-left-right text-asel"></i> Transferts <?php if($pending):?><span class="bg-amber-100 text-amber-800 text-xs font-bold px-2 py-0.5 rounded-full"><?=$pending?> en attente</span><?php endif;?></h1>
+</div>
 <div class="grid lg:grid-cols-2 gap-6">
-<div class="form-card"><h3><i class="bi bi-arrow-left-right text-asel"></i> Demander un transfert</h3>
-<form method="POST"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="transfert">
-<div><label class="text-sm font-semibold">De</label><select name="source" class="w-full border-2 rounded-xl px-4 py-2.5 text-sm"><?php foreach($franchises as $f):?><option value="<?=$f['id']?>"><?=shortF($f['nom'])?></option><?php endforeach;?></select></div>
-<div><label class="text-sm font-semibold">Vers</label><select name="dest" class="w-full border-2 rounded-xl px-4 py-2.5 text-sm"><?php foreach($franchises as $f):?><option value="<?=$f['id']?>"><?=shortF($f['nom'])?></option><?php endforeach;?></select></div>
-<div><label class="text-sm font-semibold">Produit</label><select name="produit_id" class="ts-select w-full" data-placeholder="🔍 Produit..."><?php foreach($produits as $p):?><option value="<?=$p['id']?>"><?=$p['nom']?> (<?=$p['cat_nom']?>)</option><?php endforeach;?></select></div>
-<div class="grid grid-cols-2 gap-3"><div><label class="text-sm font-semibold">Qté</label><input name="quantite" type="number" min="1" value="1" class="w-full border-2 rounded-xl px-4 py-2.5 text-sm"></div><div><label class="text-sm font-semibold">Note</label><input name="note" class="w-full border-2 rounded-xl px-4 py-2.5 text-sm"></div></div>
-<div class="mt-4"><button type="submit" class="btn-submit"><i class="bi bi-send"></i> Envoyer la demande</button></div></form></div>
-<div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="px-4 py-3 border-b font-semibold text-sm">Historique</div><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-gray-50 text-xs"><th class="px-3 py-2 text-left">Produit</th><th class="px-3 py-2 text-left">Trajet</th><th class="px-3 py-2">Qté</th><th class="px-3 py-2">Statut</th><?php if(isAdminOrGest()):?><th class="px-3 py-2">Act.</th><?php endif;?></tr></thead>
-<tbody class="divide-y"><?php foreach($transferts as $t):$sb=['en_attente'=>'bg-gray-100','accepte'=>'bg-green-100 text-green-800','rejete'=>'bg-red-100 text-red-800'];?><tr class="hover:bg-gray-50"><td class="px-3 py-2 font-medium"><?=htmlspecialchars($t['pnom'])?></td><td class="px-3 py-2 text-xs"><?=shortF($t['src'])?> → <?=shortF($t['dst'])?></td><td class="px-3 py-2 text-center"><?=$t['quantite']?></td><td class="px-3 py-2 text-center"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?=$sb[$t['statut']]??''?>"><?=$t['statut']?></span></td>
-<?php if(isAdminOrGest()):?><td class="px-3 py-2"><?php if($t['statut']==='en_attente'):?><form method="POST" class="flex gap-1"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="transfert_valider"><input type="hidden" name="tid" value="<?=$t['id']?>"><button name="decision" value="accept" class="bg-green-500 text-white px-2 py-1 rounded text-xs">✅</button><button name="decision" value="reject" class="bg-red-500 text-white px-2 py-1 rounded text-xs">❌</button></form><?php endif;?></td><?php endif;?></tr><?php endforeach;?></tbody></table></div></div></div>
+<div class="form-card">
+    <h3><i class="bi bi-arrow-left-right text-asel"></i> Demander un transfert</h3>
+    <form method="POST" class="space-y-3">
+        <input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="transfert">
+        <div class="grid grid-cols-2 gap-3">
+            <div><label class="form-label">De (source)</label><select name="source" class="form-input"><?php foreach($allFranchises as $f):?><option value="<?=$f['id']?>"><?=shortF($f['nom'])?></option><?php endforeach;?></select></div>
+            <div><label class="form-label">Vers (destination)</label><select name="dest" class="form-input"><?php foreach($allFranchises as $f):?><option value="<?=$f['id']?>"><?=shortF($f['nom'])?></option><?php endforeach;?></select></div>
+        </div>
+        <div><label class="form-label">Produit</label><select name="produit_id" class="ts-select w-full" data-placeholder="Rechercher un produit..."><?php foreach($produits as $p):?><option value="<?=$p['id']?>"><?=e($p['nom'])?> (<?=e($p['cat_nom'])?>)</option><?php endforeach;?></select></div>
+        <div class="grid grid-cols-2 gap-3">
+            <div><label class="form-label">Quantité</label><input name="quantite" type="number" min="1" value="1" class="form-input text-center font-bold"></div>
+            <div><label class="form-label">Note</label><input name="note" class="form-input" placeholder="Raison du transfert..."></div>
+        </div>
+        <button type="submit" class="btn-submit"><i class="bi bi-send"></i> Envoyer la demande</button>
+    </form>
+</div>
+<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <div class="px-4 py-3 border-b font-semibold text-sm flex items-center gap-2"><i class="bi bi-clock-history text-gray-400"></i> Historique (<?=count($transferts)?>)</div>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+        <thead class="sticky-thead"><tr class="bg-gray-50 text-xs font-semibold text-gray-500 uppercase"><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Produit</th><th class="px-3 py-2 text-left">Trajet</th><th class="px-3 py-2 text-center">Qté</th><th class="px-3 py-2 text-center">Statut</th><?php if(isAdminOrGest()):?><th class="px-3 py-2 text-center">Action</th><?php endif;?></tr></thead>
+        <tbody class="divide-y"><?php foreach($transferts as $t):
+            $sb=['en_attente'=>'bg-yellow-100 text-yellow-800','accepte'=>'bg-green-100 text-green-800','rejete'=>'bg-red-100 text-red-800'];
+        ?><tr class="hover:bg-gray-50 <?=$t['statut']==='en_attente'?'bg-yellow-50/50':''?>">
+            <td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m H:i',strtotime($t['date_demande']))?></td>
+            <td class="px-3 py-2 font-medium text-sm"><?=e($t['pnom'])?></td>
+            <td class="px-3 py-2 text-xs"><?=shortF($t['src'])?> <i class="bi bi-arrow-right text-asel"></i> <?=shortF($t['dst'])?></td>
+            <td class="px-3 py-2 text-center font-bold"><?=$t['quantite']?></td>
+            <td class="px-3 py-2 text-center"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?=$sb[$t['statut']]??''?>"><?=$t['statut']?></span></td>
+            <?php if(isAdminOrGest()):?><td class="px-3 py-2 text-center"><?php if($t['statut']==='en_attente'):?>
+                <form method="POST" class="flex gap-1 justify-center"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="transfert_valider"><input type="hidden" name="tid" value="<?=$t['id']?>">
+                <button name="decision" value="accept" class="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs font-bold transition-colors" title="Accepter"><i class="bi bi-check-lg"></i></button>
+                <button name="decision" value="reject" class="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs font-bold transition-colors" title="Rejeter"><i class="bi bi-x-lg"></i></button>
+                </form><?php else:?>—<?php endif;?></td><?php endif;?>
+        </tr><?php endforeach;?></tbody>
+    </table></div>
+</div>
+</div>
 
 <?php elseif ($page === 'retours'): $r_fid=$fid?:(currentFranchise()?:($franchises[0]['id']??1)); ?>
 <h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-arrow-counterclockwise text-asel"></i> Retours</h1>
