@@ -1865,14 +1865,25 @@ document.addEventListener('keydown', e => {
 </div>
 
 <?php elseif ($page === 'users' && can('users')): $users=query("SELECT u.*,f.nom as fnom FROM utilisateurs u LEFT JOIN franchises f ON u.franchise_id=f.id ORDER BY u.role,u.nom_complet"); ?>
-<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-people text-asel"></i> Utilisateurs</h1>
-<div class="bg-white rounded-xl shadow-sm p-4 mb-4"><h3 class="font-bold text-sm mb-3">➕ Ajouter</h3><form method="POST" class="flex flex-wrap gap-2"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="add_user">
-<input name="username" class="form-input" placeholder="Login" required>
-<input name="password" type="password" class="form-input" placeholder="Mot de passe" required>
-<input name="nom_complet" class="form-input" placeholder="Nom complet" required>
-<select name="role" class="form-input"><option value="franchise">Franchise</option><option value="gestionnaire">Gestionnaire</option><option value="admin">Admin</option><option value="viewer">Viewer</option></select>
-<select name="franchise_id" class="form-input"><option value="">— Aucune —</option><?php foreach($franchises as $f):?><option value="<?=$f['id']?>"><?=shortF($f['nom'])?></option><?php endforeach;?></select>
-<button class="btn-submit" style="width:auto;padding:10px 20px">+ Ajouter</button></form></div>
+<div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-people text-asel"></i> Utilisateurs <span class="text-sm font-normal text-gray-400">(<?=count($users)?>)</span></h1>
+</div>
+<div class="form-card mb-4">
+    <h3><i class="bi bi-person-plus text-asel"></i> Ajouter un utilisateur</h3>
+    <form method="POST" class="space-y-3">
+        <input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="add_user">
+        <div class="form-row form-row-2">
+            <div><label class="form-label">Login *</label><input name="username" class="form-input" placeholder="Identifiant unique" required autocomplete="off"></div>
+            <div><label class="form-label">Mot de passe *</label><input name="password" type="password" class="form-input" placeholder="Minimum 6 caractères" required autocomplete="new-password"></div>
+        </div>
+        <div class="form-row form-row-3">
+            <div><label class="form-label">Nom complet *</label><input name="nom_complet" class="form-input" placeholder="Prénom Nom" required></div>
+            <div><label class="form-label">Rôle</label><select name="role" class="form-input"><option value="franchise">Franchise (vendeur)</option><option value="gestionnaire">Gestionnaire (stock)</option><option value="admin">Administrateur</option><option value="viewer">Viewer (lecture)</option></select></div>
+            <div><label class="form-label">Franchise</label><select name="franchise_id" class="form-input"><option value="">— Aucune (admin) —</option><?php foreach($franchises as $f):?><option value="<?=$f['id']?>"><?=shortF($f['nom'])?></option><?php endforeach;?></select></div>
+        </div>
+        <button type="submit" class="btn-submit"><i class="bi bi-person-plus"></i> Créer l'utilisateur</button>
+    </form>
+</div>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Login</th><th class="px-3 py-3 text-left">Nom</th><th class="px-3 py-3">Rôle</th><th class="px-3 py-3 text-left hidden sm:table-cell">Franchise</th><th class="px-3 py-3">Statut</th><th class="px-3 py-3">Edit</th></tr></thead>
 <tbody class="divide-y"><?php foreach($users as $u):?>
 <tr class="hover:bg-gray-50"><td class="px-3 py-2 font-mono text-sm"><?=htmlspecialchars($u['nom_utilisateur'])?></td><td class="px-3 py-2 font-medium"><?=htmlspecialchars($u['nom_complet'])?></td><td class="px-3 py-2 text-center"><?=roleBadge($u['role'])?></td><td class="px-3 py-2 text-xs hidden sm:table-cell"><?=$u['fnom']?shortF($u['fnom']):'—'?></td><td class="px-3 py-2 text-center"><?=$u['actif']?'🟢':'🔴'?></td>
@@ -2039,46 +2050,56 @@ elseif ($page === 'recharges'):
 // =====================================================
 elseif ($page === 'factures'):
     $where_f = $fid ? "AND f.franchise_id=".intval($fid) : "";
-    $factures = query("SELECT f.*,fr.nom as fnom,c.nom as client_nom,c.prenom as client_prenom,u.nom_complet as vendeur FROM factures f JOIN franchises fr ON f.franchise_id=fr.id LEFT JOIN clients c ON f.client_id=c.id LEFT JOIN utilisateurs u ON f.utilisateur_id=u.id WHERE 1=1 $where_f ORDER BY f.date_facture DESC LIMIT 50");
+    $factures = query("SELECT f.*,fr.nom as fnom,c.nom as client_nom,c.prenom as client_prenom,u.nom_complet as vendeur FROM factures f JOIN franchises fr ON f.franchise_id=fr.id LEFT JOIN clients c ON f.client_id=c.id LEFT JOIN utilisateurs u ON f.utilisateur_id=u.id WHERE 1=1 $where_f ORDER BY f.date_facture DESC LIMIT 100");
+    $total_factures = array_sum(array_column($factures, 'total_ttc'));
+    $payees = count(array_filter($factures, fn($f) => $f['statut'] === 'payee'));
+    $annulees = count(array_filter($factures, fn($f) => $f['statut'] === 'annulee'));
 ?>
-<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-file-earmark-text text-asel"></i> Factures</h1>
-
-<!-- PDF Report buttons -->
-<div class="flex flex-wrap gap-2 mb-4">
-    <a href="pdf.php?type=rapport_jour&date=<?=date('Y-m-d')?><?=$fid?"&fid=$fid":''?>" target="_blank" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors">
-        📄 Rapport du jour (PDF)
-    </a>
-    <a href="pdf.php?type=rapport_mois&mois=<?=date('Y-m')?><?=$fid?"&fid=$fid":''?>" target="_blank" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors">
-        📊 Rapport du mois (PDF)
-    </a>
-    <a href="map.php" target="_blank" class="bg-white border-2 border-green-500 text-green-600 font-semibold px-4 py-2 rounded-xl text-sm hover:bg-green-500 hover:text-white transition-colors">
-        🗺️ Carte des franchises
-    </a>
+<div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-file-earmark-text text-asel"></i> Factures <span class="text-sm font-normal text-gray-400">(<?=count($factures)?>)</span></h1>
+    <div class="flex gap-2">
+        <a href="pdf.php?type=rapport_jour&date=<?=date('Y-m-d')?><?=$fid?"&fid=$fid":''?>" target="_blank" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-asel hover:text-asel"><i class="bi bi-file-pdf"></i> PDF Jour</a>
+        <a href="pdf.php?type=rapport_mois&mois=<?=date('Y-m')?><?=$fid?"&fid=$fid":''?>" target="_blank" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-asel hover:text-asel"><i class="bi bi-file-pdf"></i> PDF Mois</a>
+    </div>
 </div>
-
+<!-- KPIs -->
+<div class="grid grid-cols-3 gap-3 mb-4">
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-asel"><div class="text-[10px] text-gray-400 uppercase font-bold">Total</div><div class="text-lg font-black text-asel-dark"><?=number_format($total_factures)?> DT</div></div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-green-500"><div class="text-[10px] text-gray-400 uppercase font-bold">Payées</div><div class="text-lg font-black text-green-700"><?=$payees?></div></div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-red-400"><div class="text-[10px] text-gray-400 uppercase font-bold">Annulées</div><div class="text-lg font-black text-red-600"><?=$annulees?></div></div>
+</div>
+<!-- Search -->
+<div class="relative mb-3">
+    <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+    <input type="text" id="factSearch" class="w-full pl-10 pr-4 py-2 border-2 border-gray-200 rounded-xl text-sm focus:border-asel" placeholder="Rechercher N° facture, client, franchise..." oninput="filterFact()">
+</div>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <div class="overflow-x-auto"><table class="w-full text-sm">
-        <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3">N°</th><th class="px-3 py-3">Date</th><th class="px-3 py-3 hidden sm:table-cell">Franchise</th><th class="px-3 py-3">Client</th><th class="px-3 py-3">Type</th><th class="px-3 py-3 text-right">Total</th><th class="px-3 py-3">Statut</th><th class="px-3 py-3">PDF</th></tr></thead>
+        <thead class="sticky-thead"><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3">N°</th><th class="px-3 py-3">Date</th><th class="px-3 py-3 hidden sm:table-cell">Franchise</th><th class="px-3 py-3">Client</th><th class="px-3 py-3">Type</th><th class="px-3 py-3 text-right">Total</th><th class="px-3 py-3">Statut</th><th class="px-3 py-3">Actions</th></tr></thead>
         <tbody class="divide-y"><?php foreach ($factures as $f): $type_b=['ticket'=>'bg-gray-100','facture'=>'bg-blue-100 text-blue-800','devis'=>'bg-yellow-100 text-yellow-800']; $stat_b=['payee'=>'bg-green-100 text-green-800','en_attente'=>'bg-yellow-100 text-yellow-800','annulee'=>'bg-red-100 text-red-800']; ?>
-            <tr class="hover:bg-gray-50">
-                <td class="px-3 py-2 font-mono text-xs font-bold"><?=$f['numero']?></td>
-                <td class="px-3 py-2 text-xs"><?=date('d/m/Y H:i',strtotime($f['date_facture']))?></td>
+            <tr class="hover:bg-gray-50 fact-row <?=$f['statut']==='annulee'?'opacity-50':''?>" data-search="<?=e(strtolower($f['numero'].' '.($f['client_nom']??'').' '.shortF($f['fnom'])))?>">
+                <td class="px-3 py-2 font-mono text-xs font-bold"><?=e($f['numero'])?></td>
+                <td class="px-3 py-2 text-xs text-gray-500"><?=date('d/m H:i',strtotime($f['date_facture']))?></td>
                 <td class="px-3 py-2 text-xs hidden sm:table-cell"><?=shortF($f['fnom'])?></td>
-                <td class="px-3 py-2"><?=$f['client_nom'] ? htmlspecialchars($f['client_nom'].' '.($f['client_prenom']??'')) : '<span class="text-gray-400">Passager</span>'?></td>
-                <td class="px-3 py-2"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?=$type_b[$f['type_facture']]??''?>"><?=$f['type_facture']?></span></td>
-                <td class="px-3 py-2 text-right font-bold"><?=number_format($f['total_ttc'],2)?> DT</td>
-                <td class="px-3 py-2"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?=$stat_b[$f['statut']]??''?>"><?=$f['statut']?></span></td>
-                <td class="px-3 py-2 flex gap-1">
-                    <a href="pdf.php?type=facture&id=<?=$f['id']?>" target="_blank" class="text-asel hover:text-asel-dark"><i class="bi bi-file-pdf text-lg"></i></a>
-                    <?php if(isAdmin() && $f['statut']==='payee'): ?>
-                    <form method="POST" class="inline" onsubmit="return confirm('Annuler cette facture? Le stock sera restauré.')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="cancel_facture"><input type="hidden" name="facture_id" value="<?=$f['id']?>">
-                    <button class="text-red-400 hover:text-red-600" title="Annuler"><i class="bi bi-x-circle"></i></button></form>
-                    <?php endif; ?>
+                <td class="px-3 py-2 text-sm"><?=$f['client_nom'] ? e($f['client_nom'].' '.($f['client_prenom']??'')) : '<span class="text-gray-400 text-xs">Passager</span>'?></td>
+                <td class="px-3 py-2"><span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium <?=$type_b[$f['type_facture']]??''?>"><?=$f['type_facture']?></span></td>
+                <td class="px-3 py-2 text-right font-bold"><?=number_format($f['total_ttc'],2)?></td>
+                <td class="px-3 py-2"><span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium <?=$stat_b[$f['statut']]??''?>"><?=$f['statut']?></span></td>
+                <td class="px-3 py-2">
+                    <div class="flex gap-1">
+                        <a href="pdf.php?type=facture&id=<?=$f['id']?>" target="_blank" class="text-asel hover:text-asel-dark" title="PDF"><i class="bi bi-file-pdf"></i></a>
+                        <a href="receipt.php?id=<?=$f['id']?>" target="_blank" class="text-gray-400 hover:text-gray-600" title="Ticket"><i class="bi bi-receipt"></i></a>
+                        <?php if(isAdmin() && $f['statut']==='payee'): ?>
+                        <form method="POST" class="inline" onsubmit="return confirm('Annuler cette facture?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="cancel_facture"><input type="hidden" name="facture_id" value="<?=$f['id']?>">
+                        <button class="text-red-400 hover:text-red-600" title="Annuler"><i class="bi bi-x-circle"></i></button></form>
+                        <?php endif; ?>
+                    </div>
                 </td>
             </tr>
         <?php endforeach; ?></tbody>
     </table></div>
 </div>
+<script>function filterFact(){const q=document.getElementById('factSearch').value.toLowerCase();document.querySelectorAll('.fact-row').forEach(r=>{r.style.display=(!q||r.dataset.search.includes(q))?'':'none';});}</script>
 
 <?php
     // Retours history
