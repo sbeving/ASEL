@@ -3019,8 +3019,8 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeScanner
 
 <script>
 // Initialize Tom Select on all selects with .ts-select class
-document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('.ts-select').forEach(el => {
+function initTomSelect() {
+    document.querySelectorAll('.ts-select:not(.tomselected)').forEach(el => {
         new TomSelect(el, {
             create: false,
             sortField: { field: "text", direction: "asc" },
@@ -3028,7 +3028,10 @@ document.addEventListener('DOMContentLoaded', function() {
             placeholder: el.dataset.placeholder || 'Rechercher...',
         });
     });
-});
+}
+document.addEventListener('DOMContentLoaded', initTomSelect);
+// Re-init after page load for dynamically rendered sections
+setTimeout(initTomSelect, 500);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.js"></script>
 </body>
