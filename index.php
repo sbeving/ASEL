@@ -1299,20 +1299,52 @@ elseif ($page === 'ventes'):
     $ventes=query("SELECT v.*,p.nom as pnom,f.nom as fnom,u.nom_complet as vendeur FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN franchises f ON v.franchise_id=f.id LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id WHERE v.date_vente BETWEEN ? AND ? ".($fid?"AND v.franchise_id=".intval($fid):"")." ORDER BY v.date_creation DESC LIMIT 200",[$d1,$d2]);
     $tca=array_sum(array_column($ventes,'prix_total'));$tart=array_sum(array_column($ventes,'quantite'));
 ?>
-<div class="flex justify-between items-center mb-6">
+<div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-receipt text-asel"></i> Historique des ventes</h1>
-    <a href="api.php?action=export_ventes&d1=<?=$d1?>&d2=<?=$d2?><?=$fid?"&fid=$fid":""?>" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export CSV</a>
+    <a href="api.php?action=export_ventes&d1=<?=$d1?>&d2=<?=$d2?><?=$fid?"&fid=$fid":""?>" class="bg-white border-2 border-asel text-asel font-semibold px-3 py-1.5 rounded-lg text-xs hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export</a>
 </div>
-<form class="flex flex-wrap gap-2 mb-4"><input type="hidden" name="page" value="ventes"><input type="date" name="d1" value="<?=$d1?>" class="border-2 border-gray-200 rounded-xl px-3 py-2 text-sm"><input type="date" name="d2" value="<?=$d2?>" class="border-2 border-gray-200 rounded-xl px-3 py-2 text-sm"><button class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-semibold">Filtrer</button></form>
-<div class="grid grid-cols-3 gap-4 mb-4">
-    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-asel"><div class="text-xs text-gray-400 uppercase font-semibold">CA</div><div class="text-xl font-black text-asel-dark"><?=number_format($tca)?> DT</div></div>
-    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-emerald-500"><div class="text-xs text-gray-400 uppercase font-semibold">Articles</div><div class="text-xl font-black text-asel-dark"><?=number_format($tart)?></div></div>
-    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-purple-500"><div class="text-xs text-gray-400 uppercase font-semibold">Transactions</div><div class="text-xl font-black text-asel-dark"><?=count($ventes)?></div></div>
+<!-- Date filter with quick shortcuts -->
+<div class="bg-white rounded-xl shadow-sm p-3 mb-4">
+    <form class="flex flex-wrap gap-2 items-center">
+        <input type="hidden" name="page" value="ventes">
+        <div class="flex gap-1 mr-2">
+            <a href="?page=ventes&d1=<?=date('Y-m-d')?>&d2=<?=date('Y-m-d')?>" class="px-2 py-1 rounded text-xs font-medium <?=$d1===date('Y-m-d')&&$d2===date('Y-m-d')?'bg-asel text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'?>">Aujourd'hui</a>
+            <a href="?page=ventes&d1=<?=date('Y-m-d',strtotime('-1 day'))?>&d2=<?=date('Y-m-d',strtotime('-1 day'))?>" class="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200">Hier</a>
+            <a href="?page=ventes&d1=<?=date('Y-m-d',strtotime('-7 days'))?>&d2=<?=date('Y-m-d')?>" class="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200">7j</a>
+            <a href="?page=ventes&d1=<?=date('Y-m-01')?>&d2=<?=date('Y-m-d')?>" class="px-2 py-1 rounded text-xs font-medium <?=$d1===date('Y-m-01')?'bg-asel text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'?>">Ce mois</a>
+        </div>
+        <input type="date" name="d1" value="<?=$d1?>" class="border-2 border-gray-200 rounded-lg px-2 py-1 text-sm">
+        <span class="text-gray-400 text-xs">→</span>
+        <input type="date" name="d2" value="<?=$d2?>" class="border-2 border-gray-200 rounded-lg px-2 py-1 text-sm">
+        <button class="bg-asel text-white px-3 py-1 rounded-lg text-sm font-semibold"><i class="bi bi-funnel"></i></button>
+    </form>
 </div>
-<div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm">
-    <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Date</th><th class="px-3 py-3 text-left">Franchise</th><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3">Qté</th><th class="px-3 py-3 text-right">Total</th><th class="px-3 py-3 text-left hidden sm:table-cell">Vendeur</th></tr></thead>
-    <tbody class="divide-y divide-gray-100"><?php foreach($ventes as $v):?><tr class="hover:bg-gray-50"><td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m H:i',strtotime($v['date_creation']))?></td><td class="px-3 py-2 text-xs"><?=shortF($v['fnom'])?></td><td class="px-3 py-2"><?=htmlspecialchars($v['pnom'])?></td><td class="px-3 py-2 text-center"><?=$v['quantite']?></td><td class="px-3 py-2 text-right font-bold"><?=number_format($v['prix_total'],1)?></td><td class="px-3 py-2 text-xs text-gray-400 hidden sm:table-cell"><?=$v['vendeur']?></td></tr><?php endforeach;?></tbody>
+<!-- KPIs -->
+<div class="grid grid-cols-3 gap-3 mb-4">
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-asel">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Chiffre d'affaires</div>
+        <div class="text-xl font-black text-asel-dark"><?=number_format($tca)?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-emerald-500">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Articles vendus</div>
+        <div class="text-xl font-black text-asel-dark"><?=number_format($tart)?></div>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-purple-500">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Transactions</div>
+        <div class="text-xl font-black text-asel-dark"><?=count($ventes)?></div>
+        <?php if (count($ventes)): ?><div class="text-xs text-gray-400">Moy: <?=number_format($tca/count($ventes),1)?> DT</div><?php endif; ?>
+    </div>
+</div>
+<!-- Search -->
+<div class="relative mb-3">
+    <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+    <input type="text" id="ventesSearch" class="w-full pl-10 pr-4 py-2 border-2 border-gray-200 rounded-xl text-sm focus:border-asel" placeholder="Rechercher produit, franchise, vendeur..." oninput="filterVentes()">
+</div>
+<div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm" id="ventesTable">
+    <thead class="sticky-thead"><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Date</th><th class="px-3 py-3 text-left">Franchise</th><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3 text-center">Qté</th><th class="px-3 py-3 text-right">Total</th><th class="px-3 py-3 text-left hidden sm:table-cell">Vendeur</th></tr></thead>
+    <tbody class="divide-y divide-gray-100"><?php foreach($ventes as $v):?><tr class="hover:bg-gray-50 vente-row" data-search="<?=e(strtolower($v['pnom'].' '.shortF($v['fnom']).' '.($v['vendeur']??'')))?>"><td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m H:i',strtotime($v['date_creation']))?></td><td class="px-3 py-2 text-xs"><?=shortF($v['fnom'])?></td><td class="px-3 py-2"><?=htmlspecialchars($v['pnom'])?></td><td class="px-3 py-2 text-center"><?=$v['quantite']?></td><td class="px-3 py-2 text-right font-bold"><?=number_format($v['prix_total'],1)?></td><td class="px-3 py-2 text-xs text-gray-400 hidden sm:table-cell"><?=$v['vendeur']?></td></tr><?php endforeach;?></tbody>
 </table></div></div>
+<script>function filterVentes(){const q=document.getElementById('ventesSearch').value.toLowerCase();document.querySelectorAll('.vente-row').forEach(r=>{r.style.display=(!q||r.dataset.search.includes(q))?'':'none';});}</script>
 
 <?php
 // =====================================================
