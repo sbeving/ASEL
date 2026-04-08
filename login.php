@@ -89,53 +89,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script>tailwind.config={theme:{extend:{colors:{asel:'#2AABE2','asel-dark':'#1B3A5C','asel-light':'#F0F8FF'},fontFamily:{sans:['Inter','sans-serif']}}}}</script>
 </head>
-<body class="h-full bg-gradient-to-br from-asel to-asel-dark flex items-center justify-center p-4 font-sans">
+<body class="h-full bg-gradient-to-br from-asel-dark via-asel to-asel-dark flex items-center justify-center p-4 font-sans">
     <div class="w-full max-w-sm">
         <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
             <!-- Logo -->
-            <div class="bg-asel px-6 py-8 text-center">
-                <div class="text-4xl font-black text-white tracking-wider">
-                    <span class="bg-gradient-to-r from-red-500 via-yellow-400 via-green-500 to-blue-400 bg-clip-text text-transparent">A</span>SEL
+            <div class="bg-gradient-to-br from-asel to-asel-dark px-6 py-8 text-center relative overflow-hidden">
+                <div class="absolute inset-0 opacity-10" style="background-image:url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"60\" height=\"60\"><circle cx=\"30\" cy=\"30\" r=\"1\" fill=\"white\"/></svg>');"></div>
+                <div class="text-4xl font-black text-white tracking-wider relative">
+                    <span class="bg-gradient-to-r from-red-400 via-yellow-300 via-green-400 to-blue-300 bg-clip-text text-transparent">A</span>SEL
                 </div>
-                <div class="text-white/90 text-sm font-semibold tracking-[0.3em] mt-1">MOBILE</div>
+                <div class="text-white/80 text-sm font-semibold tracking-[0.3em] mt-1">MOBILE</div>
+                <div class="text-white/40 text-xs mt-2">Gestion de Stock & Point de Vente</div>
             </div>
             
             <!-- Form -->
             <div class="p-6">
-                <h2 class="text-center text-gray-500 text-sm font-medium mb-6">Gestion de Stock & Ventes</h2>
-                
                 <?php if ($error): ?>
-                <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm mb-4 flex items-center gap-2">
-                    <svg class="w-5 h-5 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"/></svg>
-                    <?= $error ?>
+                <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm mb-4 flex items-center gap-2">
+                    <i class="bi bi-exclamation-circle-fill shrink-0"></i>
+                    <?= htmlspecialchars($error) ?>
                 </div>
                 <?php endif; ?>
                 
-                <form method="POST" class="space-y-4">
+                <form method="POST" class="space-y-4" id="loginForm">
                     <div>
+                        <label class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1 block">Identifiant</label>
                         <div class="relative">
-                            <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
-                            </span>
+                            <i class="bi bi-person absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
                             <input type="text" name="username" required autofocus
-                                class="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-asel focus:ring-2 focus:ring-asel/20 transition-all outline-none text-sm"
-                                placeholder="Nom d'utilisateur">
+                                class="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-asel transition-all text-sm"
+                                placeholder="Nom d'utilisateur" autocomplete="username">
                         </div>
                     </div>
                     <div>
+                        <label class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1 block">Mot de passe</label>
                         <div class="relative">
-                            <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-                            </span>
-                            <input type="password" name="password" required
-                                class="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-asel focus:ring-2 focus:ring-asel/20 transition-all outline-none text-sm"
-                                placeholder="Mot de passe">
+                            <i class="bi bi-lock absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                            <input type="password" name="password" required id="pwField"
+                                class="w-full pl-10 pr-10 py-3 border-2 border-gray-200 rounded-xl focus:border-asel transition-all text-sm"
+                                placeholder="Mot de passe" autocomplete="current-password">
+                            <button type="button" onclick="togglePw()" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                                <i class="bi bi-eye" id="pwToggle"></i>
+                            </button>
                         </div>
                     </div>
-                    <button type="submit" class="w-full bg-asel hover:bg-asel-dark text-white font-bold py-3 rounded-xl transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] text-sm tracking-wide">
-                        CONNEXION
+                    <button type="submit" id="loginBtn" class="w-full bg-asel hover:bg-asel-dark text-white font-bold py-3 rounded-xl transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] text-sm tracking-wide flex items-center justify-center gap-2">
+                        <i class="bi bi-box-arrow-in-right"></i> CONNEXION
                     </button>
                 </form>
+                <script>
+                function togglePw(){const f=document.getElementById('pwField');const t=document.getElementById('pwToggle');if(f.type==='password'){f.type='text';t.className='bi bi-eye-slash';}else{f.type='password';t.className='bi bi-eye';}}
+                document.getElementById('loginForm').addEventListener('submit',function(){const b=document.getElementById('loginBtn');b.innerHTML='<i class="bi bi-hourglass-split"></i> Connexion...';b.disabled=true;});
+                </script>
             </div>
         </div>
         <p class="text-center text-white/50 text-xs mt-4">© 2026 ASEL Mobile — Tous droits réservés</p>

@@ -487,7 +487,7 @@ $csrf = csrfToken();
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <script>tailwind.config={theme:{extend:{colors:{asel:'#2AABE2','asel-dark':'#1B3A5C','asel-light':'#F0F8FF'},fontFamily:{sans:['Inter','sans-serif']}}}}</script>
+    <script>tailwind.config={theme:{extend:{colors:{asel:'#2AABE2','asel-dark':'#1B3A5C','asel-light':'#F0F8FF','asel-accent':'#E63946'},fontFamily:{sans:['Inter','sans-serif']}}}}</script>
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.min.css" rel="stylesheet">
@@ -538,6 +538,33 @@ $csrf = csrfToken();
     /* Force Leaflet maps below sidebar/nav */
     .leaflet-pane, .leaflet-control, .leaflet-top, .leaflet-bottom { z-index: 1 !important; }
     .leaflet-container { z-index: 0 !important; position: relative; }
+    /* Sticky table headers */
+    .sticky-thead th { position: sticky; top: 0; z-index: 2; }
+    /* Page transitions */
+    .main > div { animation: fadeSlideIn 0.2s ease-out; }
+    @keyframes fadeSlideIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+    /* Better focus */
+    input:focus, select:focus, textarea:focus { outline:none; border-color:#2AABE2!important; box-shadow:0 0 0 3px rgba(42,171,226,0.15)!important; }
+    /* Scanner pulse */
+    @keyframes scanPulse { 0%,100%{box-shadow:0 0 0 0 rgba(42,171,226,0.4)} 50%{box-shadow:0 0 0 8px rgba(42,171,226,0)} }
+    .scan-active { animation: scanPulse 1.5s infinite; }
+    /* Toast */
+    #toast { position:fixed;bottom:20px;right:20px;z-index:9999;transform:translateY(100px);opacity:0;transition:all 0.3s ease;pointer-events:none; }
+    #toast.show { transform:translateY(0);opacity:1; }
+    /* Empty state pattern */
+    .empty-state { text-align:center;padding:3rem 1rem;color:#9ca3af; }
+    .empty-state i { font-size:3rem;opacity:0.3; }
+    /* Mobile FAB */
+    .fab { position:fixed;bottom:24px;right:24px;z-index:50;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,0.2); }
+    @media(min-width:1024px){.fab{display:none}}
+    /* Number input spinners hide */
+    input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+    input[type=number]{-moz-appearance:textfield;}
+    /* Better select styling */
+    select { cursor:pointer; }
+    /* Loading skeleton */
+    .skeleton { background:linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%);background-size:200% 100%;animation:shimmer 1.5s infinite; }
+    @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
     /* Hover card effect */
     .hover-lift { transition: transform 0.2s, box-shadow 0.2s; }
     .hover-lift:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
@@ -852,12 +879,21 @@ elseif ($page === 'pos'):
             <div class="flex gap-2">
                 <div class="relative flex-1">
                     <i class="bi bi-upc-scan absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                    <input type="text" id="barcodeInput" class="w-full pl-10 pr-4 py-3 border-2 border-dashed border-asel/30 rounded-xl bg-asel-light/30 text-center font-mono text-lg focus:border-asel focus:ring-2 focus:ring-asel/20 outline-none" placeholder="Scanner code-barres..." autofocus onkeypress="if(event.key==='Enter'){scanBarcode(this.value);this.value='';event.preventDefault();}">
+                    <input type="text" id="barcodeInput" class="w-full pl-10 pr-4 py-3 border-2 border-dashed border-asel/30 rounded-xl bg-asel-light/30 text-center font-mono text-lg focus:border-asel focus:ring-2 focus:ring-asel/20 outline-none" placeholder="Scanner ou taper le code-barres..." autofocus onkeypress="if(event.key==='Enter'){scanBarcode(this.value);this.value='';event.preventDefault();}">
                 </div>
-                <button onclick="toggleCamera()" id="btnCamera" class="px-4 bg-asel text-white rounded-xl hover:bg-asel-dark transition-colors"><i class="bi bi-camera text-xl" id="cameraIcon"></i></button>
+                <button onclick="toggleCamera()" id="btnCamera" class="px-4 bg-asel text-white rounded-xl hover:bg-asel-dark transition-colors relative" title="Ouvrir caméra (F2)">
+                    <i class="bi bi-camera text-xl" id="cameraIcon"></i>
+                    <span id="cameraBadge" class="hidden absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full border-2 border-white"></span>
+                </button>
             </div>
             <div id="barcodeResult" class="mt-2 text-sm"></div>
-            <div id="cameraZone" style="display:none" class="mt-3"><div id="reader" class="rounded-lg overflow-hidden"></div><p class="text-xs text-gray-400 text-center mt-1">Pointez vers le code-barres</p></div>
+            <div id="cameraZone" style="display:none" class="mt-3">
+                <div id="reader" class="rounded-lg overflow-hidden"></div>
+                <div class="flex justify-between items-center mt-2">
+                    <p class="text-xs text-gray-400">Pointez vers le code-barres</p>
+                    <button onclick="toggleCamera()" class="text-xs text-red-500 hover:text-red-700"><i class="bi bi-x-circle"></i> Fermer</button>
+                </div>
+            </div>
         </div>
         
         <!-- Search -->
@@ -949,8 +985,8 @@ elseif ($page === 'pos'):
                     <input type="hidden" name="nb_echeances" id="formNbEch" value="3">
                     <input type="hidden" name="interv_jours" id="formIntervJ" value="30">
                     <input type="hidden" name="prem_date" id="formPremD" value="">
-                    <button type="submit" class="w-full bg-asel hover:bg-asel-dark text-white font-bold py-3 rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed" id="btnVente" disabled onclick="prepareSubmit()">
-                        <i class="bi bi-check-circle"></i> VALIDER
+                    <button type="submit" class="w-full bg-asel hover:bg-asel-dark text-white font-bold py-3 rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2" id="btnVente" disabled onclick="prepareSubmit();this.innerHTML='<i class=\'bi bi-hourglass-split animate-spin\'></i> Traitement...';this.disabled=true;">
+                        <i class="bi bi-check-circle"></i> VALIDER LA VENTE
                     </button>
                 </form>
                 <button class="w-full mt-2 text-xs text-gray-400 hover:text-red-500 py-1" onclick="clearCart()">🗑️ Vider</button>
@@ -961,13 +997,76 @@ elseif ($page === 'pos'):
 
 <script>
 let cart=[];
-function addToCart(id,nom,prix,max){const e=cart.find(c=>c.id===id);if(e){if(e.qty<max)e.qty++}else cart.push({id,nom,prix,qty:1,maxQty:max,remise:0});renderCart();}
-function scanBarcode(code){if(!code)return;const el=document.querySelector(`[data-barcode="${code}"]`);if(el){el.click();document.getElementById('barcodeResult').innerHTML='<span class="text-green-600"><i class="bi bi-check-circle"></i> Trouvé!</span>'}else{document.getElementById('barcodeResult').innerHTML='<span class="text-red-500"><i class="bi bi-x-circle"></i> Non trouvé</span>'}setTimeout(()=>document.getElementById('barcodeResult').innerHTML='',2000);}
-function removeFromCart(i){cart.splice(i,1);renderCart();}
-function clearCart(){cart=[];renderCart();}
-function updateQty(i,v){cart[i].qty=Math.min(Math.max(1,parseInt(v)||1),cart[i].maxQty);renderCart();}
+// Sound feedback for POS actions
+const beepOk = () => { try { const ac=new AudioContext();const o=ac.createOscillator();const g=ac.createGain();o.connect(g);g.connect(ac.destination);o.frequency.value=800;g.gain.value=0.1;o.start();setTimeout(()=>{o.stop();ac.close()},100); } catch(e){} };
+const beepErr = () => { try { const ac=new AudioContext();const o=ac.createOscillator();const g=ac.createGain();o.connect(g);g.connect(ac.destination);o.frequency.value=300;g.gain.value=0.1;o.start();setTimeout(()=>{o.stop();ac.close()},200); } catch(e){} };
+
+function showToast(msg, type='success') {
+    let t=document.getElementById('toast');
+    if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t);}
+    t.className='fixed bottom-5 right-5 z-[9999] px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all duration-300 '+(type==='success'?'bg-green-500 text-white':'bg-red-500 text-white');
+    t.textContent=msg;t.style.transform='translateY(0)';t.style.opacity='1';
+    setTimeout(()=>{t.style.transform='translateY(100px)';t.style.opacity='0';},2500);
+}
+
+function addToCart(id,nom,prix,max){
+    const e=cart.find(c=>c.id===id);
+    if(e){
+        if(e.qty>=max){beepErr();showToast('Stock maximum atteint!','error');return;}
+        e.qty++;
+    } else {
+        cart.push({id,nom,prix,qty:1,maxQty:max,remise:0});
+    }
+    beepOk();
+    renderCart();
+}
+function scanBarcode(code){
+    if(!code)return;
+    const el=document.querySelector(`[data-barcode="${code}"]`);
+    if(el){el.click();document.getElementById('barcodeResult').innerHTML='<span class="text-green-600"><i class="bi bi-check-circle-fill"></i> '+code+' ajouté!</span>';beepOk();}
+    else{document.getElementById('barcodeResult').innerHTML='<span class="text-red-500"><i class="bi bi-x-circle-fill"></i> Code '+code+' non trouvé</span>';beepErr();}
+    setTimeout(()=>document.getElementById('barcodeResult').innerHTML='',3000);
+}
+function removeFromCart(i){cart.splice(i,1);renderCart();showToast('Article retiré');}
+function clearCart(){if(cart.length && confirm('Vider le panier?')){cart=[];renderCart();showToast('Panier vidé');}}
+function updateQty(i,v){const q=Math.min(Math.max(1,parseInt(v)||1),cart[i].maxQty);if(q!==cart[i].qty){cart[i].qty=q;renderCart();}}
 function updateRemise(i,v){cart[i].remise=Math.max(0,parseFloat(v)||0);renderCart();}
-function renderCart(){const b=document.getElementById('cartBody');document.getElementById('cartCount').textContent=cart.length;if(!cart.length){b.innerHTML='<p class="text-center text-gray-300 py-8 text-sm">🛒 Scannez ou cliquez</p>';document.getElementById('cartTotal').textContent='0 DT';document.getElementById('btnVente').disabled=true;return;}let h='<div class="space-y-2">',t=0;cart.forEach((c,i)=>{const l=c.qty*c.prix-c.remise;const lineTotal=Math.max(0,l);t+=lineTotal;h+=`<div class="flex items-center gap-2 pb-2 border-b border-gray-100"><div class="flex-1 min-w-0"><div class="text-sm font-medium truncate">${c.nom}</div><div class="text-xs text-gray-400">${c.prix} DT × ${c.qty}</div></div><input type="number" value="${c.qty}" min="1" max="${c.maxQty}" class="w-12 text-center text-sm border rounded-lg py-1" onchange="updateQty(${i},this.value)"><div class="flex items-center gap-1"><span class="text-xs text-gray-400">-</span><input type="number" value="${c.remise}" min="0" step="0.5" class="w-16 text-center text-xs border rounded-lg py-1" onchange="updateRemise(${i},this.value)" placeholder="Remise"><span class="text-xs text-gray-400">DT</span></div><div class="text-sm font-bold w-16 text-right">${lineTotal.toFixed(1)}</div><button class="text-red-400 hover:text-red-600 p-1" onclick="removeFromCart(${i})"><i class="bi bi-trash text-sm"></i></button></div>`;});h+='</div>';b.innerHTML=h;document.getElementById('cartTotal').textContent=t.toFixed(1)+' DT';document.getElementById('cartItems').value=JSON.stringify(cart);document.getElementById('btnVente').disabled=false;}
+function renderCart(){
+    const b=document.getElementById('cartBody');
+    document.getElementById('cartCount').textContent=cart.reduce((s,c)=>s+c.qty,0);
+    if(!cart.length){
+        b.innerHTML='<div class="empty-state py-8"><i class="bi bi-cart3"></i><p class="mt-2 text-sm">Scannez ou cliquez pour ajouter</p></div>';
+        document.getElementById('cartTotal').textContent='0 DT';
+        document.getElementById('btnVente').disabled=true;
+        return;
+    }
+    let h='<div class="space-y-2">',t=0;
+    cart.forEach((c,i)=>{
+        const lineTotal=Math.max(0,c.qty*c.prix-c.remise);
+        t+=lineTotal;
+        h+=`<div class="flex items-center gap-2 pb-2 border-b border-gray-100 group">
+            <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium truncate">${c.nom}</div>
+                <div class="text-xs text-gray-400">${c.prix.toFixed(1)} DT × ${c.qty}</div>
+            </div>
+            <div class="flex items-center gap-1 bg-gray-50 rounded-lg px-1">
+                <button onclick="updateQty(${i},${c.qty-1})" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-500 text-lg font-bold" ${c.qty<=1?'disabled':''}>&minus;</button>
+                <input type="number" value="${c.qty}" min="1" max="${c.maxQty}" class="w-10 text-center text-sm font-bold border-0 bg-transparent focus:ring-0" onchange="updateQty(${i},this.value)">
+                <button onclick="updateQty(${i},${c.qty+1})" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-green-500 text-lg font-bold" ${c.qty>=c.maxQty?'disabled':''}>&plus;</button>
+            </div>
+            <div class="flex items-center gap-1">
+                <input type="number" value="${c.remise}" min="0" step="0.5" class="w-14 text-center text-xs border rounded-lg py-1 ${c.remise>0?'border-orange-300 bg-orange-50':'border-gray-200'}" onchange="updateRemise(${i},this.value)" placeholder="Remise" title="Remise en DT">
+            </div>
+            <div class="text-sm font-bold w-16 text-right">${lineTotal.toFixed(1)}</div>
+            <button class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1" onclick="removeFromCart(${i})" title="Retirer"><i class="bi bi-trash text-sm"></i></button>
+        </div>`;
+    });
+    h+='</div>';
+    b.innerHTML=h;
+    document.getElementById('cartTotal').textContent=t.toFixed(1)+' DT';
+    document.getElementById('cartItems').value=JSON.stringify(cart);
+    document.getElementById('btnVente').disabled=false;
+}
 function filterProducts(){const q=document.getElementById('searchProd').value.toLowerCase();document.querySelectorAll('#prodGrid > div').forEach(el=>{el.style.display=el.dataset.search.includes(q)?'':'none'});}
 function filterCat(cat){document.querySelectorAll('#prodGrid > div').forEach(el=>{el.style.display=(!cat||el.dataset.cat===cat)?'':'none'});document.querySelectorAll('[data-cat]').forEach(b=>{b.className='px-3 py-1.5 rounded-full text-xs font-semibold bg-white text-gray-600 border hover:bg-asel hover:text-white transition-colors'});if(cat){const btn=document.querySelector(`[data-cat="${cat}"]`);if(btn)btn.className='px-3 py-1.5 rounded-full text-xs font-semibold bg-asel text-white';document.getElementById('cat-all').className='px-3 py-1.5 rounded-full text-xs font-semibold bg-white text-gray-600 border'}else{document.getElementById('cat-all').className='px-3 py-1.5 rounded-full text-xs font-semibold bg-asel text-white'}}
 function toggleEcheance(){const mp=document.getElementById('modePaiement').value;const mr=document.getElementById('montantRecuDiv');const ed=document.getElementById('echeanceDiv');if(mp==='echeance'){mr.classList.add('hidden');ed.classList.remove('hidden');}else{mr.classList.remove('hidden');ed.classList.add('hidden');}}
@@ -977,8 +1076,10 @@ document.addEventListener('keydown',e=>{
     const bi=document.getElementById('barcodeInput');
     if(e.key==='F2'){e.preventDefault();if(bi)bi.focus();return;}
     if(e.key==='F8'){e.preventDefault();const btn=document.getElementById('btnVente');if(btn&&!btn.disabled){prepareSubmit();document.getElementById('saleForm').submit();}return;}
-    if(e.key==='Escape'&&cart.length){e.preventDefault();clearCart();return;}
-    if(bi&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName))bi.focus();
+    if(e.key==='Escape'){e.preventDefault();if(cart.length)clearCart();return;}
+    if(e.key==='F4'){e.preventDefault();toggleCamera();return;}
+    // Auto-focus barcode input when typing numbers/letters
+    if(bi&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)&&/^[a-zA-Z0-9]$/.test(e.key))bi.focus();
 });
 let html5QrcodeScanner=null,cameraActive=false;
 function toggleCamera(){const z=document.getElementById('cameraZone'),ic=document.getElementById('cameraIcon');if(cameraActive){if(html5QrcodeScanner){html5QrcodeScanner.stop().then(()=>{html5QrcodeScanner.clear();html5QrcodeScanner=null}).catch(e=>{})}z.style.display='none';ic.className='bi bi-camera';cameraActive=false}else{z.style.display='block';ic.className='bi bi-camera-video-off';cameraActive=true;html5QrcodeScanner=new Html5Qrcode("reader");html5QrcodeScanner.start({facingMode:"environment"},{fps:10,qrbox:{width:250,height:100},aspectRatio:2.0},(t)=>{scanBarcode(t);html5QrcodeScanner.pause(true);setTimeout(()=>{if(cameraActive&&html5QrcodeScanner)try{html5QrcodeScanner.resume()}catch(e){}},1500)},(e)=>{}).catch(e=>{document.getElementById('barcodeResult').innerHTML='<span class="text-red-500">Caméra non disponible</span>';z.style.display='none';ic.className='bi bi-camera';cameraActive=false})}}
@@ -2733,22 +2834,22 @@ function getNewPointLocation() {
 </footer>
 
 <!-- Global Barcode Scanner Modal -->
-<div id="scannerModal" class="fixed inset-0 z-[9999] bg-black/70 hidden items-center justify-center p-4" style="display:none">
+<div id="scannerModal" class="fixed inset-0 z-[9999] bg-black/70 items-center justify-center p-4" style="display:none">
     <div class="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
         <div class="bg-asel-dark text-white px-4 py-3 flex justify-between items-center">
-            <span class="font-bold text-sm"><i class="bi bi-camera"></i> Scanner le code-barres</span>
-            <button onclick="closeScanner()" class="text-white/70 hover:text-white text-xl">&times;</button>
+            <span class="font-bold text-sm"><i class="bi bi-upc-scan"></i> Scanner code-barres</span>
+            <button onclick="closeScanner()" class="text-white/70 hover:text-white text-xl leading-none">&times;</button>
         </div>
         <div class="p-4">
-            <div id="globalReader" class="rounded-lg overflow-hidden"></div>
+            <div id="globalReader" class="rounded-lg overflow-hidden bg-gray-900"></div>
             <p class="text-xs text-gray-400 text-center mt-2">Pointez la caméra vers le code-barres</p>
             <div id="scannerResult" class="mt-2 text-center text-sm"></div>
         </div>
         <div class="px-4 pb-4">
-            <div class="text-center text-xs text-gray-400 mb-2">— ou saisir manuellement —</div>
+            <div class="text-center text-xs text-gray-400 mb-2">ou saisir manuellement</div>
             <div class="flex gap-2">
-                <input type="text" id="manualBarcodeInput" class="flex-1 border-2 border-dashed border-asel/30 rounded-lg px-3 py-2 text-center font-mono text-sm" placeholder="Saisir le code...">
-                <button onclick="manualBarcodeDone()" class="bg-asel text-white px-4 py-2 rounded-lg text-sm font-bold">OK</button>
+                <input type="text" id="manualBarcodeInput" class="flex-1 border-2 border-gray-200 rounded-lg px-3 py-2 text-center font-mono text-sm focus:border-asel" placeholder="Taper le code..." onkeypress="if(event.key==='Enter'){manualBarcodeDone();event.preventDefault();}">
+                <button onclick="manualBarcodeDone()" class="bg-asel text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-asel-dark transition-colors">OK</button>
             </div>
         </div>
     </div>
