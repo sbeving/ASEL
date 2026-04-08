@@ -1170,16 +1170,24 @@ elseif ($page === 'stock'):
 <?php return; endif;
     $stock = query("SELECT s.*,p.nom as pnom,p.prix_vente,p.prix_achat,p.reference,p.marque,c.nom as cnom,f.nom as fnom FROM stock s JOIN produits p ON s.produit_id=p.id JOIN categories c ON p.categorie_id=c.id JOIN franchises f ON s.franchise_id=f.id WHERE p.actif=1 ".($fid?"AND s.franchise_id=".intval($fid):"")." ORDER BY f.nom,c.nom,p.nom");
 ?>
-<div class="flex justify-between items-center mb-6">
+<div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-box-seam text-asel"></i> État du stock</h1>
-    <a href="api.php?action=export_stock<?=$fid?"&fid=$fid":""?>" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export CSV</a>
+    <div class="flex gap-2">
+        <a href="api.php?action=export_stock<?=$fid?"&fid=$fid":""?>" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export</a>
+    </div>
+</div>
+<!-- Instant search -->
+<div class="relative mb-4">
+    <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+    <input type="text" id="stockSearch" class="w-full pl-10 pr-4 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:border-asel" placeholder="Rechercher produit, marque, catégorie..." oninput="filterStock()">
+    <span id="stockCount" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400"></span>
 </div>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-            <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Franchise</th><th class="px-3 py-3 text-left">Catégorie</th><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3 text-left hidden sm:table-cell">Marque</th><th class="px-3 py-3 text-center">Qté</th><th class="px-3 py-3 text-right">P.V.</th><th class="px-3 py-3 text-right hidden sm:table-cell">Valeur</th><?php if(isAdmin()):?><th class="px-3 py-3"></th><?php endif;?></tr></thead>
+        <table class="w-full text-sm" id="stockTable">
+            <thead class="sticky-thead"><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Franchise</th><th class="px-3 py-3 text-left">Catégorie</th><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3 text-left hidden sm:table-cell">Marque</th><th class="px-3 py-3 text-center">Qté</th><th class="px-3 py-3 text-right">P.V.</th><th class="px-3 py-3 text-right hidden sm:table-cell">Valeur</th><?php if(isAdmin()):?><th class="px-3 py-3"></th><?php endif;?></tr></thead>
             <tbody class="divide-y divide-gray-100"><?php $tq=0;$tv=0; foreach ($stock as $s): $v=$s['quantite']*$s['prix_vente'];$tq+=$s['quantite'];$tv+=$v; ?>
-                <tr class="hover:bg-gray-50 <?=$s['quantite']<=0?'bg-red-50/50':($s['quantite']<=3?'bg-amber-50/30':'')?>">
+                <tr class="hover:bg-gray-50 stock-row <?=$s['quantite']<=0?'bg-red-50/50':($s['quantite']<=3?'bg-amber-50/30':'')?>" data-search="<?=e(strtolower($s['pnom'].' '.$s['cnom'].' '.$s['marque'].' '.shortF($s['fnom'])))?>">
                     <td class="px-3 py-2 text-xs text-gray-500"><?=shortF($s['fnom'])?></td>
                     <td class="px-3 py-2 text-xs"><?=$s['cnom']?></td>
                     <td class="px-3 py-2 font-medium"><?=htmlspecialchars($s['pnom'])?></td>
@@ -1189,8 +1197,8 @@ elseif ($page === 'stock'):
                     <td class="px-3 py-2 text-right font-medium hidden sm:table-cell"><?=number_format($v,0)?></td>
                     <?php if(isAdmin()):?><td class="px-3 py-2">
                         <?php if($s['quantite'] <= 0): ?>
-                        <form method="POST" class="inline" onsubmit="return confirm('Désactiver ce produit?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="toggle_produit"><input type="hidden" name="produit_id" value="<?=$s['produit_id']?>">
-                        <button class="text-red-500 hover:text-red-700 text-xs" title="Désactiver ce produit (hors stock)"><i class="bi bi-eye-slash"></i></button></form>
+                        <form method="POST" class="inline" onsubmit="return confirm('Désactiver?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="toggle_produit"><input type="hidden" name="produit_id" value="<?=$s['produit_id']?>">
+                        <button class="text-red-400 hover:text-red-700 text-xs"><i class="bi bi-eye-slash"></i></button></form>
                         <?php endif; ?>
                     </td><?php endif;?>
                 </tr>
@@ -1199,6 +1207,9 @@ elseif ($page === 'stock'):
         </table>
     </div>
 </div>
+<script>
+function filterStock(){const q=document.getElementById('stockSearch').value.toLowerCase();const rows=document.querySelectorAll('.stock-row');let v=0;rows.forEach(r=>{const m=!q||r.dataset.search.includes(q);r.style.display=m?'':'none';if(m)v++;});document.getElementById('stockCount').textContent=q?v+'/'+rows.length:'';}
+</script>
 
 <?php
 // =====================================================
@@ -1220,15 +1231,15 @@ elseif ($page === 'entree'):
 <h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-box-arrow-in-down text-asel"></i> Entrée de stock</h1>
 <div class="form-card max-w-lg">
     <h3><i class="bi bi-box-arrow-in-down text-asel"></i> Nouvelle entrée de stock</h3>
-    <form method="POST">
+    <form method="POST" class="space-y-4">
         <input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="entree_stock">
         <?php if (can('view_all_franchises')): ?>
-        <div class="mb-4"><label class="form-label">Franchise</label><select name="franchise_id" class="form-input"><?php foreach ($franchises as $f): ?><option value="<?=$f['id']?>" <?=$e_fid==$f['id']?'selected':''?>><?=shortF($f['nom'])?></option><?php endforeach; ?></select></div>
+        <div><label class="form-label">Franchise</label><select name="franchise_id" class="form-input"><?php foreach ($franchises as $f): ?><option value="<?=$f['id']?>" <?=$e_fid==$f['id']?'selected':''?>><?=shortF($f['nom'])?></option><?php endforeach; ?></select></div>
         <?php else: ?><input type="hidden" name="franchise_id" value="<?=$e_fid?>"><?php endif; ?>
-        <div class="mb-4"><label class="form-label">Produit</label><select name="produit_id" class="ts-select w-full" data-placeholder="🔍 Rechercher un produit..."><?php foreach ($produits as $p): ?><option value="<?=$p['id']?>"><?=$p['nom']?> (<?=$p['cat_nom']?>)</option><?php endforeach; ?></select></div>
+        <div><label class="form-label">Produit</label><select name="produit_id" class="ts-select w-full" data-placeholder="Rechercher un produit..."><?php foreach ($produits as $p): ?><option value="<?=$p['id']?>"><?=e($p['nom'])?> (<?=e($p['cat_nom'])?>)</option><?php endforeach; ?></select></div>
         <div class="form-row form-row-2">
-            <div><label class="form-label">Quantité</label><input type="number" name="quantite" min="1" value="1" required class="form-input"></div>
-            <div><label class="form-label">Note</label><input type="text" name="note" class="form-input" placeholder="Optionnel..."></div>
+            <div><label class="form-label">Quantité</label><input type="number" name="quantite" min="1" value="1" required class="form-input text-center text-lg font-bold"></div>
+            <div><label class="form-label">Note / BL</label><input type="text" name="note" class="form-input" placeholder="N° bon de livraison, fournisseur..."></div>
         </div>
         <button type="submit" class="btn-submit"><i class="bi bi-check-circle"></i> Enregistrer l'entrée</button>
     </form>
