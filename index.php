@@ -1766,20 +1766,6 @@ elseif ($page === 'transferts'):
                         </div>
                     </td>
                 </tr>
-                <!-- Edit row -->
-                <tr id="ep<?=$p['id']?>" class="hidden bg-blue-50 edit-row"><td colspan="<?=8+count($stock_franchises)+($central_id?1:0)?>" class="px-4 py-3">
-                    <form method="POST" class="flex flex-wrap gap-2 items-end"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="edit_produit"><input type="hidden" name="produit_id" value="<?=$p['id']?>">
-                        <div><label class="text-xs font-bold">Nom</label><input name="nom" value="<?=e($p['nom'])?>" class="border rounded px-2 py-1 text-sm w-40"></div>
-                        <div><label class="text-xs font-bold">Cat.</label><select name="categorie_id" class="border rounded px-2 py-1 text-sm"><?php foreach($categories as $c):?><option value="<?=$c['id']?>" <?=$p['categorie_id']==$c['id']?'selected':''?>><?=e($c['nom'])?></option><?php endforeach;?></select></div>
-                        <div><label class="text-xs font-bold">Marque</label><input name="marque" value="<?=e($p['marque'])?>" class="border rounded px-2 py-1 text-sm w-20"></div>
-                        <div><label class="text-xs font-bold">Réf.</label><input name="reference" value="<?=e($p['reference'])?>" class="border rounded px-2 py-1 text-sm w-28"></div>
-                        <div><label class="text-xs font-bold">Code-barres</label><div class="flex gap-1"><input name="code_barre" value="<?=e($p['code_barre'])?>" class="border rounded px-2 py-1 text-sm w-28 font-mono" id="eb_<?=$p['id']?>"><button type="button" onclick="openScanner('eb_<?=$p['id']?>')" class="bg-asel text-white px-2 py-1 rounded text-xs"><i class="bi bi-camera"></i></button></div></div>
-                        <div><label class="text-xs font-bold">PA</label><input name="prix_achat" type="number" step="0.01" value="<?=$p['prix_achat']?>" class="border rounded px-2 py-1 text-sm w-20"></div>
-                        <div><label class="text-xs font-bold">PV</label><input name="prix_vente" type="number" step="0.01" value="<?=$p['prix_vente']?>" class="border rounded px-2 py-1 text-sm w-20"></div>
-                        <div><label class="text-xs font-bold">Seuil</label><input name="seuil" type="number" value="<?=$p['seuil_alerte']?>" class="border rounded px-2 py-1 text-sm w-14"></div>
-                        <button class="bg-asel text-white px-3 py-1 rounded text-sm font-bold"><i class="bi bi-check-circle"></i> Sauvegarder</button>
-                    </form>
-                </td></tr>
             <?php endforeach; ?>
             </tbody>
         </table>
@@ -1796,11 +1782,6 @@ function instantFilter() {
     rows.forEach(row => {
         const match = !q || row.dataset.search.includes(q);
         row.style.display = match ? '' : 'none';
-        // Also hide/show edit row
-        const editRow = row.nextElementSibling;
-        if (editRow && editRow.classList.contains('edit-row')) {
-            if (!match) editRow.style.display = 'none';
-        }
         if (match) visible++;
     });
     document.getElementById('instantCount').textContent = q ? visible + '/' + rows.length : '';
@@ -1830,10 +1811,6 @@ function sortTable(colIdx) {
     const frag = document.createDocumentFragment();
     rows.forEach(row => {
         frag.appendChild(row);
-        const editRow = row.nextElementSibling;
-        if (editRow && editRow.classList.contains('edit-row')) {
-            frag.appendChild(editRow);
-        }
     });
     tbody.appendChild(frag);
 }
@@ -3366,7 +3343,7 @@ function modalHeader(icon, title, subtitle) {
 }
 
 function modalForm(action, csrf, fields, submitText, submitColor) {
-    return `<form method="POST" class="p-6 space-y-4">
+    return `<form method="POST" class="p-6 space-y-4" onsubmit="this.querySelector('button[type=submit]').disabled=true;this.querySelector('button[type=submit]').innerHTML='<i class=\\'bi bi-hourglass-split\\'></i> Traitement...';">
         <input type="hidden" name="_csrf" value="${csrf}">
         <input type="hidden" name="action" value="${action}">
         ${fields}
