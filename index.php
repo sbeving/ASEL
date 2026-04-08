@@ -713,6 +713,27 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
     <script>setTimeout(()=>{const f=document.getElementById('flashMsg');if(f){f.style.opacity='0';f.style.transform='translateY(-10px)';setTimeout(()=>f.remove(),300);}},5000);</script>
     <?php endif; ?>
     
+    <?php
+    // === BREADCRUMBS ===
+    $pageNames = [
+        'dashboard'=>'Tableau de bord','pos'=>'Point de vente','stock'=>'Stock','entree'=>'Entrée stock',
+        'transferts'=>'Transferts','demandes'=>'Demandes','retours'=>'Retours','cloture'=>'Clôture',
+        'echeances'=>'Échéances','inventaire'=>'Inventaire','clients'=>'Clients','services'=>'Services',
+        'recharges'=>'Recharges','factures'=>'Factures','ventes'=>'Ventes','rapports'=>'Rapports',
+        'produits'=>'Produits','franchises_mgmt'=>'Franchises','points_reseau'=>'Réseau','franchise_locations'=>'Coordonnées',
+        'audit_log'=>'Journal d\'audit','users'=>'Utilisateurs','mon_compte'=>'Mon compte',
+        'stock_central'=>'Stock Central','gestion_services'=>'Gérer services','gestion_asel'=>'Offres ASEL',
+        'notifications'=>'Notifications',
+    ];
+    if ($page !== 'dashboard'):
+    ?>
+    <nav class="flex items-center gap-1.5 text-xs text-gray-400 mb-4">
+        <a href="?page=dashboard" class="hover:text-asel"><i class="bi bi-house"></i></a>
+        <i class="bi bi-chevron-right text-[10px]"></i>
+        <span class="text-gray-600 font-medium"><?=$pageNames[$page] ?? ucfirst($page)?></span>
+    </nav>
+    <?php endif; ?>
+    
     <?php // Franchise selector for admin/gestionnaire
     if (can('view_all_franchises') && in_array($page, ['dashboard','stock','ventes','pos','entree','cloture','retours'])): ?>
     <div class="mb-4 inline-flex items-center gap-2 bg-white rounded-full pl-4 pr-2 py-1 shadow-sm border">
@@ -3144,8 +3165,27 @@ function getNewPointLocation() {
 <footer class="lg:ml-64 bg-white border-t py-3 px-6 text-center text-xs text-gray-400">
     <span>&copy; <?=date('Y')?> ASEL Mobile</span> &middot; 
     <a href="map.php" class="text-asel hover:underline"><i class="bi bi-map"></i> Carte</a> &middot; 
-    <span>v12.0</span>
+    <button onclick="showShortcuts()" class="text-gray-400 hover:text-asel">Raccourcis <kbd class="bg-gray-100 px-1 rounded text-[10px]">?</kbd></button> &middot;
+    <span>v14.0</span>
 </footer>
+
+<?php if (can('pos')): ?>
+<!-- Mobile FAB -->
+<div class="lg:hidden fixed bottom-6 right-6 z-40 flex flex-col gap-2 items-end" id="fabMenu">
+    <div class="hidden flex-col gap-2 items-end mb-2" id="fabActions">
+        <a href="?page=pos" class="bg-asel text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-cart3"></i> Vente</a>
+        <button onclick="openQuickStockEntry('','');closeFab()" class="bg-emerald-500 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-box-arrow-in-down"></i> Entrée</button>
+        <button onclick="openBarcodeLookup();closeFab()" class="bg-purple-500 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-upc-scan"></i> Scanner</button>
+    </div>
+    <button onclick="toggleFab()" class="bg-asel hover:bg-asel-dark text-white shadow-xl w-14 h-14 rounded-full flex items-center justify-center transition-transform" id="fabBtn">
+        <i class="bi bi-plus-lg text-2xl" id="fabIcon"></i>
+    </button>
+</div>
+<script>
+function toggleFab(){const a=document.getElementById('fabActions');const i=document.getElementById('fabIcon');a.classList.toggle('hidden');a.classList.toggle('flex');i.style.transform=a.classList.contains('hidden')?'':'rotate(45deg)';}
+function closeFab(){document.getElementById('fabActions').classList.add('hidden');document.getElementById('fabActions').classList.remove('flex');document.getElementById('fabIcon').style.transform='';}
+</script>
+<?php endif; ?>
 
 <!-- Global Barcode Scanner Modal -->
 <div id="scannerModal" class="fixed inset-0 z-[9999] bg-black/70 items-center justify-center p-4" style="display:none">
@@ -3933,6 +3973,34 @@ function openDemandeProduit(franchiseId) {
                 </button>
             </div>
         </form>`
+    );
+}
+// Keyboard shortcut: ? to show help
+document.addEventListener('keydown', e => {
+    if (e.key === '?' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) {
+        e.preventDefault();
+        showShortcuts();
+    }
+});
+
+function showShortcuts() {
+    openModal(
+        modalHeader('bi-keyboard', 'Raccourcis clavier', 'Accélérez votre workflow') +
+        `<div class="p-6">
+            <div class="space-y-2 text-sm">
+                <div class="font-bold text-gray-600 text-xs uppercase tracking-wider mb-2">Point de vente</div>
+                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Focus scanner</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">F2</kbd></div>
+                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Ouvrir caméra</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">F4</kbd></div>
+                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Valider vente</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">F8</kbd></div>
+                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Vider panier</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">Esc</kbd></div>
+                <div class="font-bold text-gray-600 text-xs uppercase tracking-wider mt-4 mb-2">Global</div>
+                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Recherche produits</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">/</kbd></div>
+                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Fermer modal / menu</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">Esc</kbd></div>
+                <div class="flex justify-between py-1.5"><span class="text-gray-600">Afficher cette aide</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">?</kbd></div>
+            </div>
+            <button onclick="closeModal()" class="w-full mt-6 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50">Fermer</button>
+        </div>`,
+        {size: 'max-w-sm'}
     );
 }
 </script>
