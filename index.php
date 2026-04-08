@@ -1397,21 +1397,84 @@ elseif ($page === 'transferts'):
 </div>
 </div>
 
-<?php elseif ($page === 'retours'): $r_fid=$fid?:(currentFranchise()?:($franchises[0]['id']??1)); ?>
-<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-arrow-counterclockwise text-asel"></i> Retours</h1>
-<div class="form-card max-w-lg"><h3><i class="bi bi-arrow-counterclockwise text-amber-500"></i> Nouveau retour / échange</h3><form method="POST"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="retour"><input type="hidden" name="franchise_id" value="<?=$r_fid?>">
-<div><label class="text-sm font-semibold">Produit</label><select name="produit_id" class="ts-select w-full" data-placeholder="🔍 Produit..."><?php foreach($produits as $p):?><option value="<?=$p['id']?>"><?=$p['nom']?> (<?=$p['cat_nom']?>)</option><?php endforeach;?></select></div>
-<div class="grid grid-cols-2 gap-3"><div><label class="text-sm font-semibold">Qté</label><input name="quantite" type="number" min="1" value="1" class="w-full border-2 rounded-xl px-4 py-2.5 text-sm"></div><div><label class="text-sm font-semibold">Type</label><select name="type_retour" class="w-full border-2 rounded-xl px-4 py-2.5 text-sm"><option value="retour">↩️ Retour</option><option value="echange">🔄 Échange</option></select></div></div>
-<div><input name="raison" class="w-full border-2 rounded-xl px-4 py-2.5 text-sm" placeholder="Raison..."></div>
-<div class="mt-4"><button type="submit" class="btn-submit" style="background:#f59e0b"><i class="bi bi-arrow-counterclockwise"></i> Enregistrer le retour</button></div></form></div>
+<?php elseif ($page === 'retours'): $r_fid=$fid?:(currentFranchise()?:($franchises[0]['id']??1));
+    $recent_retours = query("SELECT r.*,p.nom as pnom,f.nom as fnom,u.nom_complet as par FROM retours r JOIN produits p ON r.produit_id=p.id JOIN franchises f ON r.franchise_id=f.id LEFT JOIN utilisateurs u ON r.utilisateur_id=u.id ".($r_fid?"WHERE r.franchise_id=".intval($r_fid):"")." ORDER BY r.date_retour DESC LIMIT 20");
+?>
+<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-arrow-counterclockwise text-asel"></i> Retours & Échanges</h1>
+<div class="grid lg:grid-cols-2 gap-6">
+<div class="form-card">
+    <h3><i class="bi bi-arrow-counterclockwise text-amber-500"></i> Nouveau retour / échange</h3>
+    <form method="POST" class="space-y-3"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="retour"><input type="hidden" name="franchise_id" value="<?=$r_fid?>">
+        <div><label class="form-label">Produit</label><select name="produit_id" class="ts-select w-full" data-placeholder="Rechercher un produit..."><?php foreach($produits as $p):?><option value="<?=$p['id']?>"><?=e($p['nom'])?> (<?=e($p['cat_nom'])?>)</option><?php endforeach;?></select></div>
+        <div class="form-row form-row-2">
+            <div><label class="form-label">Quantité</label><input name="quantite" type="number" min="1" value="1" class="form-input text-center font-bold"></div>
+            <div><label class="form-label">Type</label><select name="type_retour" class="form-input"><option value="retour"><i class="bi bi-arrow-counterclockwise"></i> Retour (remboursement)</option><option value="echange">Échange (remplacement)</option></select></div>
+        </div>
+        <div><label class="form-label">Raison</label><input name="raison" class="form-input" placeholder="Produit défectueux, erreur client, etc."></div>
+        <button type="submit" class="btn-submit" style="background:#f59e0b"><i class="bi bi-arrow-counterclockwise"></i> Enregistrer</button>
+    </form>
+</div>
+<?php if ($recent_retours): ?>
+<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <div class="px-4 py-3 border-b font-semibold text-sm flex items-center gap-2"><i class="bi bi-clock-history text-gray-400"></i> Récents (<?=count($recent_retours)?>)</div>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+        <thead class="sticky-thead"><tr class="bg-gray-50 text-xs font-semibold text-gray-500 uppercase"><th class="px-3 py-2">Date</th><th class="px-3 py-2">Produit</th><th class="px-3 py-2 text-center">Qté</th><th class="px-3 py-2">Type</th><th class="px-3 py-2">Raison</th></tr></thead>
+        <tbody class="divide-y"><?php foreach ($recent_retours as $r): ?>
+            <tr class="hover:bg-gray-50"><td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m H:i',strtotime($r['date_retour']))?></td><td class="px-3 py-2 font-medium"><?=e($r['pnom'])?></td><td class="px-3 py-2 text-center"><?=$r['quantite']?></td>
+            <td class="px-3 py-2"><span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium <?=$r['type_retour']==='retour'?'bg-amber-100 text-amber-800':'bg-blue-100 text-blue-800'?>"><?=$r['type_retour']?></span></td>
+            <td class="px-3 py-2 text-xs text-gray-500"><?=e($r['raison'])?></td></tr>
+        <?php endforeach; ?></tbody>
+    </table></div>
+</div>
+<?php endif; ?>
+</div>
 
-<?php elseif ($page === 'cloture'): $cl_fid=$fid?:(currentFranchise()?:($franchises[0]['id']??1)); ?>
+<?php elseif ($page === 'cloture'): $cl_fid=$fid?:(currentFranchise()?:($franchises[0]['id']??1));
+    // Get today's system totals for comparison
+    $sys = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COALESCE(SUM(quantite),0) as a FROM ventes WHERE franchise_id=? AND date_vente=CURDATE()", [$cl_fid]);
+    $recent_clotures = query("SELECT cl.*,f.nom as fnom,u.nom_complet as par FROM clotures cl JOIN franchises f ON cl.franchise_id=f.id LEFT JOIN utilisateurs u ON cl.utilisateur_id=u.id WHERE cl.franchise_id=? ORDER BY cl.date_cloture DESC LIMIT 10", [$cl_fid]);
+?>
 <h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-calendar-check text-asel"></i> Clôture journalière</h1>
-<div class="form-card max-w-lg"><h3><i class="bi bi-calendar-check text-asel"></i> Clôture du jour</h3><form method="POST"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="cloture_submit"><input type="hidden" name="franchise_id" value="<?=$cl_fid?>">
-<div><label class="text-sm font-semibold">Date</label><input type="date" name="date_cloture" value="<?=date('Y-m-d')?>" class="w-full border-2 rounded-xl px-4 py-2.5 text-sm"></div>
-<div class="grid grid-cols-2 gap-3"><div><label class="text-sm font-semibold">Total ventes (DT)</label><input name="total_declare" type="number" step="0.01" class="w-full border-2 rounded-xl px-4 py-2.5 text-sm" required></div><div><label class="text-sm font-semibold">Nb articles</label><input name="articles_declare" type="number" class="w-full border-2 rounded-xl px-4 py-2.5 text-sm" required></div></div>
-<div><textarea name="commentaire" class="w-full border-2 rounded-xl px-4 py-2.5 text-sm" rows="2" placeholder="Commentaire..."></textarea></div>
-<button type="submit" class="w-full bg-asel text-white font-bold py-2.5 rounded-xl">📅 Soumettre</button></form></div>
+<!-- Today's system stats -->
+<div class="grid grid-cols-2 gap-3 mb-4">
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-asel">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Ventes système (aujourd'hui)</div>
+        <div class="text-xl font-black text-asel-dark"><?=number_format($sys['t'],2)?> <span class="text-sm text-gray-400">DT</span></div>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-emerald-500">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Articles système</div>
+        <div class="text-xl font-black text-asel-dark"><?=number_format($sys['a'])?></div>
+    </div>
+</div>
+<div class="grid lg:grid-cols-2 gap-6">
+<div class="form-card">
+    <h3><i class="bi bi-calendar-check text-asel"></i> Soumettre la clôture</h3>
+    <form method="POST" class="space-y-3"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="cloture_submit"><input type="hidden" name="franchise_id" value="<?=$cl_fid?>">
+        <div><label class="form-label">Date</label><input type="date" name="date_cloture" value="<?=date('Y-m-d')?>" class="form-input"></div>
+        <div class="form-row form-row-2">
+            <div><label class="form-label">Total ventes déclaré (DT)</label><input name="total_declare" type="number" step="0.01" class="form-input text-center text-lg font-bold" required placeholder="0.00"></div>
+            <div><label class="form-label">Nb articles déclaré</label><input name="articles_declare" type="number" class="form-input text-center text-lg font-bold" required placeholder="0"></div>
+        </div>
+        <div><label class="form-label">Commentaire</label><textarea name="commentaire" class="form-input" rows="2" placeholder="Notes sur la journée, anomalies..."></textarea></div>
+        <button type="submit" class="btn-submit"><i class="bi bi-calendar-check"></i> Soumettre</button>
+    </form>
+</div>
+<?php if ($recent_clotures): ?>
+<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <div class="px-4 py-3 border-b font-semibold text-sm"><i class="bi bi-clock-history text-gray-400"></i> Historique</div>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+        <thead class="sticky-thead"><tr class="bg-gray-50 text-xs"><th class="px-3 py-2">Date</th><th class="px-3 py-2 text-right">Déclaré</th><th class="px-3 py-2 text-right">Système</th><th class="px-3 py-2 text-center">Écart</th><th class="px-3 py-2 text-center">Validé</th></tr></thead>
+        <tbody class="divide-y"><?php foreach ($recent_clotures as $cl): $ecart = $cl['total_ventes_declare'] - $cl['total_ventes_systeme']; ?>
+            <tr class="hover:bg-gray-50"><td class="px-3 py-2 text-xs"><?=date('d/m/Y',strtotime($cl['date_cloture']))?></td>
+            <td class="px-3 py-2 text-right font-bold"><?=number_format($cl['total_ventes_declare'],2)?></td>
+            <td class="px-3 py-2 text-right text-gray-500"><?=number_format($cl['total_ventes_systeme'],2)?></td>
+            <td class="px-3 py-2 text-center"><span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold <?=abs($ecart)<1?'bg-green-100 text-green-800':'bg-red-100 text-red-800'?>"><?=$ecart>0?'+':''?><?=number_format($ecart,2)?></span></td>
+            <td class="px-3 py-2 text-center"><?=$cl['valide']?'<i class="bi bi-check-circle-fill text-green-500"></i>':'<i class="bi bi-clock text-gray-300"></i>'?></td></tr>
+        <?php endforeach; ?></tbody>
+    </table></div>
+</div>
+<?php endif; ?>
+</div>
 
 <?php elseif ($page === 'rapports' && can('rapports')):
     $d1=$_GET['d1']??date('Y-m-01');$d2=$_GET['d2']??date('Y-m-d');
@@ -2292,27 +2355,47 @@ function calcEcart(idx, sys, phys) {
 <?php endif; ?>
 
 <!-- MON COMPTE -->
-<?php if ($page === 'mon_compte'): ?>
+<?php if ($page === 'mon_compte'):
+    $login_time = $_SESSION['login_time'] ?? time();
+    $session_duration = time() - $login_time;
+    $session_hours = floor($session_duration / 3600);
+    $session_mins = floor(($session_duration % 3600) / 60);
+?>
 <h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-person-gear text-asel"></i> Mon compte</h1>
+
+<!-- Session info -->
+<div class="bg-gradient-to-r from-asel to-asel-dark rounded-xl p-4 mb-6 text-white flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-3">
+        <div class="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-xl font-black"><?=mb_substr($user['nom_complet'],0,1)?></div>
+        <div>
+            <div class="font-bold"><?=e($user['nom_complet'])?></div>
+            <div class="text-white/60 text-xs">@<?=e($user['nom_utilisateur'])?> · <?=roleBadge($user['role'])?></div>
+        </div>
+    </div>
+    <div class="text-right text-xs text-white/50">
+        <div>Session: <?=$session_hours?>h<?=str_pad($session_mins,2,'0',STR_PAD_LEFT)?></div>
+        <div>Depuis <?=date('H:i', $login_time)?></div>
+    </div>
+</div>
 
 <div class="grid lg:grid-cols-2 gap-6">
     <!-- Infos -->
     <div class="bg-white rounded-xl shadow-sm p-6">
-        <h3 class="font-bold text-asel-dark mb-4"><i class="bi bi-person"></i> Mes informations</h3>
+        <h3 class="font-bold text-asel-dark mb-4 flex items-center gap-2"><i class="bi bi-person text-asel"></i> Mes informations</h3>
         <div class="space-y-3 text-sm">
-            <div class="flex justify-between py-2 border-b"><span class="text-gray-500">Nom</span><span class="font-semibold"><?=htmlspecialchars($user['nom_complet'])?></span></div>
-            <div class="flex justify-between py-2 border-b"><span class="text-gray-500">Login</span><span class="font-mono"><?=htmlspecialchars($user['nom_utilisateur'])?></span></div>
+            <div class="flex justify-between py-2 border-b"><span class="text-gray-500">Nom complet</span><span class="font-semibold"><?=e($user['nom_complet'])?></span></div>
+            <div class="flex justify-between py-2 border-b"><span class="text-gray-500">Identifiant</span><span class="font-mono bg-gray-100 px-2 py-0.5 rounded text-xs"><?=e($user['nom_utilisateur'])?></span></div>
             <div class="flex justify-between py-2 border-b"><span class="text-gray-500">Rôle</span><span><?=roleBadge($user['role'])?></span></div>
             <?php if($user['franchise_id']): $mf = queryOne("SELECT nom FROM franchises WHERE id=?",[$user['franchise_id']]); ?>
             <div class="flex justify-between py-2 border-b"><span class="text-gray-500">Franchise</span><span class="font-semibold"><?=shortF($mf['nom']??'')?></span></div>
             <?php endif; ?>
-            <div class="flex justify-between py-2"><span class="text-gray-500">Membre depuis</span><span><?=date('d/m/Y',strtotime($user['date_creation']))?></span></div>
+            <div class="flex justify-between py-2"><span class="text-gray-500">Membre depuis</span><span class="text-gray-600"><?=date('d/m/Y',strtotime($user['date_creation']))?></span></div>
         </div>
     </div>
     
     <!-- Change password -->
     <div class="bg-white rounded-xl shadow-sm p-6">
-        <h3 class="font-bold text-asel-dark mb-4"><i class="bi bi-shield-lock"></i> Changer mon mot de passe</h3>
+        <h3 class="font-bold text-asel-dark mb-4 flex items-center gap-2"><i class="bi bi-shield-lock text-asel"></i> Sécurité</h3>
         <div id="pwForm">
             <div class="space-y-3">
                 <div><label class="text-sm font-semibold text-gray-700">Mot de passe actuel</label><input type="password" id="pw_current" class="w-full border-2 rounded-xl px-4 py-2.5 text-sm mt-1"></div>
