@@ -1693,30 +1693,10 @@ elseif ($page === 'transferts'):
     </details>
 </div>
 
-<!-- Quick add category -->
-<div class="bg-white rounded-xl shadow-sm p-3 mb-3">
-    <form method="POST" class="flex gap-2 items-center"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="add_category">
-    <span class="text-xs font-bold text-gray-500"><i class="bi bi-folder-plus"></i> Catégorie:</span>
-    <input name="nom" class="border-2 rounded-lg px-3 py-1.5 text-sm flex-1" placeholder="Nouvelle catégorie" required>
-    <input name="description" class="border-2 rounded-lg px-3 py-1.5 text-sm flex-1" placeholder="Description">
-    <button class="bg-gray-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold">+</button>
-    </form>
-</div>
-
-<!-- Add product -->
-<div class="bg-white rounded-xl shadow-sm p-4 mb-4">
-    <h3 class="font-bold text-sm mb-3"><i class="bi bi-plus-circle text-asel"></i> Ajouter un produit</h3>
-    <form method="POST" class="flex flex-wrap gap-2"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="add_produit">
-        <input name="nom" class="border-2 rounded-lg px-3 py-2 text-sm flex-1 min-w-[150px]" placeholder="Nom *" required>
-        <select name="categorie_id" class="form-input"><?php foreach($categories as $c):?><option value="<?=$c['id']?>"><?=e($c['nom'])?></option><?php endforeach;?></select>
-        <input name="marque" class="form-input w-24" placeholder="Marque">
-        <input name="reference" class="form-input w-28" placeholder="Référence">
-        <input name="prix_achat" type="number" step="0.01" class="form-input w-20" placeholder="PA" required>
-        <input name="prix_vente" type="number" step="0.01" class="form-input w-20" placeholder="PV" required>
-        <input name="code_barre" class="form-input w-32" placeholder="Code-barres" id="add_barcode">
-        <button type="button" onclick="openScanner('add_barcode')" class="bg-asel text-white px-3 py-2 rounded-lg text-sm" title="Scanner"><i class="bi bi-camera"></i></button>
-        <button class="btn-submit" style="width:auto;padding:10px 20px"><i class="bi bi-plus-circle"></i> Ajouter</button>
-    </form>
+<!-- Quick actions bar -->
+<div class="flex flex-wrap gap-2 mb-3">
+    <button onclick="openAddCategory()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-asel hover:text-asel transition-colors"><i class="bi bi-folder-plus"></i> Catégorie</button>
+    <button onclick="openQuickAddProduct()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-green-500 hover:text-green-600 transition-colors"><i class="bi bi-plus-circle"></i> Produit</button>
 </div>
 
 <!-- Products table -->
@@ -1776,7 +1756,7 @@ elseif ($page === 'transferts'):
                     <td class="px-2 py-1.5">
                         <div class="flex gap-0.5">
                             <button onclick="viewProductDetails(<?=$p['id']?>,'<?=ejs($p['nom'])?>','<?=ejs($p['reference'])?>','<?=ejs($p['marque'])?>','<?=ejs($p['cat_nom'])?>',<?=$p['prix_achat']?>,<?=$p['prix_vente']?>,'<?=ejs($p['code_barre'])?>',<?=$p['seuil_alerte']?>)" class="text-gray-400 hover:text-asel" title="Détails"><i class="bi bi-eye text-sm"></i></button>
-                            <button onclick="document.getElementById('ep<?=$p['id']?>').classList.toggle('hidden')" class="text-asel hover:text-asel-dark" title="Modifier"><i class="bi bi-pencil text-sm"></i></button>
+                            <button onclick="openEditProduct(<?=$p['id']?>,'<?=ejs($p['nom'])?>',<?=$p['categorie_id']?>,'<?=ejs($p['marque'])?>','<?=ejs($p['reference'])?>','<?=ejs($p['code_barre'])?>',<?=$p['prix_achat']?>,<?=$p['prix_vente']?>,<?=$p['seuil_alerte']?>)" class="text-asel hover:text-asel-dark" title="Modifier"><i class="bi bi-pencil text-sm"></i></button>
                             <?php if(isAdmin()): ?>
                             <form method="POST" class="inline" onsubmit="return confirm('Désactiver?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="toggle_produit"><input type="hidden" name="produit_id" value="<?=$p['id']?>">
                             <button class="text-gray-300 hover:text-red-500" title="Désactiver"><i class="bi bi-eye-slash text-sm"></i></button></form>
@@ -1994,34 +1974,12 @@ document.addEventListener('keydown', e => {
 <?php elseif ($page === 'users' && can('users')): $users=query("SELECT u.*,f.nom as fnom FROM utilisateurs u LEFT JOIN franchises f ON u.franchise_id=f.id ORDER BY u.role,u.nom_complet"); ?>
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-people text-asel"></i> Utilisateurs <span class="text-sm font-normal text-gray-400">(<?=count($users)?>)</span></h1>
-</div>
-<div class="form-card mb-4">
-    <h3><i class="bi bi-person-plus text-asel"></i> Ajouter un utilisateur</h3>
-    <form method="POST" class="space-y-3">
-        <input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="add_user">
-        <div class="form-row form-row-2">
-            <div><label class="form-label">Login *</label><input name="username" class="form-input" placeholder="Identifiant unique" required autocomplete="off"></div>
-            <div><label class="form-label">Mot de passe *</label><input name="password" type="password" class="form-input" placeholder="Minimum 6 caractères" required autocomplete="new-password"></div>
-        </div>
-        <div class="form-row form-row-3">
-            <div><label class="form-label">Nom complet *</label><input name="nom_complet" class="form-input" placeholder="Prénom Nom" required></div>
-            <div><label class="form-label">Rôle</label><select name="role" class="form-input"><option value="franchise">Franchise (vendeur)</option><option value="gestionnaire">Gestionnaire (stock)</option><option value="admin">Administrateur</option><option value="viewer">Viewer (lecture)</option></select></div>
-            <div><label class="form-label">Franchise</label><select name="franchise_id" class="form-input"><option value="">— Aucune (admin) —</option><?php foreach($franchises as $f):?><option value="<?=$f['id']?>"><?=shortF($f['nom'])?></option><?php endforeach;?></select></div>
-        </div>
-        <button type="submit" class="btn-submit"><i class="bi bi-person-plus"></i> Créer l'utilisateur</button>
-    </form>
+    <button onclick="openAddUser()" class="bg-asel hover:bg-asel-dark text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors"><i class="bi bi-person-plus"></i> Nouvel utilisateur</button>
 </div>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Login</th><th class="px-3 py-3 text-left">Nom</th><th class="px-3 py-3">Rôle</th><th class="px-3 py-3 text-left hidden sm:table-cell">Franchise</th><th class="px-3 py-3">Statut</th><th class="px-3 py-3">Edit</th></tr></thead>
 <tbody class="divide-y"><?php foreach($users as $u):?>
-<tr class="hover:bg-gray-50"><td class="px-3 py-2 font-mono text-sm"><?=htmlspecialchars($u['nom_utilisateur'])?></td><td class="px-3 py-2 font-medium"><?=htmlspecialchars($u['nom_complet'])?></td><td class="px-3 py-2 text-center"><?=roleBadge($u['role'])?></td><td class="px-3 py-2 text-xs hidden sm:table-cell"><?=$u['fnom']?shortF($u['fnom']):'—'?></td><td class="px-3 py-2 text-center"><?=$u['actif']?'🟢':'🔴'?></td>
-<td class="px-3 py-2"><button onclick="document.getElementById('eu<?=$u['id']?>').classList.toggle('hidden')" class="text-asel hover:text-asel-dark"><i class="bi bi-pencil"></i></button></td></tr>
-<tr id="eu<?=$u['id']?>" class="hidden bg-blue-50"><td colspan="6" class="px-4 py-3"><form method="POST" class="flex flex-wrap gap-2 items-end"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="edit_user"><input type="hidden" name="user_id" value="<?=$u['id']?>">
-<div><label class="text-xs font-bold">Nom</label><input name="nom_complet" value="<?=htmlspecialchars($u['nom_complet'])?>" class="border rounded px-2 py-1 text-sm w-32"></div>
-<div><label class="text-xs font-bold">Rôle</label><select name="role" class="border rounded px-2 py-1 text-sm"><option value="franchise" <?=$u['role']==='franchise'?'selected':''?>>Franchise</option><option value="gestionnaire" <?=$u['role']==='gestionnaire'?'selected':''?>>Gestionnaire</option><option value="admin" <?=$u['role']==='admin'?'selected':''?>>Admin</option><option value="viewer" <?=$u['role']==='viewer'?'selected':''?>>Viewer</option></select></div>
-<div><label class="text-xs font-bold">Franchise</label><select name="franchise_id" class="border rounded px-2 py-1 text-sm"><option value="">—</option><?php foreach($franchises as $f):?><option value="<?=$f['id']?>" <?=$u['franchise_id']==$f['id']?'selected':''?>><?=shortF($f['nom'])?></option><?php endforeach;?></select></div>
-<div><label class="text-xs font-bold">Nouveau mdp</label><input name="new_password" type="password" class="border rounded px-2 py-1 text-sm w-24" placeholder="(vide=garder)"></div>
-<div><label class="text-xs font-bold">Actif</label><select name="actif" class="border rounded px-2 py-1 text-sm"><option value="1" <?=$u['actif']?'selected':''?>>Oui</option><option value="0" <?=!$u['actif']?'selected':''?>>Non</option></select></div>
-<button class="bg-asel text-white px-3 py-1 rounded text-sm font-bold">💾</button></form></td></tr>
+<tr class="hover:bg-gray-50"><td class="px-3 py-2 font-mono text-sm"><?=e($u['nom_utilisateur'])?></td><td class="px-3 py-2 font-medium"><?=e($u['nom_complet'])?></td><td class="px-3 py-2 text-center"><?=roleBadge($u['role'])?></td><td class="px-3 py-2 text-xs hidden sm:table-cell"><?=$u['fnom']?shortF($u['fnom']):'—'?></td><td class="px-3 py-2 text-center"><?=$u['actif']?'<span class="text-green-500"><i class="bi bi-check-circle-fill"></i></span>':'<span class="text-red-400"><i class="bi bi-x-circle-fill"></i></span>'?></td>
+<td class="px-3 py-2"><button onclick="openEditUser(<?=$u['id']?>,'<?=ejs($u['nom_complet'])?>','<?=$u['role']?>',<?=$u['franchise_id']?:0?>,<?=$u['actif']?>)" class="text-asel hover:text-asel-dark"><i class="bi bi-pencil"></i></button></td></tr>
 <?php endforeach;?></tbody></table></div></div>
 
 <?php
@@ -3684,6 +3642,202 @@ function previewReceipt(factureId) {
         .catch(e => {
             document.getElementById('modalContent').querySelector('.p-6').innerHTML = '<p class="text-red-500 text-center">Erreur de chargement</p>';
         });
+}
+
+// === CATEGORY MODAL ===
+function openAddCategory() {
+    const csrf = '<?=$csrf?>';
+    openModal(
+        modalHeader('bi-folder-plus', 'Nouvelle catégorie', 'Ajouter une catégorie de produits') +
+        modalForm('add_category', csrf,
+            modalField('Nom de la catégorie *', 'nom', 'text', '', 'Ex: Câbles, Chargeurs, Écouteurs...') +
+            modalField('Description', 'description', 'textarea', '', 'Description optionnelle...'),
+            'Créer la catégorie'
+        ),
+        {size: 'max-w-md'}
+    );
+}
+
+// === EDIT PRODUCT MODAL ===
+function openEditProduct(id, nom, catId, marque, ref, code, pa, pv, seuil) {
+    const csrf = '<?=$csrf?>';
+    const cats = <?=json_encode(array_map(fn($c) => ['value' => $c['id'], 'label' => $c['nom']], $categories))?>;
+    cats.forEach(c => c.selected = (c.value == catId));
+    openModal(
+        modalHeader('bi-pencil', 'Modifier le produit', nom) +
+        `<form method="POST" class="p-6 space-y-4">
+            <input type="hidden" name="_csrf" value="${csrf}">
+            <input type="hidden" name="action" value="edit_produit">
+            <input type="hidden" name="produit_id" value="${id}">
+            ${modalField('Nom *', 'nom', 'text', nom, '')}
+            ${modalRow([
+                modalField('Catégorie', 'categorie_id', 'select', '', '', cats),
+                modalField('Marque', 'marque', 'text', marque, ''),
+            ])}
+            ${modalRow([
+                modalField('Référence', 'reference', 'text', ref, ''),
+                modalField('Code-barres', 'code_barre', 'text', code, ''),
+            ])}
+            ${modalRow([
+                modalField('Prix achat (DT)', 'prix_achat', 'number', pa, ''),
+                modalField('Prix vente (DT)', 'prix_vente', 'number', pv, ''),
+            ])}
+            ${modalField('Seuil alerte', 'seuil', 'number', seuil, '')}
+            <div class="flex gap-3 pt-2">
+                <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm">Annuler</button>
+                <button type="submit" class="flex-1 py-2.5 rounded-xl bg-asel hover:bg-asel-dark text-white font-semibold text-sm flex items-center justify-center gap-2">
+                    <i class="bi bi-check-circle"></i> Sauvegarder
+                </button>
+            </div>
+        </form>`
+    );
+}
+
+// === ADD USER MODAL ===
+function openAddUser() {
+    const csrf = '<?=$csrf?>';
+    const franchises = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => shortF($f['nom'])], $franchises))?>;
+    franchises.unshift({value: '', label: '— Aucune (admin) —'});
+    openModal(
+        modalHeader('bi-person-plus', 'Nouvel utilisateur', 'Créer un compte employé') +
+        modalForm('add_user', csrf,
+            modalRow([
+                modalField('Login *', 'username', 'text', '', 'Identifiant unique'),
+                modalField('Mot de passe *', 'password', 'password', '', 'Min. 6 caractères'),
+            ]) +
+            modalField('Nom complet *', 'nom_complet', 'text', '', 'Prénom Nom') +
+            modalRow([
+                modalField('Rôle', 'role', 'select', '', '', [
+                    {value: 'franchise', label: 'Franchise (vendeur)'},
+                    {value: 'gestionnaire', label: 'Gestionnaire (stock)'},
+                    {value: 'admin', label: 'Administrateur'},
+                    {value: 'viewer', label: 'Viewer (lecture seule)'},
+                ]),
+                modalField('Franchise', 'franchise_id', 'select', '', '', franchises),
+            ]),
+            'Créer le compte'
+        )
+    );
+}
+
+// === EDIT USER MODAL ===
+function openEditUser(id, nom, role, franchiseId, actif) {
+    const csrf = '<?=$csrf?>';
+    const franchises = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => shortF($f['nom'])], $franchises))?>;
+    franchises.unshift({value: '', label: '— Aucune —'});
+    franchises.forEach(f => f.selected = (f.value == franchiseId));
+    const roles = [
+        {value: 'franchise', label: 'Franchise', selected: role === 'franchise'},
+        {value: 'gestionnaire', label: 'Gestionnaire', selected: role === 'gestionnaire'},
+        {value: 'admin', label: 'Admin', selected: role === 'admin'},
+        {value: 'viewer', label: 'Viewer', selected: role === 'viewer'},
+    ];
+    openModal(
+        modalHeader('bi-person-gear', 'Modifier utilisateur', nom) +
+        `<form method="POST" class="p-6 space-y-4">
+            <input type="hidden" name="_csrf" value="${csrf}">
+            <input type="hidden" name="action" value="edit_user">
+            <input type="hidden" name="user_id" value="${id}">
+            ${modalField('Nom complet', 'nom_complet', 'text', nom, '')}
+            ${modalRow([
+                modalField('Rôle', 'role', 'select', '', '', roles),
+                modalField('Franchise', 'franchise_id', 'select', '', '', franchises),
+            ])}
+            ${modalField('Nouveau mot de passe', 'new_password', 'password', '', 'Laisser vide pour garder l\'ancien')}
+            ${modalField('Actif', 'actif', 'select', '', '', [
+                {value: '1', label: 'Oui — actif', selected: actif == 1},
+                {value: '0', label: 'Non — désactivé', selected: actif == 0},
+            ])}
+            <div class="flex gap-3 pt-2">
+                <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm">Annuler</button>
+                <button type="submit" class="flex-1 py-2.5 rounded-xl bg-asel hover:bg-asel-dark text-white font-semibold text-sm flex items-center justify-center gap-2">
+                    <i class="bi bi-check-circle"></i> Sauvegarder
+                </button>
+            </div>
+        </form>`
+    );
+}
+
+// === ADD SERVICE MODAL ===
+function openAddService() {
+    const csrf = '<?=$csrf?>';
+    openModal(
+        modalHeader('bi-wrench-adjustable', 'Nouveau service', 'Ajouter un service technique') +
+        modalForm('add_service', csrf,
+            modalField('Nom du service *', 'nom', 'text', '', 'Ex: Remplacement écran iPhone') +
+            modalRow([
+                modalField('Catégorie', 'categorie_service', 'select', '', '', [
+                    {value: 'technique', label: 'Technique (réparation)'},
+                    {value: 'compte', label: 'Compte (configuration)'},
+                    {value: 'autre', label: 'Autre'},
+                ]),
+                modalField('Prix (DT)', 'prix', 'number', '', '0.00'),
+            ]) +
+            modalRow([
+                modalField('Durée (minutes)', 'duree_minutes', 'number', '15', ''),
+                modalField('', '', 'hidden', '', ''),
+            ]) +
+            modalField('Description', 'description', 'textarea', '', 'Description du service...'),
+            'Ajouter le service'
+        )
+    );
+}
+
+// === ADD ASEL PRODUCT MODAL ===
+function openAddAselProduct() {
+    const csrf = '<?=$csrf?>';
+    openModal(
+        modalHeader('bi-sim', 'Nouvelle offre ASEL', 'Ajouter une recharge ou forfait') +
+        modalForm('add_asel_product', csrf,
+            modalField('Nom *', 'nom', 'text', '', 'Ex: Recharge 10 DT') +
+            modalRow([
+                modalField('Type', 'type_produit', 'select', '', '', [
+                    {value: 'recharge_solde', label: 'Recharge solde'},
+                    {value: 'recharge_internet', label: 'Forfait internet'},
+                    {value: 'carte_sim', label: 'Carte SIM'},
+                    {value: 'autre', label: 'Autre'},
+                ]),
+                modalField('Valeur nominale', 'valeur_nominale', 'number', '', '0.00'),
+            ]) +
+            modalRow([
+                modalField('Prix vente (DT)', 'prix_vente', 'number', '', '0.00'),
+                modalField('Commission (DT)', 'commission', 'number', '', '0.00'),
+            ]),
+            'Ajouter l\'offre'
+        )
+    );
+}
+
+// === DEMANDE PRODUIT MODAL ===
+function openDemandeProduit(franchiseId) {
+    const csrf = '<?=$csrf?>';
+    const prods = <?=json_encode(array_map(fn($p) => ['value' => $p['id'], 'label' => $p['nom'].' ('.$p['cat_nom'].')'], $produits))?>;
+    prods.unshift({value: '', label: '— Nouveau produit (écrire ci-dessous) —'});
+    openModal(
+        modalHeader('bi-megaphone', 'Demande au stock central', 'Commander des produits pour votre franchise') +
+        `<form method="POST" class="p-6 space-y-4">
+            <input type="hidden" name="_csrf" value="${csrf}">
+            <input type="hidden" name="action" value="demande_produit">
+            <input type="hidden" name="franchise_id" value="${franchiseId}">
+            ${modalField('Produit existant', 'produit_id', 'select', '', '', prods)}
+            ${modalField('Ou nouveau produit', 'nom_produit', 'text', '', 'Nom du produit si non listé')}
+            ${modalRow([
+                modalField('Quantité', 'quantite', 'number', '1', ''),
+                modalField('Urgence', 'urgence', 'select', '', '', [
+                    {value: 'normal', label: 'Normal'},
+                    {value: 'urgent', label: 'Urgent'},
+                    {value: 'critique', label: 'Critique'},
+                ]),
+            ])}
+            ${modalField('Détails', 'note', 'textarea', '', 'Raison de la demande...')}
+            <div class="flex gap-3 pt-2">
+                <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm">Annuler</button>
+                <button type="submit" class="flex-1 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-semibold text-sm flex items-center justify-center gap-2">
+                    <i class="bi bi-send"></i> Envoyer la demande
+                </button>
+            </div>
+        </form>`
+    );
 }
 </script>
 
