@@ -604,8 +604,9 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
 <!-- Sidebar -->
 <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-64 bg-asel-dark text-white transform -translate-x-full lg:translate-x-0 transition-transform duration-200 ease-in-out overflow-y-auto">
     <!-- Logo -->
-    <div class="px-6 py-6 border-b border-white/10">
+    <div class="px-6 py-5 border-b border-white/10">
         <div class="text-2xl font-black tracking-wider"><span class="bg-gradient-to-r from-red-400 via-yellow-300 via-green-400 to-blue-400 bg-clip-text text-transparent">A</span>SEL MOBILE</div>
+        <div class="text-[10px] text-white/30 mt-0.5">Gestion de Stock v12</div>
     </div>
     
     <!-- User -->
@@ -704,10 +705,12 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
     <div class="p-4 lg:p-6 max-w-7xl mx-auto">
     
     <?php if ($flash): ?>
-    <div class="mb-4 p-4 rounded-xl flex items-center gap-3 <?=$flash['type']==='success'?'bg-green-50 text-green-800 border border-green-200':'bg-red-50 text-red-800 border border-red-200'?>">
-        <i class="bi <?=$flash['type']==='success'?'bi-check-circle-fill':'bi-exclamation-circle-fill'?> text-lg"></i>
-        <span class="text-sm font-medium"><?=strip_tags($flash['msg'], '<a><strong><b><i><em><br>')?></span>
+    <div class="mb-4 p-4 rounded-xl flex items-center gap-3 <?=$flash['type']==='success'?'bg-green-50 text-green-800 border border-green-200':'bg-red-50 text-red-800 border border-red-200'?> transition-all duration-300" id="flashMsg">
+        <i class="bi <?=$flash['type']==='success'?'bi-check-circle-fill':'bi-exclamation-circle-fill'?> text-lg shrink-0"></i>
+        <span class="text-sm font-medium flex-1"><?=strip_tags($flash['msg'], '<a><strong><b><i><em><br>')?></span>
+        <button onclick="document.getElementById('flashMsg').remove()" class="text-current opacity-50 hover:opacity-100 shrink-0"><i class="bi bi-x-lg"></i></button>
     </div>
+    <script>setTimeout(()=>{const f=document.getElementById('flashMsg');if(f){f.style.opacity='0';f.style.transform='translateY(-10px)';setTimeout(()=>f.remove(),300);}},5000);</script>
     <?php endif; ?>
     
     <?php // Franchise selector for admin/gestionnaire
@@ -729,54 +732,117 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
 // =====================================================
 if ($page === 'dashboard'):
     $wf = $fid ? "AND franchise_id=".intval($fid) : "";
-    $st = queryOne("SELECT COALESCE(SUM(s.quantite),0) as total, COALESCE(SUM(s.quantite*p.prix_vente),0) as valeur FROM stock s JOIN produits p ON s.produit_id=p.id WHERE 1=1 ".($fid?"AND s.franchise_id=".intval($fid):""));
+    $wfs = $fid ? "AND s.franchise_id=".intval($fid) : "";
+    $st = queryOne("SELECT COALESCE(SUM(s.quantite),0) as total, COALESCE(SUM(s.quantite*p.prix_vente),0) as valeur FROM stock s JOIN produits p ON s.produit_id=p.id WHERE 1=1 $wfs");
     $vj = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COUNT(*) as n FROM ventes WHERE date_vente=CURDATE() $wf");
-    $vm = queryOne("SELECT COALESCE(SUM(prix_total),0) as t FROM ventes WHERE MONTH(date_vente)=MONTH(CURDATE()) AND YEAR(date_vente)=YEAR(CURDATE()) $wf");
-    $alertes = query("SELECT s.*,p.nom as pnom,p.seuil_alerte,p.marque,f.nom as fnom FROM stock s JOIN produits p ON s.produit_id=p.id JOIN franchises f ON s.franchise_id=f.id WHERE s.quantite<=p.seuil_alerte AND p.actif=1 ".($fid?"AND s.franchise_id=".intval($fid):"")." ORDER BY s.quantite LIMIT 15");
+    $vm = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COUNT(*) as n FROM ventes WHERE MONTH(date_vente)=MONTH(CURDATE()) AND YEAR(date_vente)=YEAR(CURDATE()) $wf");
+    $vh = queryOne("SELECT COALESCE(SUM(prix_total),0) as t FROM ventes WHERE date_vente=DATE_SUB(CURDATE(), INTERVAL 1 DAY) $wf");
+    $alertes = query("SELECT s.*,p.nom as pnom,p.seuil_alerte,p.marque,f.nom as fnom FROM stock s JOIN produits p ON s.produit_id=p.id JOIN franchises f ON s.franchise_id=f.id WHERE s.quantite<=p.seuil_alerte AND p.actif=1 $wfs ORDER BY s.quantite LIMIT 15");
+    $pending_transfers = queryOne("SELECT COUNT(*) as c FROM transferts WHERE statut='en_attente'")['c'] ?? 0;
+    $pending_demands = queryOne("SELECT COUNT(*) as c FROM demandes_produits WHERE statut='en_attente'")['c'] ?? 0;
+    $overdue_echeances = queryOne("SELECT COUNT(*) as c FROM echeances WHERE statut='en_retard'")['c'] ?? 0;
+    // Trend: compare today vs yesterday
+    $trend = $vh['t'] > 0 ? round(($vj['t'] - $vh['t']) / $vh['t'] * 100) : 0;
 ?>
 
-<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-speedometer2 text-asel"></i> Tableau de bord</h1>
-
-<!-- KPIs -->
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    <div class="bg-white rounded-xl p-5 shadow-sm border-l-4 border-asel hover-lift">
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Stock total</div>
-        <div class="text-2xl font-black text-asel-dark mt-1"><?=number_format($st['total'])?></div>
-        <div class="text-xs text-gray-400">unités</div>
-    </div>
-    <div class="bg-white rounded-xl p-5 shadow-sm border-l-4 border-emerald-500 hover-lift">
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Valeur stock</div>
-        <div class="text-2xl font-black text-asel-dark mt-1"><?=number_format($st['valeur'])?></div>
-        <div class="text-xs text-gray-400">DT</div>
-    </div>
-    <div class="bg-white rounded-xl p-5 shadow-sm border-l-4 border-amber-500 hover-lift">
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Ventes aujourd'hui</div>
-        <div class="text-2xl font-black text-asel-dark mt-1"><?=number_format($vj['t'])?></div>
-        <div class="text-xs text-gray-400"><?=$vj['n']?> transaction(s)</div>
-    </div>
-    <div class="bg-white rounded-xl p-5 shadow-sm border-l-4 border-purple-500 hover-lift">
-        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Ventes du mois</div>
-        <div class="text-2xl font-black text-asel-dark mt-1"><?=number_format($vm['t'])?></div>
-        <div class="text-xs text-gray-400">DT</div>
+<!-- Dashboard header with quick actions -->
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-speedometer2 text-asel"></i> Tableau de bord</h1>
+    <div class="flex gap-2">
+        <?php if (can('pos')): ?><a href="?page=pos" class="bg-asel hover:bg-asel-dark text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors"><i class="bi bi-cart3"></i> Nouvelle vente</a><?php endif; ?>
+        <?php if (can('entree')): ?><a href="?page=entree" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-asel hover:text-asel transition-colors"><i class="bi bi-box-arrow-in-down"></i> Entrée stock</a><?php endif; ?>
     </div>
 </div>
 
-<!-- Alerts -->
+<!-- KPIs -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-asel hover-lift">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Stock total</div>
+                <div class="text-2xl font-black text-asel-dark mt-0.5"><?=number_format($st['total'])?></div>
+                <div class="text-xs text-gray-400">unités</div>
+            </div>
+            <div class="w-10 h-10 bg-asel/10 rounded-lg flex items-center justify-center"><i class="bi bi-box-seam text-asel text-lg"></i></div>
+        </div>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-emerald-500 hover-lift">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Valeur stock</div>
+                <div class="text-2xl font-black text-asel-dark mt-0.5"><?=number_format($st['valeur'])?></div>
+                <div class="text-xs text-gray-400">DT</div>
+            </div>
+            <div class="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center"><i class="bi bi-currency-exchange text-emerald-500 text-lg"></i></div>
+        </div>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-amber-500 hover-lift">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Ventes aujourd'hui</div>
+                <div class="text-2xl font-black text-asel-dark mt-0.5"><?=number_format($vj['t'])?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+                <div class="text-xs <?=$trend>0?'text-green-600':($trend<0?'text-red-500':'text-gray-400')?>">
+                    <?=$vj['n']?> vente(s) <?=$trend!=0?($trend>0?'↑':'↓').abs($trend).'% vs hier':''?>
+                </div>
+            </div>
+            <div class="w-10 h-10 bg-amber-50 rounded-lg flex items-center justify-center"><i class="bi bi-receipt text-amber-500 text-lg"></i></div>
+        </div>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-purple-500 hover-lift">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Ventes du mois</div>
+                <div class="text-2xl font-black text-asel-dark mt-0.5"><?=number_format($vm['t'])?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+                <div class="text-xs text-gray-400"><?=$vm['n']?> vente(s)</div>
+            </div>
+            <div class="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center"><i class="bi bi-graph-up-arrow text-purple-500 text-lg"></i></div>
+        </div>
+    </div>
+</div>
+
+<!-- Pending actions bar -->
+<?php if ($pending_transfers || $pending_demands || $overdue_echeances || count($alertes)): ?>
+<div class="flex flex-wrap gap-2 mb-6">
+    <?php if (count($alertes)): ?>
+    <a href="?page=stock" class="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium px-3 py-1.5 rounded-full hover:bg-amber-100 transition-colors">
+        <i class="bi bi-exclamation-triangle-fill"></i> <?=count($alertes)?> stock bas
+    </a>
+    <?php endif; ?>
+    <?php if ($pending_transfers): ?>
+    <a href="?page=transferts" class="inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-800 text-xs font-medium px-3 py-1.5 rounded-full hover:bg-blue-100 transition-colors">
+        <i class="bi bi-arrow-left-right"></i> <?=$pending_transfers?> transfert(s) en attente
+    </a>
+    <?php endif; ?>
+    <?php if ($pending_demands): ?>
+    <a href="?page=demandes" class="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-medium px-3 py-1.5 rounded-full hover:bg-indigo-100 transition-colors">
+        <i class="bi bi-megaphone-fill"></i> <?=$pending_demands?> demande(s) en attente
+    </a>
+    <?php endif; ?>
+    <?php if ($overdue_echeances): ?>
+    <a href="?page=echeances" class="inline-flex items-center gap-1.5 bg-red-50 border border-red-200 text-red-800 text-xs font-medium px-3 py-1.5 rounded-full hover:bg-red-100 transition-colors">
+        <i class="bi bi-credit-card-fill"></i> <?=$overdue_echeances?> échéance(s) en retard
+    </a>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
+
+<!-- Stock alerts table -->
 <?php if (count($alertes)): ?>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
-    <div class="bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-center gap-2 text-amber-800 font-semibold text-sm">
-        <i class="bi bi-exclamation-triangle-fill"></i> <?=count($alertes)?> produit(s) en stock bas
+    <div class="bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-center justify-between">
+        <span class="flex items-center gap-2 text-amber-800 font-semibold text-sm"><i class="bi bi-exclamation-triangle-fill"></i> <?=count($alertes)?> produit(s) en stock bas</span>
+        <?php if (can('stock_central')): ?><a href="?page=stock_central" class="text-xs text-amber-600 hover:text-amber-800"><i class="bi bi-truck"></i> Dispatcher</a><?php endif; ?>
     </div>
     <div class="overflow-x-auto">
         <table class="w-full text-sm">
-            <thead class="bg-gray-50"><tr class="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider"><th class="px-4 py-3">Franchise</th><th class="px-4 py-3">Produit</th><th class="px-4 py-3">Qté</th><th class="px-4 py-3">Seuil</th></tr></thead>
+            <thead class="bg-gray-50 sticky-thead"><tr class="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider"><th class="px-4 py-2">Franchise</th><th class="px-4 py-2">Produit</th><th class="px-4 py-2 text-center">Qté</th><th class="px-4 py-2 text-center">Seuil</th></tr></thead>
             <tbody class="divide-y divide-gray-100">
             <?php foreach ($alertes as $a): ?>
-                <tr class="<?=$a['quantite']<=0?'bg-red-50':'bg-amber-50/30'?>">
+                <tr class="<?=$a['quantite']<=0?'bg-red-50':'hover:bg-amber-50/30'?>">
                     <td class="px-4 py-2 text-xs"><?=shortF($a['fnom'])?></td>
-                    <td class="px-4 py-2 font-medium"><?=htmlspecialchars($a['pnom'])?></td>
-                    <td class="px-4 py-2"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold <?=$a['quantite']<=0?'bg-red-100 text-red-800':'bg-amber-100 text-amber-800'?>"><?=$a['quantite']?></span></td>
-                    <td class="px-4 py-2 text-gray-400"><?=$a['seuil_alerte']?></td>
+                    <td class="px-4 py-2 font-medium"><?=htmlspecialchars($a['pnom'])?> <span class="text-xs text-gray-400"><?=$a['marque']?></span></td>
+                    <td class="px-4 py-2 text-center"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold <?=$a['quantite']<=0?'bg-red-100 text-red-800':'bg-amber-100 text-amber-800'?>"><?=$a['quantite']?></span></td>
+                    <td class="px-4 py-2 text-center text-gray-400"><?=$a['seuil_alerte']?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
@@ -2829,8 +2895,8 @@ function getNewPointLocation() {
 <!-- Footer -->
 <footer class="lg:ml-64 bg-white border-t py-3 px-6 text-center text-xs text-gray-400">
     <span>&copy; <?=date('Y')?> ASEL Mobile</span> &middot; 
-    <a href="map.php" target="_blank" class="text-asel hover:underline"><i class="bi bi-map"></i> Nos franchises</a> &middot; 
-    <span>v11.0</span>
+    <a href="map.php" class="text-asel hover:underline"><i class="bi bi-map"></i> Carte</a> &middot; 
+    <span>v12.0</span>
 </footer>
 
 <!-- Global Barcode Scanner Modal -->
