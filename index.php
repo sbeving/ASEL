@@ -750,7 +750,8 @@ if ($page === 'dashboard'):
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-speedometer2 text-asel"></i> Tableau de bord</h1>
     <div class="flex gap-2">
         <?php if (can('pos')): ?><a href="?page=pos" class="bg-asel hover:bg-asel-dark text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors"><i class="bi bi-cart3"></i> Nouvelle vente</a><?php endif; ?>
-        <?php if (can('entree')): ?><a href="?page=entree" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-asel hover:text-asel transition-colors"><i class="bi bi-box-arrow-in-down"></i> Entrée stock</a><?php endif; ?>
+        <?php if (can('entree')): ?><button onclick="openQuickStockEntry('<?=$fid?:($franchises[0]['id']??'')?>','<?=ejs($fid?shortF($franchises[0]['nom']??''):'')?>') " class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-asel hover:text-asel transition-colors"><i class="bi bi-box-arrow-in-down"></i> Entrée stock</button><?php endif; ?>
+        <?php if (can('add_produit')): ?><button onclick="openQuickAddProduct()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-green-500 hover:text-green-600 transition-colors"><i class="bi bi-plus-circle"></i> Produit</button><?php endif; ?>
     </div>
 </div>
 
@@ -1011,12 +1012,15 @@ elseif ($page === 'pos'):
                     <span class="text-2xl font-black text-asel" id="cartTotal">0 DT</span>
                 </div>
                 <!-- Client -->
-                <select id="clientSelect" class="ts-select w-full text-sm mb-2" data-placeholder="🔍 Rechercher un client..." onchange="document.getElementById('formClientId').value=this.value;toggleEcheance()">
-                    <option value="" data-type="passager">🚶 Client passager</option>
-                    <?php $pos_clients=query("SELECT * FROM clients WHERE actif=1 ORDER BY type_client,nom"); foreach($pos_clients as $pc): $ico=match($pc['type_client']){'boutique'=>'🏪','entreprise'=>'🏢',default=>'👤'}; ?>
-                    <option value="<?=$pc['id']?>" data-type="<?=$pc['type_client']?>"><?=$ico?> <?=htmlspecialchars($pc['nom'].' '.($pc['prenom']??''))?></option>
-                    <?php endforeach; ?>
-                </select>
+                <div class="flex gap-1 mb-2">
+                    <select id="clientSelect" class="ts-select flex-1 text-sm" data-placeholder="Rechercher un client..." onchange="document.getElementById('formClientId').value=this.value;toggleEcheance()">
+                        <option value="" data-type="passager">Client passager</option>
+                        <?php $pos_clients=query("SELECT * FROM clients WHERE actif=1 ORDER BY type_client,nom"); foreach($pos_clients as $pc): $ico=match($pc['type_client']){'boutique'=>'🏪','entreprise'=>'🏢',default=>'👤'}; ?>
+                        <option value="<?=$pc['id']?>" data-type="<?=$pc['type_client']?>"><?=$ico?> <?=htmlspecialchars($pc['nom'].' '.($pc['prenom']??''))?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button type="button" onclick="openQuickAddClient()" class="px-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg text-sm" title="Nouveau client"><i class="bi bi-person-plus"></i></button>
+                </div>
                 <!-- Type + Paiement -->
                 <div class="grid grid-cols-2 gap-2 mb-2">
                     <select id="typeFacture" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-xs" onchange="document.getElementById('formTypeFacture').value=this.value">
@@ -1051,7 +1055,7 @@ elseif ($page === 'pos'):
                     <input type="hidden" name="nb_echeances" id="formNbEch" value="3">
                     <input type="hidden" name="interv_jours" id="formIntervJ" value="30">
                     <input type="hidden" name="prem_date" id="formPremD" value="">
-                    <button type="submit" class="w-full bg-asel hover:bg-asel-dark text-white font-bold py-3 rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2" id="btnVente" disabled onclick="prepareSubmit();this.innerHTML='<i class=\'bi bi-hourglass-split animate-spin\'></i> Traitement...';this.disabled=true;">
+                    <button type="submit" class="w-full bg-asel hover:bg-asel-dark text-white font-bold py-3 rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2" id="btnVente" disabled onclick="event.preventDefault();prepareSubmit();if(checkStockBeforeSale()){this.innerHTML='<i class=\'bi bi-hourglass-split\'></i> Traitement...';this.disabled=true;document.getElementById('saleForm').submit();}">
                         <i class="bi bi-check-circle"></i> VALIDER LA VENTE
                     </button>
                 </form>
@@ -2153,8 +2157,8 @@ elseif ($page === 'factures'):
                         <a href="pdf.php?type=facture&id=<?=$f['id']?>" target="_blank" class="text-asel hover:text-asel-dark" title="PDF"><i class="bi bi-file-pdf"></i></a>
                         <a href="receipt.php?id=<?=$f['id']?>" target="_blank" class="text-gray-400 hover:text-gray-600" title="Ticket"><i class="bi bi-receipt"></i></a>
                         <?php if(isAdmin() && $f['statut']==='payee'): ?>
-                        <form method="POST" class="inline" onsubmit="return confirm('Annuler cette facture?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="cancel_facture"><input type="hidden" name="facture_id" value="<?=$f['id']?>">
-                        <button class="text-red-400 hover:text-red-600" title="Annuler"><i class="bi bi-x-circle"></i></button></form>
+                        <form method="POST" class="inline" id="cancelFact<?=$f['id']?>"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="cancel_facture"><input type="hidden" name="facture_id" value="<?=$f['id']?>">
+                        <button type="button" onclick="confirmCancelFacture('cancelFact<?=$f['id']?>','<?=ejs($f['numero'])?>')" class="text-red-400 hover:text-red-600" title="Annuler"><i class="bi bi-x-circle"></i></button></form>
                         <?php endif; ?>
                     </div>
                 </td>
@@ -3238,5 +3242,259 @@ document.addEventListener('DOMContentLoaded', initTomSelect);
 setTimeout(initTomSelect, 500);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.js"></script>
+<!-- ============================================== -->
+<!-- GLOBAL MODAL SYSTEM -->
+<!-- ============================================== -->
+<div id="modal" class="fixed inset-0 z-[9998] hidden" role="dialog" aria-modal="true">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeModal()"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
+        <div id="modalContent" class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto pointer-events-auto transform transition-all duration-200 scale-95 opacity-0" id="modalBox">
+            <!-- Dynamic content injected here -->
+        </div>
+    </div>
+</div>
+
+<!-- Confirm Dialog -->
+<div id="confirmDialog" class="fixed inset-0 z-[9999] hidden">
+    <div class="absolute inset-0 bg-black/60" onclick="closeConfirm()"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 pointer-events-auto text-center">
+            <div id="confirmIcon" class="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center text-3xl"></div>
+            <h3 id="confirmTitle" class="font-bold text-lg text-asel-dark mb-2"></h3>
+            <p id="confirmMsg" class="text-sm text-gray-500 mb-6"></p>
+            <div class="flex gap-3">
+                <button onclick="closeConfirm()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50">Annuler</button>
+                <button id="confirmBtn" class="flex-1 py-2.5 rounded-xl text-white font-semibold text-sm">Confirmer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// === MODAL SYSTEM ===
+function openModal(html, options = {}) {
+    const modal = document.getElementById('modal');
+    const content = document.getElementById('modalContent');
+    content.innerHTML = html;
+    content.className = `bg-white rounded-2xl shadow-2xl w-full ${options.size || 'max-w-lg'} max-h-[90vh] overflow-y-auto pointer-events-auto transform transition-all duration-200`;
+    modal.classList.remove('hidden');
+    requestAnimationFrame(() => {
+        content.classList.remove('scale-95', 'opacity-0');
+        content.classList.add('scale-100', 'opacity-100');
+    });
+    // Focus first input
+    setTimeout(() => {
+        const firstInput = content.querySelector('input:not([type=hidden]), select, textarea');
+        if (firstInput) firstInput.focus();
+    }, 200);
+    // Init Tom Select in modal
+    setTimeout(() => {
+        content.querySelectorAll('.ts-select-modal').forEach(el => {
+            new TomSelect(el, { create: false, maxOptions: 50 });
+        });
+    }, 100);
+    document.body.style.overflow = 'hidden';
+}
+
+function closeModal() {
+    const modal = document.getElementById('modal');
+    const content = document.getElementById('modalContent');
+    content.classList.remove('scale-100', 'opacity-100');
+    content.classList.add('scale-95', 'opacity-0');
+    setTimeout(() => { modal.classList.add('hidden'); document.body.style.overflow = ''; }, 200);
+}
+
+// Close on Escape
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeConfirm(); } });
+
+// === CONFIRM DIALOG ===
+let confirmCallback = null;
+function showConfirm(title, msg, type, callback) {
+    const icons = {
+        danger: '<i class="bi bi-exclamation-triangle-fill text-red-500"></i>',
+        warning: '<i class="bi bi-question-circle-fill text-amber-500"></i>',
+        success: '<i class="bi bi-check-circle-fill text-green-500"></i>',
+        info: '<i class="bi bi-info-circle-fill text-asel"></i>',
+    };
+    const btnColors = {
+        danger: 'bg-red-500 hover:bg-red-600',
+        warning: 'bg-amber-500 hover:bg-amber-600',
+        success: 'bg-green-500 hover:bg-green-600',
+        info: 'bg-asel hover:bg-asel-dark',
+    };
+    document.getElementById('confirmIcon').innerHTML = icons[type] || icons.info;
+    document.getElementById('confirmIcon').className = `w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center text-3xl ${type === 'danger' ? 'bg-red-50' : type === 'warning' ? 'bg-amber-50' : 'bg-blue-50'}`;
+    document.getElementById('confirmTitle').textContent = title;
+    document.getElementById('confirmMsg').textContent = msg;
+    document.getElementById('confirmBtn').className = `flex-1 py-2.5 rounded-xl text-white font-semibold text-sm ${btnColors[type] || btnColors.info}`;
+    confirmCallback = callback;
+    document.getElementById('confirmBtn').onclick = () => { closeConfirm(); if (confirmCallback) confirmCallback(); };
+    document.getElementById('confirmDialog').classList.remove('hidden');
+}
+
+function closeConfirm() {
+    document.getElementById('confirmDialog').classList.add('hidden');
+    confirmCallback = null;
+}
+
+// === MODAL HELPERS ===
+function modalHeader(icon, title, subtitle) {
+    return `<div class="bg-gradient-to-r from-asel-dark to-asel text-white px-6 py-4 rounded-t-2xl">
+        <h3 class="font-bold text-lg flex items-center gap-2"><i class="bi ${icon}"></i> ${title}</h3>
+        ${subtitle ? `<p class="text-white/60 text-xs mt-0.5">${subtitle}</p>` : ''}
+    </div>`;
+}
+
+function modalForm(action, csrf, fields, submitText, submitColor) {
+    return `<form method="POST" class="p-6 space-y-4">
+        <input type="hidden" name="_csrf" value="${csrf}">
+        <input type="hidden" name="action" value="${action}">
+        ${fields}
+        <div class="flex gap-3 pt-2">
+            <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50">Annuler</button>
+            <button type="submit" class="flex-1 py-2.5 rounded-xl text-white font-semibold text-sm ${submitColor || 'bg-asel hover:bg-asel-dark'} flex items-center justify-center gap-2">
+                <i class="bi bi-check-circle"></i> ${submitText || 'Enregistrer'}
+            </button>
+        </div>
+    </form>`;
+}
+
+function modalField(label, name, type, value, placeholder, options) {
+    if (type === 'select' && options) {
+        const opts = options.map(o => `<option value="${o.value}" ${o.selected ? 'selected' : ''}>${o.label}</option>`).join('');
+        return `<div><label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">${label}</label>
+            <select name="${name}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel">${opts}</select></div>`;
+    }
+    if (type === 'textarea') {
+        return `<div><label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">${label}</label>
+            <textarea name="${name}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" rows="3" placeholder="${placeholder || ''}">${value || ''}</textarea></div>`;
+    }
+    return `<div><label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">${label}</label>
+        <input type="${type || 'text'}" name="${name}" value="${value || ''}" placeholder="${placeholder || ''}" 
+        class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel ${type === 'number' ? 'text-center font-bold' : ''}" ${type === 'number' ? 'min="0"' : ''}></div>`;
+}
+
+function modalRow(cols) {
+    return `<div class="grid grid-cols-${cols.length} gap-3">${cols.join('')}</div>`;
+}
+
+// === BUSINESS LOGIC HELPERS ===
+
+// Stock check before sale
+function checkStockBeforeSale() {
+    let warnings = [];
+    cart.forEach(item => {
+        if (item.qty > item.maxQty * 0.8) {
+            warnings.push(`${item.nom}: ${item.qty}/${item.maxQty} (stock bas après vente)`);
+        }
+    });
+    if (warnings.length > 0) {
+        const total = cart.reduce((s, c) => s + Math.max(0, c.qty * c.prix - c.remise), 0);
+        showConfirm(
+            'Attention — Stock bas',
+            warnings.join('\n') + '\n\nTotal: ' + total.toFixed(1) + ' DT. Continuer?',
+            'warning',
+            () => { prepareSubmit(); document.getElementById('saleForm').submit(); }
+        );
+        return false;
+    }
+    return true;
+}
+
+// Quick product add modal
+function openQuickAddProduct() {
+    const csrf = '<?=$csrf?>';
+    const cats = <?=json_encode(array_map(fn($c) => ['value' => $c['id'], 'label' => $c['nom']], $categories))?>;
+    openModal(
+        modalHeader('bi-plus-circle', 'Nouveau produit', 'Ajouter rapidement un produit au catalogue') +
+        modalForm('add_produit', csrf, 
+            modalField('Nom du produit *', 'nom', 'text', '', 'Ex: Câble USB-C 1m') +
+            modalRow([
+                modalField('Catégorie', 'categorie_id', 'select', '', '', cats),
+                modalField('Marque', 'marque', 'text', '', 'Ex: Samsung'),
+            ]) +
+            modalRow([
+                modalField('Référence', 'reference', 'text', '', 'REF-001'),
+                modalField('Code-barres', 'code_barre', 'text', '', 'Scan ou saisir'),
+            ]) +
+            modalRow([
+                modalField('Prix achat (DT)', 'prix_achat', 'number', '', '0.00'),
+                modalField('Prix vente (DT)', 'prix_vente', 'number', '', '0.00'),
+            ]),
+            'Ajouter le produit'
+        )
+    );
+}
+
+// Quick client add modal
+function openQuickAddClient() {
+    const csrf = '<?=$csrf?>';
+    openModal(
+        modalHeader('bi-person-plus', 'Nouveau client', 'Ajouter un client au répertoire') +
+        modalForm('add_client', csrf,
+            modalRow([
+                modalField('Nom *', 'nom', 'text', '', 'Nom de famille'),
+                modalField('Prénom', 'prenom', 'text', '', 'Prénom'),
+            ]) +
+            modalField('Type', 'type_client', 'select', '', '', [
+                {value: 'passager', label: 'Passager'},
+                {value: 'boutique', label: 'Client boutique'},
+                {value: 'entreprise', label: 'Entreprise'},
+            ]) +
+            modalRow([
+                modalField('Téléphone', 'telephone', 'tel', '', '+216 XX XXX XXX'),
+                modalField('Email', 'email', 'email', '', 'email@exemple.com'),
+            ]),
+            'Ajouter le client'
+        )
+    );
+}
+
+// Quick stock entry modal
+function openQuickStockEntry(franchiseId, franchiseName) {
+    const csrf = '<?=$csrf?>';
+    const prods = <?=json_encode(array_map(fn($p) => ['value' => $p['id'], 'label' => $p['nom'].' ('.$p['cat_nom'].')'], $produits))?>;
+    openModal(
+        modalHeader('bi-box-arrow-in-down', 'Entrée de stock', franchiseName ? 'Franchise: ' + franchiseName : '') +
+        `<form method="POST" class="p-6 space-y-4">
+            <input type="hidden" name="_csrf" value="${csrf}">
+            <input type="hidden" name="action" value="entree_stock">
+            <input type="hidden" name="franchise_id" value="${franchiseId}">
+            ${modalField('Produit', 'produit_id', 'select', '', '', prods)}
+            ${modalRow([
+                modalField('Quantité', 'quantite', 'number', '1', ''),
+                modalField('Note / BL', 'note', 'text', '', 'Fournisseur, BL...'),
+            ])}
+            <div class="flex gap-3 pt-2">
+                <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm">Annuler</button>
+                <button type="submit" class="flex-1 py-2.5 rounded-xl bg-asel hover:bg-asel-dark text-white font-semibold text-sm flex items-center justify-center gap-2">
+                    <i class="bi bi-check-circle"></i> Enregistrer
+                </button>
+            </div>
+        </form>`
+    );
+}
+
+// Confirm delete with proper dialog
+function confirmDelete(formId, itemName) {
+    showConfirm(
+        'Supprimer ?',
+        `Voulez-vous vraiment supprimer "${itemName}" ? Cette action est irréversible.`,
+        'danger',
+        () => document.getElementById(formId).submit()
+    );
+}
+
+// Confirm cancel facture
+function confirmCancelFacture(formId, numero) {
+    showConfirm(
+        'Annuler la facture ?',
+        `Facture ${numero} sera annulée et le stock restauré. Cette action est irréversible.`,
+        'danger',
+        () => document.getElementById(formId).submit()
+    );
+}
+</script>
+
 </body>
 </html>
