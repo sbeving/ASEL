@@ -43,6 +43,50 @@ case 'barcode_lookup':
     echo json_encode($result ?: ['error' => 'not_found']);
     break;
 
+// === BARCODE FULL LOOKUP (all franchises + product details) ===
+case 'barcode_full_lookup':
+    $code = trim($_GET['code'] ?? '');
+    if (!$code) { echo json_encode(['error' => 'no_code']); break; }
+    
+    // Find product by barcode or reference
+    $product = queryOne("SELECT p.*, c.nom as cat_nom FROM produits p JOIN categories c ON p.categorie_id=c.id WHERE (p.code_barre=? OR p.reference=?) AND p.actif=1", [$code, $code]);
+    
+    if (!$product) {
+        echo json_encode(['found' => false, 'code' => $code]);
+        break;
+    }
+    
+    // Get stock per franchise
+    $stock = query("SELECT s.quantite, s.franchise_id, f.nom as franchise_nom FROM stock s JOIN franchises f ON s.franchise_id=f.id WHERE s.produit_id=? AND f.actif=1 ORDER BY f.nom", [$product['id']]);
+    
+    $total_stock = array_sum(array_column($stock, 'quantite'));
+    $margin = $product['prix_vente'] > 0 ? round(($product['prix_vente'] - $product['prix_achat']) / $product['prix_vente'] * 100) : 0;
+    
+    echo json_encode([
+        'found' => true,
+        'product' => [
+            'id' => $product['id'],
+            'nom' => $product['nom'],
+            'reference' => $product['reference'],
+            'code_barre' => $product['code_barre'],
+            'marque' => $product['marque'],
+            'categorie' => $product['cat_nom'],
+            'categorie_id' => $product['categorie_id'],
+            'prix_achat' => floatval($product['prix_achat']),
+            'prix_vente' => floatval($product['prix_vente']),
+            'seuil_alerte' => intval($product['seuil_alerte']),
+            'margin' => $margin,
+            'profit_unit' => round($product['prix_vente'] - $product['prix_achat'], 2),
+        ],
+        'stock' => array_map(fn($s) => [
+            'franchise_id' => $s['franchise_id'],
+            'franchise' => str_replace(['ASEL Mobile — ', 'ASEL Mobile - '], '', $s['franchise_nom']),
+            'quantite' => intval($s['quantite']),
+        ], $stock),
+        'total_stock' => $total_stock,
+    ]);
+    break;
+
 // === DASHBOARD CHART DATA ===
 case 'chart_sales':
     $days = intval($_GET['days'] ?? 30);

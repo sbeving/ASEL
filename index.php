@@ -756,6 +756,7 @@ if ($page === 'dashboard'):
         <?php if (can('pos')): ?><a href="?page=pos" class="bg-asel hover:bg-asel-dark text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors"><i class="bi bi-cart3"></i> Nouvelle vente</a><?php endif; ?>
         <?php if (can('entree')): ?><button onclick="openQuickStockEntry('<?=$fid?:($franchises[0]['id']??'')?>','<?=ejs($fid?shortF($franchises[0]['nom']??''):'')?>') " class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-asel hover:text-asel transition-colors"><i class="bi bi-box-arrow-in-down"></i> Entrée stock</button><?php endif; ?>
         <?php if (can('add_produit')): ?><button onclick="openQuickAddProduct()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-green-500 hover:text-green-600 transition-colors"><i class="bi bi-plus-circle"></i> Produit</button><?php endif; ?>
+        <?php if (isAdmin()): ?><button onclick="openBarcodeLookup()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-purple-500 hover:text-purple-600 transition-colors"><i class="bi bi-upc-scan"></i> Scanner</button><?php endif; ?>
     </div>
 </div>
 
@@ -1697,6 +1698,7 @@ elseif ($page === 'transferts'):
 <div class="flex flex-wrap gap-2 mb-3">
     <button onclick="openAddCategory()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-asel hover:text-asel transition-colors"><i class="bi bi-folder-plus"></i> Catégorie</button>
     <button onclick="openQuickAddProduct()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-green-500 hover:text-green-600 transition-colors"><i class="bi bi-plus-circle"></i> Produit</button>
+    <button onclick="openBarcodeLookup()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-purple-500 hover:text-purple-600 transition-colors"><i class="bi bi-upc-scan"></i> Scanner & Rechercher</button>
 </div>
 
 <!-- Products table -->
@@ -3658,7 +3660,7 @@ function openAddCategory() {
     );
 }
 
-// === EDIT PRODUCT MODAL ===
+// === EDIT PRODUCT MODAL (with barcode scanner) ===
 function openEditProduct(id, nom, catId, marque, ref, code, pa, pv, seuil) {
     const csrf = '<?=$csrf?>';
     const cats = <?=json_encode(array_map(fn($c) => ['value' => $c['id'], 'label' => $c['nom']], $categories))?>;
@@ -3676,8 +3678,17 @@ function openEditProduct(id, nom, catId, marque, ref, code, pa, pv, seuil) {
             ])}
             ${modalRow([
                 modalField('Référence', 'reference', 'text', ref, ''),
-                modalField('Code-barres', 'code_barre', 'text', code, ''),
             ])}
+            <div>
+                <label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Code-barres</label>
+                <div class="flex gap-2">
+                    <input type="text" name="code_barre" value="${code}" placeholder="Scan ou saisir" 
+                        class="flex-1 border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:border-asel" id="editBarcode_${id}">
+                    <button type="button" onclick="openScanner('editBarcode_${id}')" class="px-3 bg-asel text-white rounded-xl hover:bg-asel-dark transition-colors" title="Scanner">
+                        <i class="bi bi-upc-scan"></i>
+                    </button>
+                </div>
+            </div>
             ${modalRow([
                 modalField('Prix achat (DT)', 'prix_achat', 'number', pa, ''),
                 modalField('Prix vente (DT)', 'prix_vente', 'number', pv, ''),
@@ -3806,6 +3817,114 @@ function openAddAselProduct() {
             'Ajouter l\'offre'
         )
     );
+}
+
+// === SMART BARCODE SCAN & LOOKUP ===
+function openBarcodeLookup() {
+    openModal(
+        modalHeader('bi-upc-scan', 'Scanner & Rechercher', 'Scannez un code-barres pour vérifier le produit') +
+        `<div class="p-6 space-y-4">
+            <div>
+                <label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Code-barres ou référence</label>
+                <div class="flex gap-2">
+                    <input type="text" id="lookupCode" class="flex-1 border-2 border-asel/30 rounded-xl px-4 py-3 text-center font-mono text-lg focus:border-asel bg-asel-light/20" 
+                        placeholder="Scannez ou tapez..." autofocus
+                        onkeypress="if(event.key==='Enter'){event.preventDefault();doBarcodeLookup();}">
+                    <button type="button" onclick="openScanner('lookupCode')" class="px-4 bg-asel text-white rounded-xl hover:bg-asel-dark"><i class="bi bi-camera text-xl"></i></button>
+                </div>
+            </div>
+            <button type="button" onclick="doBarcodeLookup()" class="w-full py-2.5 rounded-xl bg-asel hover:bg-asel-dark text-white font-semibold text-sm flex items-center justify-center gap-2">
+                <i class="bi bi-search"></i> Rechercher
+            </button>
+            <div id="lookupResult"></div>
+        </div>`,
+        {size: 'max-w-lg'}
+    );
+    setTimeout(() => document.getElementById('lookupCode')?.focus(), 300);
+}
+
+function doBarcodeLookup() {
+    const code = document.getElementById('lookupCode')?.value.trim();
+    if (!code) return;
+    const resultDiv = document.getElementById('lookupResult');
+    resultDiv.innerHTML = '<div class="text-center py-4"><i class="bi bi-hourglass-split text-2xl text-gray-300 animate-spin"></i><p class="text-sm text-gray-400 mt-2">Recherche...</p></div>';
+    
+    fetch('api.php?action=barcode_full_lookup&code=' + encodeURIComponent(code))
+        .then(r => r.json())
+        .then(data => {
+            if (data.found) {
+                const p = data.product;
+                const margeColor = p.margin >= 30 ? 'text-green-600' : p.margin >= 15 ? 'text-amber-600' : 'text-red-600';
+                let stockHtml = data.stock.map(s => {
+                    const color = s.quantite <= 0 ? 'text-red-500' : s.quantite <= p.seuil_alerte ? 'text-amber-600' : 'text-green-600';
+                    const bg = s.quantite <= 0 ? 'bg-red-50' : s.quantite <= p.seuil_alerte ? 'bg-amber-50' : 'bg-green-50';
+                    return `<div class="${bg} rounded-lg p-2 text-center">
+                        <div class="text-[10px] text-gray-500 font-medium">${s.franchise}</div>
+                        <div class="text-lg font-black ${color}">${s.quantite}</div>
+                    </div>`;
+                }).join('');
+                
+                resultDiv.innerHTML = `
+                    <div class="border-t border-gray-100 pt-4">
+                        <div class="flex items-start justify-between mb-3">
+                            <div>
+                                <h4 class="font-bold text-asel-dark text-lg">${p.nom}</h4>
+                                <p class="text-xs text-gray-400">${p.marque} · ${p.reference} · ${p.categorie}</p>
+                            </div>
+                            <span class="bg-green-100 text-green-800 text-xs font-bold px-2 py-1 rounded">Trouvé</span>
+                        </div>
+                        <div class="grid grid-cols-4 gap-2 mb-4">
+                            <div class="bg-gray-50 rounded-lg p-2 text-center">
+                                <div class="text-[10px] text-gray-400">P.A.</div>
+                                <div class="font-bold">${p.prix_achat.toFixed(1)}</div>
+                            </div>
+                            <div class="bg-gray-50 rounded-lg p-2 text-center">
+                                <div class="text-[10px] text-gray-400">P.V.</div>
+                                <div class="font-bold text-asel">${p.prix_vente.toFixed(1)}</div>
+                            </div>
+                            <div class="bg-gray-50 rounded-lg p-2 text-center">
+                                <div class="text-[10px] text-gray-400">Marge</div>
+                                <div class="font-bold ${margeColor}">${p.margin}%</div>
+                            </div>
+                            <div class="bg-gray-50 rounded-lg p-2 text-center">
+                                <div class="text-[10px] text-gray-400">Total</div>
+                                <div class="font-bold ${data.total_stock <= 0 ? 'text-red-500' : 'text-green-600'}">${data.total_stock}</div>
+                            </div>
+                        </div>
+                        <div class="mb-4">
+                            <div class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Stock par franchise</div>
+                            <div class="grid grid-cols-${Math.min(data.stock.length, 4)} gap-2">${stockHtml}</div>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="closeModal();openEditProduct(${p.id},'${p.nom.replace(/'/g,"\\'")}',${p.categorie_id},'${(p.marque||'').replace(/'/g,"\\'")}','${(p.reference||'').replace(/'/g,"\\'")}','${(p.code_barre||'').replace(/'/g,"\\'")}',${p.prix_achat},${p.prix_vente},${p.seuil_alerte})" 
+                                class="flex-1 py-2 rounded-xl bg-asel hover:bg-asel-dark text-white text-sm font-bold flex items-center justify-center gap-1">
+                                <i class="bi bi-pencil"></i> Modifier
+                            </button>
+                            <button onclick="closeModal();viewProductDetails(${p.id},'${p.nom.replace(/'/g,"\\'")}','${(p.reference||'').replace(/'/g,"\\'")}','${(p.marque||'').replace(/'/g,"\\'")}','${p.categorie}',${p.prix_achat},${p.prix_vente},'${(p.code_barre||'').replace(/'/g,"\\'")}',${p.seuil_alerte})"
+                                class="flex-1 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-bold flex items-center justify-center gap-1">
+                                <i class="bi bi-eye"></i> Détails
+                            </button>
+                        </div>
+                    </div>`;
+            } else {
+                resultDiv.innerHTML = `
+                    <div class="border-t border-gray-100 pt-4 text-center">
+                        <div class="w-16 h-16 mx-auto bg-amber-50 rounded-full flex items-center justify-center mb-3">
+                            <i class="bi bi-question-circle text-amber-500 text-3xl"></i>
+                        </div>
+                        <h4 class="font-bold text-asel-dark">Produit non trouvé</h4>
+                        <p class="text-sm text-gray-400 mt-1">Code: <span class="font-mono">${code}</span></p>
+                        <p class="text-sm text-gray-400">Ce code-barres n'existe pas dans le catalogue.</p>
+                        <button onclick="closeModal();openQuickAddProduct()" 
+                            class="mt-4 w-full py-2.5 rounded-xl bg-green-500 hover:bg-green-600 text-white text-sm font-bold flex items-center justify-center gap-2">
+                            <i class="bi bi-plus-circle"></i> Créer ce produit
+                        </button>
+                    </div>`;
+            }
+        })
+        .catch(e => {
+            resultDiv.innerHTML = '<p class="text-red-500 text-center text-sm">Erreur de connexion</p>';
+        });
 }
 
 // === DEMANDE PRODUIT MODAL ===
