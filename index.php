@@ -733,16 +733,20 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
 if ($page === 'dashboard'):
     $wf = $fid ? "AND franchise_id=".intval($fid) : "";
     $wfs = $fid ? "AND s.franchise_id=".intval($fid) : "";
-    $st = queryOne("SELECT COALESCE(SUM(s.quantite),0) as total, COALESCE(SUM(s.quantite*p.prix_vente),0) as valeur FROM stock s JOIN produits p ON s.produit_id=p.id WHERE 1=1 $wfs");
-    $vj = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COUNT(*) as n FROM ventes WHERE date_vente=CURDATE() $wf");
-    $vm = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COUNT(*) as n FROM ventes WHERE MONTH(date_vente)=MONTH(CURDATE()) AND YEAR(date_vente)=YEAR(CURDATE()) $wf");
+    $st = queryOne("SELECT COALESCE(SUM(s.quantite),0) as total, COALESCE(SUM(s.quantite*p.prix_vente),0) as valeur, COALESCE(SUM(s.quantite*p.prix_achat),0) as cout FROM stock s JOIN produits p ON s.produit_id=p.id WHERE 1=1 $wfs");
+    $vj = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t, COUNT(*) as n, COALESCE(SUM(v.quantite*p.prix_achat),0) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente=CURDATE() $wf");
+    $vm = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t, COUNT(*) as n, COALESCE(SUM(v.quantite*p.prix_achat),0) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE MONTH(v.date_vente)=MONTH(CURDATE()) AND YEAR(v.date_vente)=YEAR(CURDATE()) $wf");
     $vh = queryOne("SELECT COALESCE(SUM(prix_total),0) as t FROM ventes WHERE date_vente=DATE_SUB(CURDATE(), INTERVAL 1 DAY) $wf");
     $alertes = query("SELECT s.*,p.nom as pnom,p.seuil_alerte,p.marque,f.nom as fnom FROM stock s JOIN produits p ON s.produit_id=p.id JOIN franchises f ON s.franchise_id=f.id WHERE s.quantite<=p.seuil_alerte AND p.actif=1 $wfs ORDER BY s.quantite LIMIT 15");
     $pending_transfers = queryOne("SELECT COUNT(*) as c FROM transferts WHERE statut='en_attente'")['c'] ?? 0;
     $pending_demands = queryOne("SELECT COUNT(*) as c FROM demandes_produits WHERE statut='en_attente'")['c'] ?? 0;
     $overdue_echeances = queryOne("SELECT COUNT(*) as c FROM echeances WHERE statut='en_retard'")['c'] ?? 0;
-    // Trend: compare today vs yesterday
+    // Trend & profit
     $trend = $vh['t'] > 0 ? round(($vj['t'] - $vh['t']) / $vh['t'] * 100) : 0;
+    $profit_today = $vj['t'] - $vj['cout'];
+    $profit_month = $vm['t'] - $vm['cout'];
+    $margin_today = $vj['t'] > 0 ? round($profit_today / $vj['t'] * 100) : 0;
+    $stock_profit_potential = $st['valeur'] - $st['cout'];
 ?>
 
 <!-- Dashboard header with quick actions -->
@@ -800,6 +804,52 @@ if ($page === 'dashboard'):
         </div>
     </div>
 </div>
+
+<?php if (isAdmin()): ?>
+<!-- Profit KPIs (admin only) -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-green-500 hover-lift">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Bénéfice aujourd'hui</div>
+                <div class="text-2xl font-black <?=$profit_today>=0?'text-green-600':'text-red-600'?>"><?=number_format($profit_today)?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+                <div class="text-xs text-gray-400">Marge: <?=$margin_today?>%</div>
+            </div>
+            <div class="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center"><i class="bi bi-piggy-bank text-green-500 text-lg"></i></div>
+        </div>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-teal-500 hover-lift">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Bénéfice du mois</div>
+                <div class="text-2xl font-black <?=$profit_month>=0?'text-teal-600':'text-red-600'?>"><?=number_format($profit_month)?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+                <div class="text-xs text-gray-400"><?=$vm['n']?> ventes</div>
+            </div>
+            <div class="w-10 h-10 bg-teal-50 rounded-lg flex items-center justify-center"><i class="bi bi-cash-stack text-teal-500 text-lg"></i></div>
+        </div>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-cyan-500 hover-lift">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Coût du stock</div>
+                <div class="text-2xl font-black text-asel-dark"><?=number_format($st['cout'])?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+                <div class="text-xs text-gray-400">investissement</div>
+            </div>
+            <div class="w-10 h-10 bg-cyan-50 rounded-lg flex items-center justify-center"><i class="bi bi-safe text-cyan-500 text-lg"></i></div>
+        </div>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-indigo-500 hover-lift">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Profit potentiel stock</div>
+                <div class="text-2xl font-black text-indigo-600"><?=number_format($stock_profit_potential)?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+                <div class="text-xs text-gray-400">si tout vendu</div>
+            </div>
+            <div class="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center"><i class="bi bi-gem text-indigo-500 text-lg"></i></div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- Pending actions bar -->
 <?php if ($pending_transfers || $pending_demands || $overdue_echeances || count($alertes)): ?>
@@ -1098,7 +1148,7 @@ function scanBarcode(code){
     setTimeout(()=>document.getElementById('barcodeResult').innerHTML='',3000);
 }
 function removeFromCart(i){cart.splice(i,1);renderCart();showToast('Article retiré');}
-function clearCart(){if(cart.length && confirm('Vider le panier?')){cart=[];renderCart();showToast('Panier vidé');}}
+function clearCart(){if(cart.length){showConfirm('Vider le panier?','Tous les articles seront retirés.','warning',()=>{cart=[];renderCart();showToast('Panier vidé');});}}
 function updateQty(i,v){const q=Math.min(Math.max(1,parseInt(v)||1),cart[i].maxQty);if(q!==cart[i].qty){cart[i].qty=q;renderCart();}}
 function updateRemise(i,v){cart[i].remise=Math.max(0,parseFloat(v)||0);renderCart();}
 function renderCart(){
@@ -1483,12 +1533,16 @@ elseif ($page === 'transferts'):
 <?php elseif ($page === 'rapports' && can('rapports')):
     $d1=$_GET['d1']??date('Y-m-01');$d2=$_GET['d2']??date('Y-m-d');
     $by_f=query("SELECT f.nom,f.id,COALESCE(SUM(v.prix_total),0) as ca,COALESCE(SUM(v.quantite),0) as art,COUNT(DISTINCT v.id) as tx FROM franchises f LEFT JOIN ventes v ON f.id=v.franchise_id AND v.date_vente BETWEEN ? AND ? WHERE f.actif=1 AND (f.type_franchise IS NULL OR f.type_franchise='point_de_vente') GROUP BY f.id,f.nom ORDER BY ca DESC",[$d1,$d2]);
-    $top=query("SELECT p.nom,p.marque,p.reference,SUM(v.quantite) as qty,SUM(v.prix_total) as ca FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente BETWEEN ? AND ? GROUP BY p.id ORDER BY ca DESC LIMIT 15",[$d1,$d2]);
+    $top=query("SELECT p.nom,p.marque,p.reference,p.prix_achat,SUM(v.quantite) as qty,SUM(v.prix_total) as ca,SUM(v.quantite*p.prix_achat) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente BETWEEN ? AND ? GROUP BY p.id ORDER BY ca DESC LIMIT 15",[$d1,$d2]);
     $total_ca = array_sum(array_column($by_f, 'ca'));
     $total_art = array_sum(array_column($by_f, 'art'));
     $total_tx = array_sum(array_column($by_f, 'tx'));
-    // Category breakdown
-    $by_cat=query("SELECT c.nom,SUM(v.prix_total) as ca,SUM(v.quantite) as qty FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN categories c ON p.categorie_id=c.id WHERE v.date_vente BETWEEN ? AND ? GROUP BY c.nom ORDER BY ca DESC",[$d1,$d2]);
+    // Category breakdown with profit
+    $by_cat=query("SELECT c.nom,SUM(v.prix_total) as ca,SUM(v.quantite) as qty,SUM(v.quantite*p.prix_achat) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN categories c ON p.categorie_id=c.id WHERE v.date_vente BETWEEN ? AND ? GROUP BY c.nom ORDER BY ca DESC",[$d1,$d2]);
+    // Total cost for profit
+    $total_cout = queryOne("SELECT COALESCE(SUM(v.quantite*p.prix_achat),0) as c FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente BETWEEN ? AND ? ".($fid?"AND v.franchise_id=".intval($fid):""), [$d1,$d2])['c'];
+    $total_profit = $total_ca - $total_cout;
+    $total_margin = $total_ca > 0 ? round($total_profit / $total_ca * 100) : 0;
 ?>
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-graph-up text-asel"></i> Rapports</h1>
@@ -1515,10 +1569,15 @@ elseif ($page === 'transferts'):
     </form>
 </div>
 <!-- Global KPIs -->
-<div class="grid grid-cols-3 gap-3 mb-6">
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
     <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-asel">
         <div class="text-[10px] text-gray-400 uppercase font-bold">CA Total</div>
         <div class="text-2xl font-black text-asel-dark"><?=number_format($total_ca)?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-green-500">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Bénéfice net</div>
+        <div class="text-2xl font-black <?=$total_profit>=0?'text-green-600':'text-red-600'?>"><?=number_format($total_profit)?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+        <div class="text-xs text-gray-400">Marge: <?=$total_margin?>%</div>
     </div>
     <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-emerald-500">
         <div class="text-[10px] text-gray-400 uppercase font-bold">Articles vendus</div>
@@ -1542,7 +1601,7 @@ elseif ($page === 'transferts'):
 </div><?php endforeach; ?></div>
 <!-- Top products + Category breakdown -->
 <div class="grid lg:grid-cols-2 gap-4">
-<?php if($top):?><div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="px-4 py-3 border-b font-semibold text-sm flex items-center gap-2"><i class="bi bi-trophy text-amber-500"></i> Top 15 produits</div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="sticky-thead"><tr class="bg-gray-50 text-xs"><th class="px-3 py-2 text-left">#</th><th class="px-3 py-2 text-left">Produit</th><th class="px-3 py-2 text-center">Qté</th><th class="px-3 py-2 text-right">CA</th></tr></thead><tbody class="divide-y"><?php foreach($top as $i=>$t):?><tr class="hover:bg-gray-50"><td class="px-3 py-2 text-xs text-gray-400"><?=$i+1?></td><td class="px-3 py-2"><div class="font-medium"><?=e($t['nom'])?></div><div class="text-xs text-gray-400"><?=e($t['marque'])?> · <?=e($t['reference'])?></div></td><td class="px-3 py-2 text-center font-semibold"><?=$t['qty']?></td><td class="px-3 py-2 text-right font-bold"><?=number_format($t['ca'])?></td></tr><?php endforeach;?></tbody></table></div></div><?php endif;?>
+<?php if($top):?><div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="px-4 py-3 border-b font-semibold text-sm flex items-center gap-2"><i class="bi bi-trophy text-amber-500"></i> Top 15 produits</div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="sticky-thead"><tr class="bg-gray-50 text-xs"><th class="px-3 py-2 text-left">#</th><th class="px-3 py-2 text-left">Produit</th><th class="px-3 py-2 text-center">Qté</th><th class="px-3 py-2 text-right">CA</th><th class="px-3 py-2 text-right">Bénéfice</th></tr></thead><tbody class="divide-y"><?php foreach($top as $i=>$t): $profit=$t['ca']-$t['cout']; ?><tr class="hover:bg-gray-50"><td class="px-3 py-2 text-xs text-gray-400"><?=$i+1?></td><td class="px-3 py-2"><div class="font-medium"><?=e($t['nom'])?></div><div class="text-xs text-gray-400"><?=e($t['marque'])?> · <?=e($t['reference'])?></div></td><td class="px-3 py-2 text-center font-semibold"><?=$t['qty']?></td><td class="px-3 py-2 text-right font-bold"><?=number_format($t['ca'])?></td><td class="px-3 py-2 text-right font-bold <?=$profit>=0?'text-green-600':'text-red-600'?>"><?=number_format($profit)?></td></tr><?php endforeach;?></tbody></table></div></div><?php endif;?>
 <?php if($by_cat):?><div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="px-4 py-3 border-b font-semibold text-sm flex items-center gap-2"><i class="bi bi-pie-chart text-asel"></i> Par catégorie</div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="sticky-thead"><tr class="bg-gray-50 text-xs"><th class="px-3 py-2 text-left">Catégorie</th><th class="px-3 py-2 text-center">Qté</th><th class="px-3 py-2 text-right">CA</th><th class="px-3 py-2 text-right">%</th></tr></thead><tbody class="divide-y"><?php foreach($by_cat as $c): $cpct=$total_ca>0?round($c['ca']/$total_ca*100):0; ?><tr class="hover:bg-gray-50"><td class="px-3 py-2 font-medium"><?=e($c['nom'])?></td><td class="px-3 py-2 text-center"><?=$c['qty']?></td><td class="px-3 py-2 text-right font-bold"><?=number_format($c['ca'])?></td><td class="px-3 py-2 text-right text-xs"><span class="bg-asel/10 text-asel font-bold px-1.5 py-0.5 rounded"><?=$cpct?>%</span></td></tr><?php endforeach;?></tbody></table></div></div><?php endif;?>
 </div>
 
@@ -1716,6 +1775,7 @@ elseif ($page === 'transferts'):
                     </td>
                     <td class="px-2 py-1.5">
                         <div class="flex gap-0.5">
+                            <button onclick="viewProductDetails(<?=$p['id']?>,'<?=ejs($p['nom'])?>','<?=ejs($p['reference'])?>','<?=ejs($p['marque'])?>','<?=ejs($p['cat_nom'])?>',<?=$p['prix_achat']?>,<?=$p['prix_vente']?>,'<?=ejs($p['code_barre'])?>',<?=$p['seuil_alerte']?>)" class="text-gray-400 hover:text-asel" title="Détails"><i class="bi bi-eye text-sm"></i></button>
                             <button onclick="document.getElementById('ep<?=$p['id']?>').classList.toggle('hidden')" class="text-asel hover:text-asel-dark" title="Modifier"><i class="bi bi-pencil text-sm"></i></button>
                             <?php if(isAdmin()): ?>
                             <form method="POST" class="inline" onsubmit="return confirm('Désactiver?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="toggle_produit"><input type="hidden" name="produit_id" value="<?=$p['id']?>">
@@ -2155,7 +2215,7 @@ elseif ($page === 'factures'):
                 <td class="px-3 py-2">
                     <div class="flex gap-1">
                         <a href="pdf.php?type=facture&id=<?=$f['id']?>" target="_blank" class="text-asel hover:text-asel-dark" title="PDF"><i class="bi bi-file-pdf"></i></a>
-                        <a href="receipt.php?id=<?=$f['id']?>" target="_blank" class="text-gray-400 hover:text-gray-600" title="Ticket"><i class="bi bi-receipt"></i></a>
+                        <button onclick="previewReceipt(<?=$f['id']?>)" class="text-gray-400 hover:text-gray-600" title="Aperçu ticket"><i class="bi bi-receipt"></i></button>
                         <?php if(isAdmin() && $f['statut']==='payee'): ?>
                         <form method="POST" class="inline" id="cancelFact<?=$f['id']?>"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="cancel_facture"><input type="hidden" name="facture_id" value="<?=$f['id']?>">
                         <button type="button" onclick="confirmCancelFacture('cancelFact<?=$f['id']?>','<?=ejs($f['numero'])?>')" class="text-red-400 hover:text-red-600" title="Annuler"><i class="bi bi-x-circle"></i></button></form>
@@ -3493,6 +3553,137 @@ function confirmCancelFacture(formId, numero) {
         'danger',
         () => document.getElementById(formId).submit()
     );
+}
+
+// Quick transfer request modal
+function openQuickTransfer() {
+    const csrf = '<?=$csrf?>';
+    const franchises = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => shortF($f['nom'])], $allFranchises))?>;
+    const prods = <?=json_encode(array_map(fn($p) => ['value' => $p['id'], 'label' => $p['nom'].' ('.$p['cat_nom'].')'], $produits))?>;
+    openModal(
+        modalHeader('bi-arrow-left-right', 'Demander un transfert', 'Transférer du stock entre franchises') +
+        modalForm('transfert', csrf,
+            modalRow([
+                modalField('Source', 'source', 'select', '', '', franchises),
+                modalField('Destination', 'dest', 'select', '', '', franchises),
+            ]) +
+            modalField('Produit', 'produit_id', 'select', '', '', prods) +
+            modalRow([
+                modalField('Quantité', 'quantite', 'number', '1', ''),
+                modalField('Note', 'note', 'text', '', 'Raison du transfert'),
+            ]),
+            'Envoyer la demande', 'bg-blue-500 hover:bg-blue-600'
+        )
+    );
+}
+
+// Quick retour modal
+function openQuickRetour(franchiseId) {
+    const csrf = '<?=$csrf?>';
+    const prods = <?=json_encode(array_map(fn($p) => ['value' => $p['id'], 'label' => $p['nom'].' ('.$p['cat_nom'].')'], $produits))?>;
+    openModal(
+        modalHeader('bi-arrow-counterclockwise', 'Retour / Échange', 'Enregistrer un retour produit') +
+        modalForm('retour', csrf,
+            `<input type="hidden" name="franchise_id" value="${franchiseId}">` +
+            modalField('Produit', 'produit_id', 'select', '', '', prods) +
+            modalRow([
+                modalField('Quantité', 'quantite', 'number', '1', ''),
+                modalField('Type', 'type_retour', 'select', '', '', [
+                    {value: 'retour', label: 'Retour (stock récupéré)'},
+                    {value: 'echange', label: 'Échange (remplacement)'},
+                ]),
+            ]) +
+            modalField('Raison', 'raison', 'text', '', 'Produit défectueux, erreur...'),
+            'Enregistrer', 'bg-amber-500 hover:bg-amber-600'
+        )
+    );
+}
+
+// View product details modal
+function viewProductDetails(id, nom, ref, marque, cat, pa, pv, code, seuil) {
+    const marge = pv > 0 ? ((pv - pa) / pv * 100).toFixed(1) : 0;
+    const margeColor = marge >= 30 ? 'text-green-600' : marge >= 15 ? 'text-amber-600' : 'text-red-600';
+    openModal(
+        modalHeader('bi-box-seam', nom, ref + ' · ' + marque) +
+        `<div class="p-6 space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                <div class="bg-gray-50 rounded-xl p-3 text-center">
+                    <div class="text-[10px] text-gray-400 uppercase font-bold">Prix achat</div>
+                    <div class="text-xl font-black text-gray-600">${pa.toFixed(1)} DT</div>
+                </div>
+                <div class="bg-gray-50 rounded-xl p-3 text-center">
+                    <div class="text-[10px] text-gray-400 uppercase font-bold">Prix vente</div>
+                    <div class="text-xl font-black text-asel">${pv.toFixed(1)} DT</div>
+                </div>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+                <div class="text-center">
+                    <div class="text-[10px] text-gray-400 uppercase font-bold">Marge</div>
+                    <div class="text-lg font-black ${margeColor}">${marge}%</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-[10px] text-gray-400 uppercase font-bold">Bénéfice/unité</div>
+                    <div class="text-lg font-black text-green-600">${(pv - pa).toFixed(1)} DT</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-[10px] text-gray-400 uppercase font-bold">Seuil alerte</div>
+                    <div class="text-lg font-black text-gray-600">${seuil}</div>
+                </div>
+            </div>
+            <div class="pt-2 border-t border-gray-100 text-xs text-gray-400 space-y-1">
+                <div><strong>Catégorie:</strong> ${cat}</div>
+                <div><strong>Référence:</strong> ${ref || '—'}</div>
+                <div><strong>Code-barres:</strong> <span class="font-mono">${code || '—'}</span></div>
+            </div>
+            <button onclick="closeModal()" class="w-full py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50">Fermer</button>
+        </div>`,
+        {size: 'max-w-md'}
+    );
+}
+
+// Receipt preview modal
+function previewReceipt(factureId) {
+    openModal(
+        modalHeader('bi-receipt', 'Aperçu ticket', 'Ticket de caisse') +
+        `<div class="p-6"><div class="text-center text-gray-400 py-8"><i class="bi bi-hourglass-split text-3xl"></i><p class="mt-2 text-sm">Chargement...</p></div></div>`,
+        {size: 'max-w-sm'}
+    );
+    fetch('api.php?action=receipt&id=' + factureId)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { document.getElementById('modalContent').querySelector('.p-6').innerHTML = '<p class="text-red-500 text-center">Erreur: ' + data.error + '</p>'; return; }
+            const f = data.facture;
+            const lignes = data.lignes;
+            let html = `<div class="p-6 font-mono text-xs">
+                <div class="text-center mb-4">
+                    <div class="font-bold text-base">ASEL MOBILE</div>
+                    <div>${f.franchise_nom || ''}</div>
+                    <div>${f.franchise_tel || ''}</div>
+                    <div class="mt-2 border-b border-dashed border-gray-300 pb-2">
+                        <strong>${f.numero}</strong><br>
+                        ${new Date(f.date_facture).toLocaleString('fr-TN')}
+                    </div>
+                </div>
+                <table class="w-full"><tbody>`;
+            lignes.forEach(l => {
+                html += `<tr><td class="py-0.5">${l.designation}</td><td class="text-right">${l.quantite}×${parseFloat(l.prix_unitaire).toFixed(1)}</td><td class="text-right font-bold">${parseFloat(l.total).toFixed(1)}</td></tr>`;
+            });
+            html += `</tbody></table>
+                <div class="border-t border-dashed border-gray-300 mt-2 pt-2 text-right">
+                    <div class="text-base font-bold">TOTAL: ${parseFloat(f.total_ttc).toFixed(2)} DT</div>
+                    ${f.mode_paiement ? '<div class="text-gray-400">Paiement: ' + f.mode_paiement + '</div>' : ''}
+                </div>
+                <div class="text-center mt-4 text-gray-400">Merci pour votre achat!</div>
+                <div class="flex gap-2 mt-4">
+                    <a href="receipt.php?id=${f.id}" target="_blank" class="flex-1 py-2 rounded-lg bg-asel text-white text-center text-xs font-bold">🖨️ Imprimer</a>
+                    <a href="pdf.php?type=facture&id=${f.id}" target="_blank" class="flex-1 py-2 rounded-lg bg-gray-100 text-gray-600 text-center text-xs font-bold">📄 PDF</a>
+                </div>
+            </div>`;
+            document.getElementById('modalContent').innerHTML = modalHeader('bi-receipt', 'Ticket ' + f.numero, f.franchise_nom || '') + html;
+        })
+        .catch(e => {
+            document.getElementById('modalContent').querySelector('.p-6').innerHTML = '<p class="text-red-500 text-center">Erreur de chargement</p>';
+        });
 }
 </script>
 
