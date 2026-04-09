@@ -1942,8 +1942,9 @@ elseif ($page === 'transferts'):
                 <th class="px-2 py-3 text-left cursor-pointer hover:bg-white/10" onclick="sortTable(1)">Réf. <i class="bi bi-arrow-down-up text-white/30"></i></th>
                 <th class="px-2 py-3 text-left hidden sm:table-cell cursor-pointer hover:bg-white/10" onclick="sortTable(2)">Cat.</th>
                 <th class="px-2 py-3 text-left hidden md:table-cell cursor-pointer hover:bg-white/10" onclick="sortTable(3)">Marque</th>
-                <th class="px-2 py-3 text-right cursor-pointer hover:bg-white/10" onclick="sortTable(4)">PV</th>
-                <th class="px-2 py-3 text-center cursor-pointer hover:bg-white/10" onclick="sortTable(5)">Marge</th>
+                <th class="px-2 py-3 text-right cursor-pointer hover:bg-white/10 hidden md:table-cell" onclick="sortTable(4)">PA HT</th>
+                <th class="px-2 py-3 text-right cursor-pointer hover:bg-white/10" onclick="sortTable(5)">PV TTC</th>
+                <th class="px-2 py-3 text-center cursor-pointer hover:bg-white/10" onclick="sortTable(6)">Marge</th>
                 <?php if ($central_id): ?>
                 <th class="px-2 py-3 text-center bg-indigo-900 cursor-pointer hover:bg-indigo-800" onclick="sortTable(6)" title="Stock Central">Central</th>
                 <?php endif; ?>
@@ -1966,7 +1967,8 @@ elseif ($page === 'transferts'):
                     <td class="px-2 py-1.5 text-xs font-mono text-gray-500"><?=e($p['reference'])?:'-'?></td>
                     <td class="px-2 py-1.5 text-xs hidden sm:table-cell"><span class="inline-flex px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px]"><?=e($p['cat_nom'])?></span></td>
                     <td class="px-2 py-1.5 text-xs text-gray-500 hidden md:table-cell"><?=e($p['marque'])?></td>
-                    <td class="px-2 py-1.5 text-right font-semibold text-sm"><?=number_format($p['prix_vente'],1)?></td>
+                    <td class="px-2 py-1.5 text-right text-xs text-gray-500 hidden md:table-cell"><?=number_format($p['prix_achat_ht'] ?? $p['prix_achat'],1)?></td>
+                    <td class="px-2 py-1.5 text-right font-semibold text-sm"><?=number_format($p['prix_vente_ttc'] ?? $p['prix_vente'],1)?></td>
                     <td class="px-2 py-1.5 text-center">
                         <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold <?=$m>=30?'bg-green-100 text-green-800':($m>=15?'bg-yellow-100 text-yellow-800':'bg-red-100 text-red-800')?>"><?=number_format($m,0)?>%</span>
                     </td>
@@ -3370,34 +3372,7 @@ function getNewPointLocation() {
 <?php endif; ?>
 
     </div>
-</main>
-
-<!-- Footer -->
-<footer class="lg:ml-64 bg-white border-t py-3 px-6 text-center text-xs text-gray-400">
-    <span>&copy; <?=date('Y')?> ASEL Mobile</span> &middot; 
-    <a href="map.php" class="text-asel hover:underline"><i class="bi bi-map"></i> Carte</a> &middot; 
-    <button onclick="showShortcuts()" class="text-gray-400 hover:text-asel">Raccourcis <kbd class="bg-gray-100 px-1 rounded text-[10px]">?</kbd></button> &middot;
-    <span>v14.0</span>
-</footer>
-
-<?php if (can('pos')): ?>
-<!-- Mobile FAB -->
-<div class="lg:hidden fixed bottom-6 right-6 z-40 flex flex-col gap-2 items-end" id="fabMenu">
-    <div class="hidden flex-col gap-2 items-end mb-2" id="fabActions">
-        <a href="?page=pos" class="bg-asel text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-cart3"></i> Vente</a>
-        <button onclick="openQuickStockEntry('','');closeFab()" class="bg-emerald-500 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-box-arrow-in-down"></i> Entrée</button>
-        <button onclick="openBarcodeLookup();closeFab()" class="bg-purple-500 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-upc-scan"></i> Scanner</button>
-    </div>
-    <button onclick="toggleFab()" class="bg-asel hover:bg-asel-dark text-white shadow-xl w-14 h-14 rounded-full flex items-center justify-center transition-transform" id="fabBtn">
-        <i class="bi bi-plus-lg text-2xl" id="fabIcon"></i>
-    </button>
-</div>
-<script>
-function toggleFab(){const a=document.getElementById('fabActions');const i=document.getElementById('fabIcon');a.classList.toggle('hidden');a.classList.toggle('flex');i.style.transform=a.classList.contains('hidden')?'':'rotate(45deg)';}
-function closeFab(){document.getElementById('fabActions').classList.add('hidden');document.getElementById('fabActions').classList.remove('flex');document.getElementById('fabIcon').style.transform='';}
-</script>
-<?php endif; ?>
-
+<div class="p-4 lg:p-6 max-w-7xl mx-auto pb-20">
 <!-- ====================== FOURNISSEURS PAGE ====================== -->
 <?php if ($page === 'fournisseurs' && can('fournisseurs')): 
     $all_fournisseurs = query("SELECT * FROM fournisseurs ORDER BY actif DESC, nom");
@@ -3425,7 +3400,9 @@ function closeFab(){document.getElementById('fabActions').classList.add('hidden'
     </table>
 </div>
 <?php endif; ?>
+</div>
 
+<div class="p-4 lg:p-6 max-w-7xl mx-auto pb-20">
 <!-- ====================== BONS DE RECEPTION PAGE ====================== -->
 <?php if ($page === 'bons_reception' && can('bons_reception')):
     $bons = query("SELECT br.*,f.nom as fnom,fo.nom as fourn_nom,u.nom_complet as unom FROM bons_reception br JOIN franchises f ON br.franchise_id=f.id LEFT JOIN fournisseurs fo ON br.fournisseur_id=fo.id LEFT JOIN utilisateurs u ON br.utilisateur_id=u.id ORDER BY br.date_creation DESC LIMIT 50");
@@ -3523,7 +3500,9 @@ function openBonReception(){
 }
 </script>
 <?php endif; ?>
+</div>
 
+<div class="p-4 lg:p-6 max-w-7xl mx-auto pb-20">
 <!-- ====================== TRESORERIE PAGE ====================== -->
 <?php if ($page === 'tresorerie' && can('tresorerie')):
     $tr_fid = $fid ?: ($franchises[0]['id'] ?? 1);
@@ -3575,7 +3554,9 @@ function openBonReception(){
     </table>
 </div>
 <?php endif; ?>
+</div>
 
+<div class="p-4 lg:p-6 max-w-7xl mx-auto pb-20">
 <!-- ====================== FAMILLES & CATEGORIES PAGE ====================== -->
 <?php if ($page === 'familles_categories' && can('familles_categories')):
     $all_familles = query("SELECT * FROM familles WHERE actif=1 ORDER BY nom") ?? [];
@@ -3618,6 +3599,35 @@ function openBonReception(){
     </div>
 </div>
 <?php endif; ?>
+</div>
+</main>
+
+<!-- Footer -->
+<footer class="lg:ml-64 bg-white border-t py-3 px-6 text-center text-xs text-gray-400">
+    <span>&copy; <?=date('Y')?> ASEL Mobile</span> &middot; 
+    <a href="map.php" class="text-asel hover:underline"><i class="bi bi-map"></i> Carte</a> &middot; 
+    <button onclick="showShortcuts()" class="text-gray-400 hover:text-asel">Raccourcis <kbd class="bg-gray-100 px-1 rounded text-[10px]">?</kbd></button> &middot;
+    <span>v14.0</span>
+</footer>
+
+<?php if (can('pos')): ?>
+<!-- Mobile FAB -->
+<div class="lg:hidden fixed bottom-6 right-6 z-40 flex flex-col gap-2 items-end" id="fabMenu">
+    <div class="hidden flex-col gap-2 items-end mb-2" id="fabActions">
+        <a href="?page=pos" class="bg-asel text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-cart3"></i> Vente</a>
+        <button onclick="openQuickStockEntry('','');closeFab()" class="bg-emerald-500 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-box-arrow-in-down"></i> Entrée</button>
+        <button onclick="openBarcodeLookup();closeFab()" class="bg-purple-500 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-upc-scan"></i> Scanner</button>
+    </div>
+    <button onclick="toggleFab()" class="bg-asel hover:bg-asel-dark text-white shadow-xl w-14 h-14 rounded-full flex items-center justify-center transition-transform" id="fabBtn">
+        <i class="bi bi-plus-lg text-2xl" id="fabIcon"></i>
+    </button>
+</div>
+<script>
+function toggleFab(){const a=document.getElementById('fabActions');const i=document.getElementById('fabIcon');a.classList.toggle('hidden');a.classList.toggle('flex');i.style.transform=a.classList.contains('hidden')?'':'rotate(45deg)';}
+function closeFab(){document.getElementById('fabActions').classList.add('hidden');document.getElementById('fabActions').classList.remove('flex');document.getElementById('fabIcon').style.transform='';}
+</script>
+<?php endif; ?>
+
 <div id="scannerModal" class="fixed inset-0 z-[9999] bg-black/70 items-center justify-center p-4" style="display:none">
     <div class="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
         <div class="bg-asel-dark text-white px-4 py-3 flex justify-between items-center">
