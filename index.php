@@ -3413,18 +3413,18 @@ function getNewPointLocation() {
 </div>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <table class="w-full text-sm">
-        <thead><tr class="bg-asel-dark text-white text-xs uppercase"><th class="px-3 py-2 text-left">N°</th><th class="px-3 py-2">Date</th><th class="px-3 py-2">Franchise</th><th class="px-3 py-2">Fournisseur</th><th class="px-3 py-2 text-right">HT</th><th class="px-3 py-2 text-right">TVA</th><th class="px-3 py-2 text-right">TTC</th><th class="px-3 py-2">Par</th></tr></thead>
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase"><th class="px-3 py-2 text-left">N°</th><th class="px-3 py-2">Date</th><th class="px-3 py-2 hidden sm:table-cell">Franchise</th><th class="px-3 py-2 hidden md:table-cell">Fournisseur</th><th class="px-3 py-2 text-right hidden sm:table-cell">HT</th><th class="px-3 py-2 text-right hidden md:table-cell">TVA</th><th class="px-3 py-2 text-right">TTC</th><th class="px-3 py-2 hidden sm:table-cell">Par</th></tr></thead>
         <tbody class="divide-y">
         <?php foreach($bons as $b): ?>
-        <tr>
-            <td class="px-3 py-2 font-mono font-bold text-asel"><?=e($b['numero'])?></td>
-            <td class="px-3 py-2 text-center"><?=date('d/m/Y', strtotime($b['date_reception']))?></td>
-            <td class="px-3 py-2 text-center"><?=e(shortF($b['fnom']))?></td>
-            <td class="px-3 py-2 text-center"><?=e($b['fourn_nom'] ?? '—')?></td>
-            <td class="px-3 py-2 text-right font-mono"><?=number_format($b['total_ht'],2)?></td>
-            <td class="px-3 py-2 text-right font-mono text-gray-400"><?=number_format($b['tva'],2)?></td>
-            <td class="px-3 py-2 text-right font-mono font-bold"><?=number_format($b['total_ttc'],2)?> DT</td>
-            <td class="px-3 py-2 text-center text-xs"><?=e($b['unom'] ?? '')?></td>
+        <tr class="hover:bg-asel-light/30">
+            <td class="px-3 py-2 font-mono font-bold text-asel text-xs"><?=e($b['numero'])?></td>
+            <td class="px-3 py-2 text-center text-xs"><?=date('d/m/Y', strtotime($b['date_reception']))?></td>
+            <td class="px-3 py-2 text-center text-xs hidden sm:table-cell"><?=e(shortF($b['fnom']))?></td>
+            <td class="px-3 py-2 text-center text-xs hidden md:table-cell"><?=e($b['fourn_nom'] ?? '—')?></td>
+            <td class="px-3 py-2 text-right font-mono text-xs hidden sm:table-cell"><?=number_format($b['total_ht'],2)?></td>
+            <td class="px-3 py-2 text-right font-mono text-xs text-gray-400 hidden md:table-cell"><?=number_format($b['tva'],2)?></td>
+            <td class="px-3 py-2 text-right font-mono font-bold"><?=number_format($b['total_ttc'],2)?> <span class="text-xs text-gray-400">DT</span></td>
+            <td class="px-3 py-2 text-center text-xs hidden sm:table-cell"><?=e($b['unom'] ?? '')?></td>
         </tr>
         <?php endforeach; ?>
         <?php if(empty($bons)): ?><tr><td colspan="8" class="px-3 py-8 text-center text-gray-400">Aucun bon de réception</td></tr><?php endif; ?>
@@ -3464,13 +3464,17 @@ function openBonReception(){
                 <select name=fournisseur_id class="w-full border-2 rounded-xl px-3 py-2 text-sm"><option value="">—</option>${fournList.map(f=>'<option value='+f.id+'>'+f.nom+'</option>').join('')}</select></div>
         </div>
         <div class="bg-gray-50 rounded-xl p-3">
+            <div class="mb-2">
+                <label class="text-xs font-bold text-gray-500 mb-1 block"><i class="bi bi-search"></i> Rechercher produit</label>
+                <input id=brSearch type=text placeholder="Tapez nom, réf ou marque..." class="w-full border-2 border-asel/30 rounded-lg px-3 py-2 text-sm focus:border-asel outline-none" oninput="filterBRProducts()">
+            </div>
             <div class="flex gap-2 mb-2">
-                <select id=brProd class="flex-1 border-2 rounded-lg px-2 py-1.5 text-xs">
-                    ${prods.map(p=>'<option value="'+p.id+'" data-pa="'+p.pa+'" data-tva="'+(p.tva||19)+'">'+p.nom+' ['+p.ref+']</option>').join('')}
+                <select id=brProd class="flex-1 border-2 rounded-lg px-2 py-1.5 text-xs" size="1">
+                    ${prods.map(p=>'<option value="'+p.id+'" data-pa="'+p.pa+'" data-tva="'+(p.tva||19)+'" data-search="'+(p.nom+' '+p.ref+' '+p.cat).toLowerCase()+'">'+p.nom+' ['+p.ref+'] — '+p.cat+'</option>').join('')}
                 </select>
-                <input id=brQty type=number value=1 min=1 class="w-16 border-2 rounded-lg px-2 py-1.5 text-xs text-center">
+                <input id=brQty type=number value=1 min=1 class="w-16 border-2 rounded-lg px-2 py-1.5 text-xs text-center" placeholder="Qté">
                 <input id=brPrix type=number step=0.01 placeholder="Prix HT" class="w-24 border-2 rounded-lg px-2 py-1.5 text-xs">
-                <button type=button onclick="addBRLine()" class="bg-green-500 text-white px-3 rounded-lg text-xs font-bold"><i class="bi bi-plus"></i></button>
+                <button type=button onclick="addBRLine()" class="bg-green-500 text-white px-3 rounded-lg text-xs font-bold hover:bg-green-600 transition-colors"><i class="bi bi-plus"></i> Ajouter</button>
             </div>
             <table class="w-full text-xs"><thead><tr class="text-gray-400 uppercase"><th class="text-left px-2">Produit</th><th>Qté</th><th class="text-right">P.U. HT</th><th class="text-right">TVA</th><th class="text-right">TTC</th><th></th></tr></thead>
             <tbody id=brLignes><tr><td colspan=6 class="px-2 py-4 text-center text-gray-400">Ajoutez des produits</td></tr></tbody>
@@ -3487,6 +3491,21 @@ function openBonReception(){
         document.getElementById('brPrix').value = opt.dataset.pa || '';
     });
     document.getElementById('brProd').dispatchEvent(new Event('change'));
+    
+    // Product search filter
+    window.filterBRProducts = function(){
+        const q = document.getElementById('brSearch').value.toLowerCase();
+        const sel = document.getElementById('brProd');
+        for(let opt of sel.options){
+            const match = !q || (opt.dataset.search || '').includes(q);
+            opt.style.display = match ? '' : 'none';
+            opt.hidden = !match;
+        }
+        // Select first visible option
+        for(let opt of sel.options){
+            if(!opt.hidden){ sel.value = opt.value; sel.dispatchEvent(new Event('change')); break; }
+        }
+    };
     
     window.addBRLine = function(){
         const sel = document.getElementById('brProd');
