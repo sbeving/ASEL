@@ -43,21 +43,30 @@ define('PERMISSIONS', [
         'dispatch_stock', 'manage_central',
         'add_franchise', 'edit_franchise', 'delete_franchise',
         'points_reseau', 'add_point', 'edit_point', 'delete_point',
+        'fournisseurs', 'add_fournisseur', 'edit_fournisseur',
+        'bons_reception', 'create_bon_reception', 'valider_bon_reception',
+        'tresorerie', 'add_tresorerie', 'cloture_mensuelle',
+        'familles_categories', 'add_famille', 'add_sous_categorie',
         // Scope
         'view_all_franchises', 'manage_users', 'manage_products',
     ],
     'gestionnaire' => [
         'dashboard', 'stock', 'stock_central', 'entree', 'transferts', 'demandes',
-        'ventes', 'rapports', 'clients', 'services', 'recharges', 'factures',
+        'ventes', 'rapports', 'produits', 'clients', 'services', 'recharges', 'factures',
         'echeances', 'inventaire', 'notifications', 'mon_compte',
-        'points_reseau',
+        'points_reseau', 'fournisseurs', 'bons_reception', 'tresorerie',
+        'familles_categories',
         // Actions
         'entree_stock', 'transfert', 'transfert_valider',
         'traiter_demande', 'dispatch', 'dispatch_stock', 'export',
-        'add_client', 'edit_client',
+        'add_client', 'edit_client', 'add_produit', 'edit_produit',
+        'add_fournisseur', 'edit_fournisseur',
+        'create_bon_reception', 'valider_bon_reception',
+        'add_tresorerie',
         'vente_recharge', 'create_facture', 'pay_echeance', 'create_echeance',
         'submit_inventaire', 'cancel_facture', 'validate_cloture',
         'validate_inventaire', 'add_category', 'create_echeances_lot',
+        'manage_products',
         // Scope
         'view_all_franchises',
     ],
@@ -66,12 +75,14 @@ define('PERMISSIONS', [
         'retours', 'cloture', 'ventes', 'transferts',
         'clients', 'services', 'recharges', 'factures',
         'echeances', 'inventaire', 'notifications', 'mon_compte',
-        // Actions
+        // Actions — franchise can ONLY sell, enter stock, and manage their own data
         'vente', 'entree_stock', 'transfert', 'retour',
         'cloture_submit', 'demande_produit', 'add_client', 'edit_client',
         'vente_recharge', 'create_facture', 'pay_echeance', 'create_echeance',
         'submit_inventaire', 'validate_cloture', 'validate_inventaire',
-        'add_category', 'create_echeances_lot',
+        'create_echeances_lot',
+        // NOTE: franchise CANNOT: add_produit, edit_produit, add_category, manage_products, 
+        // fournisseurs, bons_reception, tresorerie, produits page, rapports, users
     ],
     'viewer' => [
         'dashboard', 'stock', 'ventes', 'mon_compte', 'notifications',

@@ -460,6 +460,93 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         auditLog('dispatch_stock', 'produit', $pid, ['qte'=>$qty, 'dest'=>$dest_fid, 'dest_nom'=>$fname]);
         $page = 'stock_central';
     }
+    // === FOURNISSEUR CRUD ===
+    elseif ($action === 'add_fournisseur' && can('add_fournisseur')) {
+        execute("INSERT INTO fournisseurs (nom,telephone,email,adresse,ice) VALUES (?,?,?,?,?)",
+            [strParam('nom'), strParam('telephone',50), strParam('email',100), strParam('adresse'), strParam('ice',50)]);
+        $_SESSION['flash'] = ['type'=>'success','msg'=>'Fournisseur ajouté!'];
+        auditLog('add_fournisseur', 'fournisseur', db()->lastInsertId());
+        $page = 'fournisseurs';
+    }
+    elseif ($action === 'edit_fournisseur' && can('edit_fournisseur')) {
+        execute("UPDATE fournisseurs SET nom=?,telephone=?,email=?,adresse=?,ice=?,actif=? WHERE id=?",
+            [strParam('nom'), strParam('telephone',50), strParam('email',100), strParam('adresse'), strParam('ice',50), intval($_POST['actif'] ?? 1), intval($_POST['id'])]);
+        $_SESSION['flash'] = ['type'=>'success','msg'=>'Fournisseur mis à jour!'];
+        $page = 'fournisseurs';
+    }
+    // === BON DE RECEPTION ===
+    elseif ($action === 'create_bon_reception' && can('create_bon_reception')) {
+        $br_fid = can('view_all_franchises') ? intval($_POST['franchise_id']) : currentFranchise();
+        $br_fourn = intval($_POST['fournisseur_id']) ?: null;
+        $lignes = json_decode($_POST['lignes'], true);
+        $total_ht = 0; $total_tva = 0; $total_ttc = 0;
+        foreach ($lignes as $l) {
+            $lht = floatval($l['prix_ht']) * intval($l['qty']);
+            $ltva = $lht * floatval($l['tva_rate'] ?? 19) / 100;
+            $total_ht += $lht; $total_tva += $ltva; $total_ttc += $lht + $ltva;
+        }
+        $count = queryOne("SELECT COUNT(*)+1 as n FROM bons_reception WHERE DATE(date_creation)=CURDATE()")['n'];
+        $numero = 'BR-' . date('Ymd') . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
+        execute("INSERT INTO bons_reception (numero,franchise_id,fournisseur_id,total_ht,tva,total_ttc,statut,note,utilisateur_id) VALUES (?,?,?,?,?,?,'valide',?,?)",
+            [$numero, $br_fid, $br_fourn, round($total_ht,2), round($total_tva,2), round($total_ttc,2), strParam('note'), $user['id']]);
+        $bon_id = db()->lastInsertId();
+        foreach ($lignes as $l) {
+            $pid = intval($l['produit_id']);
+            $qty = intval($l['qty']);
+            $prix_ht = floatval($l['prix_ht']);
+            $tva_r = floatval($l['tva_rate'] ?? 19);
+            $prix_ttc = round($prix_ht * (1 + $tva_r/100), 2);
+            execute("INSERT INTO bon_reception_lignes (bon_id,produit_id,quantite,prix_unitaire_ht,tva_rate,prix_unitaire_ttc,total_ht,total_ttc) VALUES (?,?,?,?,?,?,?,?)",
+                [$bon_id, $pid, $qty, $prix_ht, $tva_r, $prix_ttc, round($prix_ht*$qty,2), round($prix_ttc*$qty,2)]);
+            // Update stock
+            execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantite=quantite+VALUES(quantite)", [$br_fid, $pid, $qty]);
+            execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,prix_unitaire,note,utilisateur_id) VALUES (?,?,'entree',?,?,?,?)",
+                [$br_fid, $pid, $qty, $prix_ht, "BR $numero", $user['id']]);
+        }
+        $_SESSION['flash'] = ['type'=>'success','msg'=>"Bon de réception $numero créé! Stock mis à jour."];
+        auditLog('bon_reception', 'bon', $bon_id, ['numero'=>$numero, 'total_ttc'=>$total_ttc, 'lignes'=>count($lignes)]);
+        $page = 'bons_reception';
+    }
+    // === TRESORERIE ===
+    elseif ($action === 'add_tresorerie' && can('add_tresorerie')) {
+        $tr_fid = can('view_all_franchises') ? intval($_POST['franchise_id']) : currentFranchise();
+        execute("INSERT INTO tresorerie (franchise_id,type_mouvement,montant,motif,reference,date_mouvement,utilisateur_id) VALUES (?,?,?,?,?,?,?)",
+            [$tr_fid, $_POST['type_mouvement'], floatval($_POST['montant']), strParam('motif'), strParam('reference',100), $_POST['date_mouvement'] ?: date('Y-m-d'), $user['id']]);
+        $_SESSION['flash'] = ['type'=>'success','msg'=>'Mouvement de trésorerie enregistré!'];
+        $page = 'tresorerie';
+    }
+    // === FAMILLE / SOUS-CATEGORIE ===
+    elseif ($action === 'add_famille' && can('add_famille')) {
+        execute("INSERT IGNORE INTO familles (nom,description) VALUES (?,?)", [strParam('nom'), strParam('description')]);
+        $_SESSION['flash'] = ['type'=>'success','msg'=>'Famille ajoutée!'];
+        $page = 'familles_categories';
+    }
+    elseif ($action === 'add_sous_categorie' && can('add_sous_categorie')) {
+        execute("INSERT INTO sous_categories (nom,categorie_id) VALUES (?,?)", [strParam('nom'), intval($_POST['categorie_id'])]);
+        $_SESSION['flash'] = ['type'=>'success','msg'=>'Sous-catégorie ajoutée!'];
+        $page = 'familles_categories';
+    }
+    // === ADD PRODUCT WITH HT/TTC ===
+    elseif ($action === 'add_produit_v2' && can('add_produit')) {
+        $tva_rate = floatval($_POST['tva_rate'] ?? 19);
+        $pa_ht = floatval($_POST['prix_achat_ht']);
+        $pv_ht = floatval($_POST['prix_vente_ht']);
+        $pa_ttc = round($pa_ht * (1 + $tva_rate/100), 2);
+        $pv_ttc = round($pv_ht * (1 + $tva_rate/100), 2);
+        $scid = intval($_POST['sous_categorie_id']) ?: null;
+        execute("INSERT INTO produits (nom,categorie_id,sous_categorie_id,prix_achat,prix_vente,prix_achat_ht,prix_achat_ttc,prix_vente_ht,prix_vente_ttc,tva_rate,reference,code_barre,marque,fournisseur_id,description,seuil_alerte) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [strParam('nom',150), intval($_POST['categorie_id']), $scid, $pa_ttc, $pv_ttc, $pa_ht, $pa_ttc, $pv_ht, $pv_ttc, $tva_rate,
+             strParam('reference',50), strParam('code_barre',50), strParam('marque',50), intval($_POST['fournisseur_id']) ?: null, strParam('description',500), intval($_POST['seuil_alerte'] ?? 3)]);
+        $new_pid = db()->lastInsertId();
+        // If initial stock for central
+        if (!empty($_POST['stock_initial']) && intval($_POST['stock_initial']) > 0) {
+            $init_fid = can('view_all_franchises') ? (intval($_POST['init_franchise_id']) ?: getCentralId()) : currentFranchise();
+            execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantite=quantite+VALUES(quantite)", [$init_fid, $new_pid, intval($_POST['stock_initial'])]);
+        }
+        $_SESSION['flash'] = ['type'=>'success','msg'=>'Produit créé!'];
+        auditLog('add_produit', 'produit', $new_pid, ['nom'=>strParam('nom',150)]);
+        $page = $_POST['return_page'] ?? 'produits';
+    }
     
     header("Location: index.php?page=$page" . ($fid ? "&fid=$fid" : "")); exit;
 }
@@ -469,6 +556,9 @@ $franchises = getRetailFranchises();
 $allFranchises = query("SELECT * FROM franchises WHERE actif=1 ORDER BY nom");
 $categories = query("SELECT * FROM categories ORDER BY nom");
 $produits = query("SELECT p.*,c.nom as cat_nom FROM produits p JOIN categories c ON p.categorie_id=c.id WHERE p.actif=1 ORDER BY c.nom,p.nom");
+$fournisseurs = query("SELECT * FROM fournisseurs WHERE actif=1 ORDER BY nom");
+try { $familles = query("SELECT * FROM familles WHERE actif=1 ORDER BY nom"); } catch(Exception $e) { $familles = []; }
+try { $sous_categories = query("SELECT sc.*,c.nom as cat_nom FROM sous_categories sc JOIN categories c ON sc.categorie_id=c.id ORDER BY c.nom,sc.nom"); } catch(Exception $e) { $sous_categories = []; }
 $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
 $csrf = csrfToken();
 ?>
@@ -649,6 +739,10 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
             ['rapports', 'bi-graph-up', 'Rapports'],
             ['---', '', 'ADMIN'],
             ['produits', 'bi-tags', 'Produits'],
+            ['familles_categories', 'bi-diagram-3', 'Familles & Catégories'],
+            ['fournisseurs', 'bi-truck', 'Fournisseurs'],
+            ['bons_reception', 'bi-receipt', 'Bons de réception'],
+            ['tresorerie', 'bi-cash-stack', 'Trésorerie'],
             ['gestion_services', 'bi-gear', 'Gérer services'],
             ['gestion_asel', 'bi-sim', 'Gérer offres ASEL'],
             ['franchises_mgmt', 'bi-shop', 'Franchises'],
@@ -1005,7 +1099,7 @@ elseif ($page === 'pos'):
     </div>
 </div>
 <?php return; endif;
-    $stock = query("SELECT s.*,p.nom as pnom,p.prix_vente,p.reference,p.code_barre,p.marque,c.nom as cnom FROM stock s JOIN produits p ON s.produit_id=p.id JOIN categories c ON p.categorie_id=c.id WHERE s.franchise_id=? AND s.quantite>0 AND p.actif=1 ORDER BY c.nom,p.nom", [$pos_fid]);
+    $stock = query("SELECT s.*,p.nom as pnom,p.prix_vente,p.reference,p.code_barre,p.marque,p.seuil_alerte,c.nom as cnom FROM stock s JOIN produits p ON s.produit_id=p.id JOIN categories c ON p.categorie_id=c.id WHERE s.franchise_id=? AND s.quantite>0 AND p.actif=1 ORDER BY c.nom,p.nom", [$pos_fid]);
 ?>
 
 <h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-cart3 text-asel"></i> Point de vente</h1>
@@ -1075,7 +1169,7 @@ elseif ($page === 'pos'):
             <div class="bg-white rounded-lg p-3 flex items-center justify-between cursor-pointer hover:bg-asel-light/50 hover:border-asel border border-transparent transition-all"
                  data-search="<?=e(strtolower($s['pnom'].' '.$s['reference'].' '.$s['code_barre'].' '.$s['marque']))?>"
                  data-cat="<?=e($s['cnom'])?>" data-barcode="<?=e($s['code_barre'])?>"
-                 onclick="addToCart(<?=$s['produit_id']?>,'<?=ejs($s['pnom'])?>',<?=$s['prix_vente']?>,<?=$s['quantite']?>)">
+                 onclick="addToCart(<?=$s['produit_id']?>,'<?=ejs($s['pnom'])?>',<?=$s['prix_vente']?>,<?=$s['quantite']?>,<?=$s['seuil_alerte']?>)">
                 <div>
                     <div class="font-semibold text-sm text-asel-dark"><?=htmlspecialchars($s['pnom'])?></div>
                     <div class="text-xs text-gray-400"><?=$s['marque']?> · <?=$s['reference']?></div>
@@ -1171,7 +1265,28 @@ function showToast(msg, type='success') {
     setTimeout(()=>{t.style.transform='translateY(100px)';t.style.opacity='0';},2500);
 }
 
-function addToCart(id,nom,prix,max){
+function addToCart(id,nom,prix,max,seuil){
+    seuil = seuil || 3;
+    if(max <= 0){
+        beepErr();
+        openModal(modalHeader('bi-exclamation-triangle-fill','Stock épuisé','Impossible d\'ajouter ce produit',true) +
+            `<div class="p-6"><div class="bg-red-50 border-2 border-red-200 rounded-xl p-4 text-center"><i class="bi bi-x-octagon-fill text-red-500 text-3xl"></i><p class="mt-2 font-bold text-red-700">${nom}</p><p class="text-red-600 text-sm">Stock = 0 — Vente impossible</p></div><button onclick="closeModal()" class="w-full mt-4 py-2.5 rounded-xl bg-gray-200 font-semibold text-sm">Fermer</button></div>`,
+            {size:'max-w-sm'});
+        return;
+    }
+    const e=cart.find(c=>c.id===id);
+    const newQty = e ? e.qty + 1 : 1;
+    if(newQty > max){beepErr();showToast('Stock maximum atteint!','error');return;}
+    // Warn if stock is low (near seuil_alerte)
+    if(max <= seuil && !e){
+        openModal(modalHeader('bi-exclamation-triangle','Stock faible','Attention — stock presque épuisé') +
+            `<div class="p-6"><div class="bg-yellow-50 border-2 border-yellow-300 rounded-xl p-4 text-center"><i class="bi bi-exclamation-triangle-fill text-yellow-500 text-2xl"></i><p class="mt-2 font-bold text-yellow-800">${nom}</p><p class="text-yellow-700 text-sm">Stock restant: <b>${max}</b> (seuil alerte: ${seuil})</p></div><div class="flex gap-2 mt-4"><button onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 font-semibold text-sm">Annuler</button><button onclick="closeModal();forceAddToCart(${id},'${nom.replace(/'/g,"\\'")}',${prix},${max})" class="flex-1 py-2.5 rounded-xl bg-yellow-500 text-white font-semibold text-sm">Ajouter quand même</button></div></div>`,
+            {size:'max-w-sm'});
+        return;
+    }
+    forceAddToCart(id,nom,prix,max);
+}
+function forceAddToCart(id,nom,prix,max){
     const e=cart.find(c=>c.id===id);
     if(e){
         if(e.qty>=max){beepErr();showToast('Stock maximum atteint!','error');return;}
@@ -3283,7 +3398,226 @@ function closeFab(){document.getElementById('fabActions').classList.add('hidden'
 </script>
 <?php endif; ?>
 
-<!-- Global Barcode Scanner Modal -->
+<!-- ====================== FOURNISSEURS PAGE ====================== -->
+<?php if ($page === 'fournisseurs' && can('fournisseurs')): 
+    $all_fournisseurs = query("SELECT * FROM fournisseurs ORDER BY actif DESC, nom");
+?>
+<div class="flex justify-between items-center mb-4">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-truck text-asel"></i> Fournisseurs</h1>
+    <button onclick="openModal(modalHeader('bi-plus-circle','Nouveau fournisseur','Ajouter un fournisseur')+`<form method=post class='p-6 space-y-3'><input type=hidden name=_csrf value='<?=$csrf?>'><input type=hidden name=action value=add_fournisseur><div><label class='text-xs font-bold text-gray-500'>Nom *</label><input name=nom required class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div class='grid grid-cols-2 gap-3'><div><label class='text-xs font-bold text-gray-500'>Téléphone</label><input name=telephone class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>Email</label><input name=email type=email class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div></div><div><label class='text-xs font-bold text-gray-500'>Adresse</label><input name=adresse class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>ICE / Matricule fiscal</label><input name=ice class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><button type=submit class='w-full py-2.5 rounded-xl bg-asel text-white font-bold text-sm'>Enregistrer</button></form>`)" class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-bold"><i class="bi bi-plus-lg"></i> Ajouter</button>
+</div>
+<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <table class="w-full text-sm">
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase"><th class="px-3 py-2 text-left">Nom</th><th class="px-3 py-2">Tél.</th><th class="px-3 py-2">Email</th><th class="px-3 py-2 hidden sm:table-cell">Adresse</th><th class="px-3 py-2">ICE</th><th class="px-3 py-2">Statut</th><th class="px-3 py-2">Act.</th></tr></thead>
+        <tbody class="divide-y">
+        <?php foreach($all_fournisseurs as $f): ?>
+        <tr class="<?=$f['actif']?'':'bg-gray-50 opacity-60'?>">
+            <td class="px-3 py-2 font-semibold"><?=e($f['nom'])?></td>
+            <td class="px-3 py-2 text-center"><?=e($f['telephone'])?></td>
+            <td class="px-3 py-2 text-center"><?=e($f['email'])?></td>
+            <td class="px-3 py-2 text-center hidden sm:table-cell"><?=e($f['adresse'])?></td>
+            <td class="px-3 py-2 text-center text-xs font-mono"><?=e($f['ice'] ?? '')?></td>
+            <td class="px-3 py-2 text-center"><?=$f['actif']?'<span class="text-green-600 text-xs font-bold">Actif</span>':'<span class="text-red-500 text-xs">Inactif</span>'?></td>
+            <td class="px-3 py-2 text-center"><button onclick="openModal(modalHeader('bi-pencil','Modifier fournisseur','')+`<form method=post class='p-6 space-y-3'><input type=hidden name=_csrf value='<?=$csrf?>'><input type=hidden name=action value=edit_fournisseur><input type=hidden name=id value=<?=$f['id']?>><div><label class='text-xs font-bold text-gray-500'>Nom *</label><input name=nom value='<?=e($f['nom'])?>' required class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div class='grid grid-cols-2 gap-3'><div><label class='text-xs font-bold text-gray-500'>Téléphone</label><input name=telephone value='<?=e($f['telephone'])?>' class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>Email</label><input name=email value='<?=e($f['email'])?>' class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div></div><div><label class='text-xs font-bold text-gray-500'>Adresse</label><input name=adresse value='<?=e($f['adresse'])?>' class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>ICE</label><input name=ice value='<?=e($f['ice'] ?? '')?>' class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>Statut</label><select name=actif class='w-full border-2 rounded-xl px-3 py-2 text-sm'><option value=1 <?=$f['actif']?'selected':''?>>Actif</option><option value=0 <?=!$f['actif']?'selected':''?>>Inactif</option></select></div><button type=submit class='w-full py-2.5 rounded-xl bg-asel text-white font-bold text-sm'>Enregistrer</button></form>`)" class="text-asel hover:text-asel-dark"><i class="bi bi-pencil"></i></button></td>
+        </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+</div>
+<?php endif; ?>
+
+<!-- ====================== BONS DE RECEPTION PAGE ====================== -->
+<?php if ($page === 'bons_reception' && can('bons_reception')):
+    $bons = query("SELECT br.*,f.nom as fnom,fo.nom as fourn_nom,u.nom_complet as unom FROM bons_reception br JOIN franchises f ON br.franchise_id=f.id LEFT JOIN fournisseurs fo ON br.fournisseur_id=fo.id LEFT JOIN utilisateurs u ON br.utilisateur_id=u.id ORDER BY br.date_creation DESC LIMIT 50");
+?>
+<div class="flex justify-between items-center mb-4">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-receipt text-asel"></i> Bons de réception</h1>
+    <button onclick="openBonReception()" class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-bold"><i class="bi bi-plus-lg"></i> Nouveau bon</button>
+</div>
+<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <table class="w-full text-sm">
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase"><th class="px-3 py-2 text-left">N°</th><th class="px-3 py-2">Date</th><th class="px-3 py-2">Franchise</th><th class="px-3 py-2">Fournisseur</th><th class="px-3 py-2 text-right">HT</th><th class="px-3 py-2 text-right">TVA</th><th class="px-3 py-2 text-right">TTC</th><th class="px-3 py-2">Par</th></tr></thead>
+        <tbody class="divide-y">
+        <?php foreach($bons as $b): ?>
+        <tr>
+            <td class="px-3 py-2 font-mono font-bold text-asel"><?=e($b['numero'])?></td>
+            <td class="px-3 py-2 text-center"><?=date('d/m/Y', strtotime($b['date_reception']))?></td>
+            <td class="px-3 py-2 text-center"><?=e(shortF($b['fnom']))?></td>
+            <td class="px-3 py-2 text-center"><?=e($b['fourn_nom'] ?? '—')?></td>
+            <td class="px-3 py-2 text-right font-mono"><?=number_format($b['total_ht'],2)?></td>
+            <td class="px-3 py-2 text-right font-mono text-gray-400"><?=number_format($b['tva'],2)?></td>
+            <td class="px-3 py-2 text-right font-mono font-bold"><?=number_format($b['total_ttc'],2)?> DT</td>
+            <td class="px-3 py-2 text-center text-xs"><?=e($b['unom'] ?? '')?></td>
+        </tr>
+        <?php endforeach; ?>
+        <?php if(empty($bons)): ?><tr><td colspan="8" class="px-3 py-8 text-center text-gray-400">Aucun bon de réception</td></tr><?php endif; ?>
+        </tbody>
+    </table>
+</div>
+<script>
+function openBonReception(){
+    let lignes = [];
+    const prods = <?=json_encode(array_map(fn($p)=>['id'=>$p['id'],'nom'=>$p['nom'],'ref'=>$p['reference'],'cat'=>$p['cat_nom'],'pa'=>$p['prix_achat'],'tva'=>$p['tva_rate']??19], $produits))?>;
+    const fournList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>$f['nom']], $fournisseurs))?>;
+    const franchList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>shortF($f['nom'])], $allFranchises))?>;
+    
+    function renderBR(){
+        let total_ht=0, total_tva=0;
+        let rows = lignes.map((l,i)=>{
+            const lht = l.qty * l.prix_ht;
+            const ltva = lht * l.tva_rate / 100;
+            total_ht += lht; total_tva += ltva;
+            return `<tr><td class="px-2 py-1 text-xs">${l.nom}</td><td class="px-2 py-1 text-center">${l.qty}</td><td class="px-2 py-1 text-right">${l.prix_ht.toFixed(2)}</td><td class="px-2 py-1 text-right">${l.tva_rate}%</td><td class="px-2 py-1 text-right font-bold">${(lht+ltva).toFixed(2)}</td><td class="px-2 py-1 text-center"><button type=button onclick="lignes.splice(${i},1);renderBR()" class="text-red-500"><i class="bi bi-trash"></i></button></td></tr>`;
+        }).join('');
+        document.getElementById('brLignes').innerHTML = rows || '<tr><td colspan=6 class="px-2 py-4 text-center text-gray-400 text-xs">Ajoutez des produits</td></tr>';
+        document.getElementById('brTotalHT').textContent = total_ht.toFixed(2);
+        document.getElementById('brTotalTVA').textContent = total_tva.toFixed(2);
+        document.getElementById('brTotalTTC').textContent = (total_ht+total_tva).toFixed(2);
+        document.getElementById('brLignesInput').value = JSON.stringify(lignes);
+    }
+    
+    openModal(modalHeader('bi-receipt','Nouveau bon de réception','Entrée de stock avec bon') +
+        `<form method=post class="p-4 space-y-3">
+        <input type=hidden name=_csrf value="<?=$csrf?>"><input type=hidden name=action value=create_bon_reception>
+        <input type=hidden name=lignes id=brLignesInput value="[]">
+        <div class="grid grid-cols-2 gap-3">
+            <div><label class="text-xs font-bold text-gray-500">Franchise *</label>
+                <select name=franchise_id class="w-full border-2 rounded-xl px-3 py-2 text-sm">${franchList.map(f=>'<option value='+f.id+'>'+f.nom+'</option>').join('')}</select></div>
+            <div><label class="text-xs font-bold text-gray-500">Fournisseur</label>
+                <select name=fournisseur_id class="w-full border-2 rounded-xl px-3 py-2 text-sm"><option value="">—</option>${fournList.map(f=>'<option value='+f.id+'>'+f.nom+'</option>').join('')}</select></div>
+        </div>
+        <div class="bg-gray-50 rounded-xl p-3">
+            <div class="flex gap-2 mb-2">
+                <select id=brProd class="flex-1 border-2 rounded-lg px-2 py-1.5 text-xs">
+                    ${prods.map(p=>'<option value="'+p.id+'" data-pa="'+p.pa+'" data-tva="'+(p.tva||19)+'">'+p.nom+' ['+p.ref+']</option>').join('')}
+                </select>
+                <input id=brQty type=number value=1 min=1 class="w-16 border-2 rounded-lg px-2 py-1.5 text-xs text-center">
+                <input id=brPrix type=number step=0.01 placeholder="Prix HT" class="w-24 border-2 rounded-lg px-2 py-1.5 text-xs">
+                <button type=button onclick="addBRLine()" class="bg-green-500 text-white px-3 rounded-lg text-xs font-bold"><i class="bi bi-plus"></i></button>
+            </div>
+            <table class="w-full text-xs"><thead><tr class="text-gray-400 uppercase"><th class="text-left px-2">Produit</th><th>Qté</th><th class="text-right">P.U. HT</th><th class="text-right">TVA</th><th class="text-right">TTC</th><th></th></tr></thead>
+            <tbody id=brLignes><tr><td colspan=6 class="px-2 py-4 text-center text-gray-400">Ajoutez des produits</td></tr></tbody>
+            <tfoot><tr class="border-t-2 font-bold text-sm"><td colspan=2 class="px-2 py-2">Totaux</td><td class="text-right px-2" id=brTotalHT>0.00</td><td class="text-right px-2" id=brTotalTVA>0.00</td><td class="text-right px-2 text-asel" id=brTotalTTC>0.00</td><td></td></tr></tfoot>
+            </table>
+        </div>
+        <div><label class="text-xs font-bold text-gray-500">Note</label><input name=note class="w-full border-2 rounded-xl px-3 py-2 text-sm"></div>
+        <button type=submit class="w-full py-2.5 rounded-xl bg-asel text-white font-bold text-sm">✅ Créer bon & mettre à jour stock</button>
+        </form>`, {size:'max-w-2xl'});
+    
+    // Auto-fill price on product change
+    document.getElementById('brProd').addEventListener('change', function(){
+        const opt = this.options[this.selectedIndex];
+        document.getElementById('brPrix').value = opt.dataset.pa || '';
+    });
+    document.getElementById('brProd').dispatchEvent(new Event('change'));
+    
+    window.addBRLine = function(){
+        const sel = document.getElementById('brProd');
+        const opt = sel.options[sel.selectedIndex];
+        const qty = parseInt(document.getElementById('brQty').value) || 1;
+        const prix_ht = parseFloat(document.getElementById('brPrix').value) || 0;
+        const tva = parseFloat(opt.dataset.tva) || 19;
+        lignes.push({produit_id: parseInt(sel.value), nom: opt.text, qty, prix_ht, tva_rate: tva});
+        renderBR();
+    };
+}
+</script>
+<?php endif; ?>
+
+<!-- ====================== TRESORERIE PAGE ====================== -->
+<?php if ($page === 'tresorerie' && can('tresorerie')):
+    $tr_fid = $fid ?: ($franchises[0]['id'] ?? 1);
+    $tr_mois = $_GET['mois'] ?? date('Y-m');
+    $mouvements_tresorerie = query("SELECT t.*,u.nom_complet as unom FROM tresorerie t LEFT JOIN utilisateurs u ON t.utilisateur_id=u.id WHERE t.franchise_id=? AND t.date_mouvement LIKE ? ORDER BY t.date_mouvement DESC, t.id DESC", [$tr_fid, "$tr_mois%"]);
+    $total_enc = 0; $total_dec = 0;
+    foreach($mouvements_tresorerie as $mt){ if($mt['type_mouvement']==='encaissement') $total_enc+=$mt['montant']; else $total_dec+=$mt['montant']; }
+    $solde = $total_enc - $total_dec;
+    // Ventes du mois
+    $ventes_mois = queryOne("SELECT COALESCE(SUM(prix_total),0) as total FROM ventes WHERE franchise_id=? AND DATE_FORMAT(date_creation,'%Y-%m')=?", [$tr_fid, $tr_mois])['total'];
+?>
+<div class="flex justify-between items-center mb-4">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-cash-stack text-asel"></i> Trésorerie</h1>
+    <button onclick="openModal(modalHeader('bi-plus-circle','Mouvement de trésorerie','Encaissement ou décaissement')+`<form method=post class='p-6 space-y-3'><input type=hidden name=_csrf value='<?=$csrf?>'><input type=hidden name=action value=add_tresorerie><input type=hidden name=franchise_id value=<?=$tr_fid?>><div><label class='text-xs font-bold text-gray-500'>Type *</label><select name=type_mouvement required class='w-full border-2 rounded-xl px-3 py-2 text-sm'><option value=encaissement>💰 Encaissement</option><option value=decaissement>💸 Décaissement</option></select></div><div><label class='text-xs font-bold text-gray-500'>Montant (DT) *</label><input name=montant type=number step=0.01 required class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>Motif</label><input name=motif class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>Référence</label><input name=reference class='w-full border-2 rounded-xl px-3 py-2 text-sm' placeholder='N° facture, etc.'></div><div><label class='text-xs font-bold text-gray-500'>Date</label><input name=date_mouvement type=date value='<?=date('Y-m-d')?>' class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><button type=submit class='w-full py-2.5 rounded-xl bg-asel text-white font-bold text-sm'>Enregistrer</button></form>`)" class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-bold"><i class="bi bi-plus-lg"></i> Nouveau</button>
+</div>
+<!-- Franchise + mois selector -->
+<form class="flex gap-2 mb-4 items-end">
+    <input type=hidden name=page value=tresorerie>
+    <?php if(can('view_all_franchises')): ?>
+    <select name=fid class="border-2 rounded-xl px-3 py-2 text-sm"><?php foreach($allFranchises as $af): ?><option value="<?=$af['id']?>" <?=$tr_fid==$af['id']?'selected':''?>><?=e(shortF($af['nom']))?></option><?php endforeach; ?></select>
+    <?php endif; ?>
+    <input type=month name=mois value="<?=e($tr_mois)?>" class="border-2 rounded-xl px-3 py-2 text-sm">
+    <button class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-bold">Filtrer</button>
+</form>
+<!-- KPIs -->
+<div class="grid grid-cols-3 gap-3 mb-4">
+    <div class="bg-green-50 border-2 border-green-200 rounded-xl p-4 text-center"><div class="text-xs text-green-600 font-bold">Encaissements</div><div class="text-xl font-black text-green-700"><?=number_format($total_enc,2)?> <span class="text-xs">DT</span></div></div>
+    <div class="bg-red-50 border-2 border-red-200 rounded-xl p-4 text-center"><div class="text-xs text-red-600 font-bold">Décaissements</div><div class="text-xl font-black text-red-700"><?=number_format($total_dec,2)?> <span class="text-xs">DT</span></div></div>
+    <div class="<?=$solde>=0?'bg-blue-50 border-blue-200':'bg-red-50 border-red-200'?> border-2 rounded-xl p-4 text-center"><div class="text-xs <?=$solde>=0?'text-blue-600':'text-red-600'?> font-bold">Solde</div><div class="text-xl font-black <?=$solde>=0?'text-blue-700':'text-red-700'?>"><?=number_format($solde,2)?> <span class="text-xs">DT</span></div></div>
+</div>
+<div class="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4 text-sm"><i class="bi bi-info-circle text-yellow-600"></i> Ventes système du mois: <b><?=number_format($ventes_mois,2)?> DT</b> — Écart avec encaissements: <b class="<?=abs($total_enc-$ventes_mois)>1?'text-red-600':'text-green-600'?>"><?=number_format($total_enc - $ventes_mois,2)?> DT</b></div>
+<!-- Mouvements -->
+<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <table class="w-full text-sm">
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase"><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2">Type</th><th class="px-3 py-2 text-right">Montant</th><th class="px-3 py-2">Motif</th><th class="px-3 py-2">Réf.</th><th class="px-3 py-2">Par</th></tr></thead>
+        <tbody class="divide-y">
+        <?php foreach($mouvements_tresorerie as $mt): ?>
+        <tr>
+            <td class="px-3 py-2"><?=date('d/m/Y', strtotime($mt['date_mouvement']))?></td>
+            <td class="px-3 py-2 text-center"><?=$mt['type_mouvement']==='encaissement'?'<span class="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs font-bold">💰 Encaissement</span>':'<span class="bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs font-bold">💸 Décaissement</span>'?></td>
+            <td class="px-3 py-2 text-right font-mono font-bold <?=$mt['type_mouvement']==='encaissement'?'text-green-600':'text-red-600'?>"><?=$mt['type_mouvement']==='decaissement'?'-':''?><?=number_format($mt['montant'],2)?> DT</td>
+            <td class="px-3 py-2 text-xs"><?=e($mt['motif'])?></td>
+            <td class="px-3 py-2 text-xs font-mono"><?=e($mt['reference'])?></td>
+            <td class="px-3 py-2 text-xs"><?=e($mt['unom'] ?? '')?></td>
+        </tr>
+        <?php endforeach; ?>
+        <?php if(empty($mouvements_tresorerie)): ?><tr><td colspan="6" class="px-3 py-8 text-center text-gray-400">Aucun mouvement ce mois</td></tr><?php endif; ?>
+        </tbody>
+    </table>
+</div>
+<?php endif; ?>
+
+<!-- ====================== FAMILLES & CATEGORIES PAGE ====================== -->
+<?php if ($page === 'familles_categories' && can('familles_categories')):
+    $all_familles = query("SELECT * FROM familles WHERE actif=1 ORDER BY nom") ?? [];
+    $all_cats = query("SELECT c.*,f.nom as fnom FROM categories c LEFT JOIN familles f ON c.famille_id=f.id ORDER BY f.nom,c.nom");
+    $all_scats = query("SELECT sc.*,c.nom as cnom FROM sous_categories sc JOIN categories c ON sc.categorie_id=c.id ORDER BY c.nom,sc.nom") ?? [];
+?>
+<h1 class="text-2xl font-bold text-asel-dark mb-4"><i class="bi bi-diagram-3 text-asel"></i> Familles, Catégories & Sous-catégories</h1>
+<div class="grid md:grid-cols-3 gap-4">
+    <!-- Familles -->
+    <div class="bg-white rounded-xl shadow-sm p-4">
+        <div class="flex justify-between items-center mb-3"><h2 class="font-bold text-asel-dark">Familles</h2>
+        <button onclick="openModal(modalHeader('bi-plus','Nouvelle famille','')+`<form method=post class='p-6 space-y-3'><input type=hidden name=_csrf value='<?=$csrf?>'><input type=hidden name=action value=add_famille><div><label class='text-xs font-bold text-gray-500'>Nom *</label><input name=nom required class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>Description</label><input name=description class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><button type=submit class='w-full py-2.5 rounded-xl bg-asel text-white font-bold text-sm'>Ajouter</button></form>`)" class="text-xs bg-asel text-white px-2 py-1 rounded-lg"><i class="bi bi-plus"></i></button></div>
+        <div class="space-y-1">
+        <?php foreach($all_familles as $fam): ?>
+            <div class="flex justify-between items-center bg-asel-light/30 rounded-lg px-3 py-2 text-sm"><span class="font-semibold"><?=e($fam['nom'])?></span><span class="text-xs text-gray-400"><?=e($fam['description'] ?? '')?></span></div>
+        <?php endforeach; ?>
+        <?php if(empty($all_familles)): ?><p class="text-gray-400 text-xs text-center py-4">Aucune famille</p><?php endif; ?>
+        </div>
+    </div>
+    <!-- Catégories -->
+    <div class="bg-white rounded-xl shadow-sm p-4">
+        <div class="flex justify-between items-center mb-3"><h2 class="font-bold text-asel-dark">Catégories</h2>
+        <button onclick="openAddCategory()" class="text-xs bg-asel text-white px-2 py-1 rounded-lg"><i class="bi bi-plus"></i></button></div>
+        <div class="space-y-1">
+        <?php foreach($all_cats as $ac): ?>
+            <div class="flex justify-between items-center bg-gray-50 rounded-lg px-3 py-2 text-sm"><span class="font-semibold"><?=e($ac['nom'])?></span><span class="text-xs text-gray-400"><?=e($ac['fnom'] ?? 'Sans famille')?></span></div>
+        <?php endforeach; ?>
+        </div>
+    </div>
+    <!-- Sous-catégories -->
+    <div class="bg-white rounded-xl shadow-sm p-4">
+        <div class="flex justify-between items-center mb-3"><h2 class="font-bold text-asel-dark">Sous-catégories</h2>
+        <button onclick="openModal(modalHeader('bi-plus','Nouvelle sous-catégorie','')+`<form method=post class='p-6 space-y-3'><input type=hidden name=_csrf value='<?=$csrf?>'><input type=hidden name=action value=add_sous_categorie><div><label class='text-xs font-bold text-gray-500'>Catégorie *</label><select name=categorie_id required class='w-full border-2 rounded-xl px-3 py-2 text-sm'><?php foreach($categories as $c): ?><option value=<?=$c['id']?>><?=e($c['nom'])?></option><?php endforeach; ?></select></div><div><label class='text-xs font-bold text-gray-500'>Nom *</label><input name=nom required class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><button type=submit class='w-full py-2.5 rounded-xl bg-asel text-white font-bold text-sm'>Ajouter</button></form>`)" class="text-xs bg-asel text-white px-2 py-1 rounded-lg"><i class="bi bi-plus"></i></button></div>
+        <div class="space-y-1">
+        <?php foreach($all_scats as $sc): ?>
+            <div class="flex justify-between items-center bg-gray-50 rounded-lg px-3 py-2 text-sm"><span class="font-semibold"><?=e($sc['nom'])?></span><span class="text-xs text-gray-400"><?=e($sc['cnom'])?></span></div>
+        <?php endforeach; ?>
+        <?php if(empty($all_scats)): ?><p class="text-gray-400 text-xs text-center py-4">Aucune sous-catégorie</p><?php endif; ?>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 <div id="scannerModal" class="fixed inset-0 z-[9999] bg-black/70 items-center justify-center p-4" style="display:none">
     <div class="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
         <div class="bg-asel-dark text-white px-4 py-3 flex justify-between items-center">
@@ -3547,28 +3881,75 @@ function checkStockBeforeSale() {
 }
 
 // Quick product add modal
-function openQuickAddProduct() {
+function openQuickAddProduct(returnPage) {
     const csrf = '<?=$csrf?>';
     const cats = <?=json_encode(array_map(fn($c) => ['value' => $c['id'], 'label' => $c['nom']], $categories))?>;
+    const fourns = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => $f['nom']], $fournisseurs))?>;
+    fourns.unshift({value:'', label:'— Aucun —'});
+    const franchAll = <?=json_encode(array_map(fn($f)=>['value'=>$f['id'],'label'=>shortF($f['nom'])], $allFranchises))?>;
+    
     openModal(
-        modalHeader('bi-plus-circle', 'Nouveau produit', 'Ajouter rapidement un produit au catalogue') +
-        modalForm('add_produit', csrf, 
-            modalField('Nom du produit *', 'nom', 'text', '', 'Ex: Câble USB-C 1m') +
-            modalRow([
-                modalField('Catégorie', 'categorie_id', 'select', '', '', cats),
-                modalField('Marque', 'marque', 'text', '', 'Ex: Samsung'),
-            ]) +
-            modalRow([
-                modalField('Référence', 'reference', 'text', '', 'REF-001'),
-                modalField('Code-barres', 'code_barre', 'text', '', 'Scan ou saisir'),
-            ]) +
-            modalRow([
-                modalField('Prix achat (DT)', 'prix_achat', 'number', '', '0.00'),
-                modalField('Prix vente (DT)', 'prix_vente', 'number', '', '0.00'),
-            ]),
-            'Ajouter le produit'
-        )
+        modalHeader('bi-plus-circle', 'Nouveau produit', 'Avec prix HT / TVA / TTC') +
+        `<form method=post class="p-6 space-y-3">
+        <input type=hidden name=_csrf value="${csrf}">
+        <input type=hidden name=action value=add_produit_v2>
+        <input type=hidden name=return_page value="${returnPage||'produits'}">
+        ${modalField('Nom du produit *', 'nom', 'text', '', 'Ex: Câble USB-C 1m')}
+        ${modalRow([
+            modalField('Catégorie *', 'categorie_id', 'select', '', '', cats),
+            modalField('Marque', 'marque', 'text', '', 'Ex: Samsung'),
+        ])}
+        ${modalRow([
+            modalField('Référence', 'reference', 'text', '', 'REF-001'),
+            modalField('Code-barres', 'code_barre', 'text', '', 'Scan ou saisir'),
+        ])}
+        <div class="bg-blue-50 rounded-xl p-3 border border-blue-200">
+            <div class="text-xs font-bold text-blue-700 mb-2"><i class="bi bi-calculator"></i> Prix d'achat</div>
+            <div class="grid grid-cols-3 gap-2">
+                ${modalField('HT (DT)', 'prix_achat_ht', 'number', '', '0.00')}
+                ${modalField('TVA %', 'tva_rate', 'number', '19', '')}
+                <div><label class="text-xs font-bold text-gray-500">TTC (DT)</label><input name=prix_achat_ttc_display id=pa_ttc_display readonly class="w-full border-2 border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-100 font-bold"></div>
+            </div>
+        </div>
+        <div class="bg-green-50 rounded-xl p-3 border border-green-200">
+            <div class="text-xs font-bold text-green-700 mb-2"><i class="bi bi-tag"></i> Prix de vente</div>
+            <div class="grid grid-cols-3 gap-2">
+                ${modalField('HT (DT)', 'prix_vente_ht', 'number', '', '0.00')}
+                <div><label class="text-xs font-bold text-gray-500">TVA %</label><input readonly class="w-full border-2 border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-100" id=tva_display></div>
+                <div><label class="text-xs font-bold text-gray-500">TTC (DT)</label><input name=prix_vente_ttc_display id=pv_ttc_display readonly class="w-full border-2 border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-100 font-bold text-green-700"></div>
+            </div>
+        </div>
+        ${modalRow([
+            modalField('Fournisseur', 'fournisseur_id', 'select', '', '', fourns),
+            modalField('Seuil alerte', 'seuil_alerte', 'number', '3', ''),
+        ])}
+        <div class="bg-yellow-50 rounded-xl p-3 border border-yellow-200">
+            <div class="text-xs font-bold text-yellow-700 mb-2"><i class="bi bi-box-seam"></i> Stock initial (optionnel)</div>
+            <div class="grid grid-cols-2 gap-2">
+                ${modalField('Franchise', 'init_franchise_id', 'select', '', '', franchAll)}
+                ${modalField('Quantité', 'stock_initial', 'number', '0', '0')}
+            </div>
+        </div>
+        <button type=submit class="w-full py-2.5 rounded-xl bg-gradient-to-r from-asel to-asel-dark text-white font-bold text-sm">✅ Ajouter le produit</button>
+        </form>`,
+        {size: 'max-w-lg'}
     );
+    
+    // Auto-calc TTC from HT + TVA
+    function recalcPrices(){
+        const tva = parseFloat(document.querySelector('[name=tva_rate]')?.value || 19);
+        const pa_ht = parseFloat(document.querySelector('[name=prix_achat_ht]')?.value || 0);
+        const pv_ht = parseFloat(document.querySelector('[name=prix_vente_ht]')?.value || 0);
+        document.getElementById('pa_ttc_display').value = (pa_ht * (1 + tva/100)).toFixed(2);
+        document.getElementById('pv_ttc_display').value = (pv_ht * (1 + tva/100)).toFixed(2);
+        document.getElementById('tva_display').value = tva + '%';
+    }
+    setTimeout(()=>{
+        document.querySelector('[name=prix_achat_ht]')?.addEventListener('input', recalcPrices);
+        document.querySelector('[name=prix_vente_ht]')?.addEventListener('input', recalcPrices);
+        document.querySelector('[name=tva_rate]')?.addEventListener('input', recalcPrices);
+        recalcPrices();
+    }, 100);
 }
 
 // Quick client add modal
