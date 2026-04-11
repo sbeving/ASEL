@@ -1355,19 +1355,56 @@ fetch('api.php?action=chart_top_products<?=$fid?"&fid=$fid":""?>').then(r=>r.jso
 });
 </script>
 
-<!-- Recent sales -->
-<div class="bg-white rounded-xl shadow-sm overflow-hidden">
-    <div class="px-4 py-3 border-b font-semibold text-sm text-asel-dark flex items-center gap-2"><i class="bi bi-clock-history text-asel"></i> Dernières ventes</div>
+<!-- Recent sales + Stock by category -->
+<div class="grid lg:grid-cols-3 gap-4">
+<div class="lg:col-span-2 bg-white rounded-xl shadow-sm overflow-hidden">
+    <div class="px-4 py-3 border-b font-semibold text-sm text-asel-dark flex items-center justify-between">
+        <span class="flex items-center gap-2"><i class="bi bi-clock-history text-asel"></i> Dernières ventes</span>
+        <a href="?page=ventes" class="text-xs text-asel hover:underline">Tout voir →</a>
+    </div>
     <div class="overflow-x-auto">
         <table class="w-full text-sm">
-            <thead class="bg-gray-50"><tr class="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider"><th class="px-4 py-3">Date</th><th class="px-4 py-3">Franchise</th><th class="px-4 py-3">Produit</th><th class="px-4 py-3">Qté</th><th class="px-4 py-3">Total</th></tr></thead>
+            <thead class="bg-gray-50"><tr class="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider"><th class="px-4 py-3">Date</th><th class="px-4 py-3">Produit</th><th class="px-4 py-3 hidden sm:table-cell">Franchise</th><th class="px-4 py-3 text-right">Total</th></tr></thead>
             <tbody class="divide-y divide-gray-100">
-            <?php foreach (query("SELECT v.*,p.nom as pnom,f.nom as fnom FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN franchises f ON v.franchise_id=f.id WHERE 1=1 $wf ORDER BY v.date_creation DESC LIMIT 10") as $v): ?>
-                <tr class="hover:bg-gray-50"><td class="px-4 py-2 text-xs text-gray-400"><?=date('d/m H:i',strtotime($v['date_creation']))?></td><td class="px-4 py-2 text-xs"><?=shortF($v['fnom'])?></td><td class="px-4 py-2"><?=htmlspecialchars($v['pnom'])?></td><td class="px-4 py-2"><?=$v['quantite']?></td><td class="px-4 py-2 font-bold"><?=number_format($v['prix_total'],1)?> DT</td></tr>
+            <?php foreach (query("SELECT v.*,p.nom as pnom,f.nom as fnom,fa.id as fac_id FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN franchises f ON v.franchise_id=f.id LEFT JOIN factures fa ON v.facture_id=fa.id WHERE 1=1 $wf ORDER BY v.date_creation DESC LIMIT 8") as $v): ?>
+                <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-2 text-xs text-gray-400 whitespace-nowrap"><?=date('d/m H:i',strtotime($v['date_creation']))?></td>
+                    <td class="px-4 py-2 font-medium text-sm truncate max-w-[150px]"><?=e($v['pnom'])?></td>
+                    <td class="px-4 py-2 text-xs text-gray-400 hidden sm:table-cell"><?=shortF($v['fnom'])?></td>
+                    <td class="px-4 py-2 text-right font-bold">
+                        <?=number_format($v['prix_total'],2)?> DT
+                        <?php if($v['fac_id']): ?><a href="receipt.php?id=<?=$v['fac_id']?>" target="_blank" class="text-gray-300 hover:text-asel ml-1"><i class="bi bi-receipt text-xs"></i></a><?php endif; ?>
+                    </td>
+                </tr>
             <?php endforeach; ?>
             </tbody>
         </table>
     </div>
+</div>
+<!-- Stock by category (admin) -->
+<?php if(isAdminOrGest()): ?>
+<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <div class="px-4 py-3 border-b font-semibold text-sm text-asel-dark flex items-center gap-2"><i class="bi bi-boxes text-asel"></i> Valeur stock / catégorie</div>
+    <?php
+    $cat_stock = query("SELECT c.nom, COALESCE(SUM(s.quantite),0) as qty, COALESCE(SUM(s.quantite*p.prix_vente),0) as val FROM categories c LEFT JOIN produits p ON p.categorie_id=c.id LEFT JOIN stock s ON s.produit_id=p.id WHERE 1=1 $wfs GROUP BY c.id,c.nom HAVING qty>0 ORDER BY val DESC LIMIT 8");
+    $total_cat_val = array_sum(array_column($cat_stock,'val'));
+    ?>
+    <div class="divide-y">
+    <?php foreach($cat_stock as $cs): $pct = $total_cat_val>0 ? round($cs['val']/$total_cat_val*100) : 0; ?>
+        <div class="px-4 py-2.5 hover:bg-gray-50">
+            <div class="flex justify-between items-center mb-1">
+                <span class="text-sm font-medium"><?=e($cs['nom'])?></span>
+                <span class="text-xs font-bold text-asel"><?=number_format($cs['val'],0)?> DT</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-asel/60 rounded-full" style="width:<?=$pct?>%"></div></div>
+                <span class="text-[10px] text-gray-400 w-8 text-right"><?=$cs['qty']?> u</span>
+            </div>
+        </div>
+    <?php endforeach; ?>
+    </div>
+</div>
+<?php endif; ?>
 </div>
 
 <?php
