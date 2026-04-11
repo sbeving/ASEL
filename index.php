@@ -5570,7 +5570,26 @@ try {
         FROM pointages p JOIN utilisateurs u ON p.utilisateur_id=u.id
         WHERE DATE_FORMAT(p.heure,'%Y-%m')=?
         GROUP BY u.id, u.nom_complet ORDER BY u.nom_complet", [$pt_mois]);
-} catch(Exception $e) { $monthly_summary = []; }
+    
+    // Calculate hours worked per employee for the month
+    $monthly_hours = [];
+    try {
+        $all_punches_month = query("SELECT p.utilisateur_id, p.type_pointage, p.heure FROM pointages p WHERE DATE_FORMAT(p.heure,'%Y-%m')=? ORDER BY p.utilisateur_id, p.heure", [$pt_mois]);
+        $emp_punches = [];
+        foreach($all_punches_month as $punch) {
+            $uid = $punch['utilisateur_id'];
+            if(!isset($emp_punches[$uid])) $emp_punches[$uid] = ['entrees'=>[],'sorties'=>[]];
+            if($punch['type_pointage']==='entree') $emp_punches[$uid]['entrees'][] = strtotime($punch['heure']);
+            if($punch['type_pointage']==='sortie') $emp_punches[$uid]['sorties'][] = strtotime($punch['heure']);
+        }
+        foreach($emp_punches as $uid => $ep) {
+            $pairs = min(count($ep['entrees']), count($ep['sorties']));
+            $total_min = 0;
+            for($i=0;$i<$pairs;$i++) $total_min += round(($ep['sorties'][$i]-$ep['entrees'][$i])/60);
+            $monthly_hours[$uid] = $total_min;
+        }
+    } catch(Exception $e) { $monthly_hours = []; }
+} catch(Exception $e) { $monthly_summary = []; $monthly_hours = []; }
 ?>
 <?php if($monthly_summary): ?>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden mt-4">
@@ -5586,12 +5605,18 @@ try {
         </div>
     </div>
     <table class="w-full text-sm">
-        <thead><tr class="bg-gray-50 text-xs uppercase font-semibold text-gray-500"><th class="px-4 py-2 text-left">Employé</th><th class="px-4 py-2 text-center">Jours</th><th class="px-4 py-2 text-center">Entrées</th><th class="px-4 py-2 text-center">Sorties</th></tr></thead>
+        <thead><tr class="bg-gray-50 text-xs uppercase font-semibold text-gray-500"><th class="px-4 py-2 text-left">Employé</th><th class="px-4 py-2 text-center">Jours</th><th class="px-4 py-2 text-center">Heures</th><th class="px-4 py-2 text-center">Entrées</th><th class="px-4 py-2 text-center">Sorties</th></tr></thead>
         <tbody class="divide-y">
-        <?php foreach($monthly_summary as $ms): ?>
+        <?php foreach($monthly_summary as $ms): 
+            $tm = $monthly_hours[$ms['id']] ?? 0;
+            $th = floor($tm/60); $tmin = $tm%60;
+        ?>
         <tr class="hover:bg-gray-50">
             <td class="px-4 py-2 font-medium"><?=e($ms['nom_complet'])?></td>
             <td class="px-4 py-2 text-center"><span class="inline-flex px-2 py-0.5 rounded-full text-xs font-bold <?=$ms['jours_travailles']>=22?'bg-green-100 text-green-800':($ms['jours_travailles']>=15?'bg-yellow-100 text-yellow-800':'bg-gray-100 text-gray-700')?>"><?=$ms['jours_travailles']?> j</span></td>
+            <td class="px-4 py-2 text-center">
+                <?php if($tm>0): ?><span class="text-sm font-bold <?=$th>=160?'text-green-600':($th>=80?'text-asel':'text-gray-500')?>"><?=$th?>h<?=$tmin>0?str_pad($tmin,2,'0',STR_PAD_LEFT):'00'?></span><?php else: ?><span class="text-gray-300">—</span><?php endif; ?>
+            </td>
             <td class="px-4 py-2 text-center"><?=$ms['nb_entrees']?></td>
             <td class="px-4 py-2 text-center <?=$ms['nb_entrees']!=$ms['nb_sorties']?'text-red-500 font-bold':''?>"><?=$ms['nb_sorties']?></td>
         </tr>
