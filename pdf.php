@@ -158,14 +158,35 @@ if ($type === 'rapport_jour') {
     $franchise = $fid ? queryOne("SELECT * FROM franchises WHERE id=?", [$fid]) : null;
     $where_f = $fid ? "AND v.franchise_id=".intval($fid) : "";
     
-    $ventes = query("SELECT v.*,p.nom as pnom,f.nom as fnom,u.nom_complet as vendeur 
+    $ventes = query("SELECT v.*,p.nom as pnom,p.prix_achat,f.nom as fnom,u.nom_complet as vendeur,fa.mode_paiement 
                      FROM ventes v JOIN produits p ON v.produit_id=p.id 
                      JOIN franchises f ON v.franchise_id=f.id 
-                     LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id 
+                     LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id
+                     LEFT JOIN factures fa ON v.facture_id=fa.id 
                      WHERE v.date_vente=? $where_f ORDER BY v.date_creation", [$date]);
     
     $total_ca = array_sum(array_column($ventes, 'prix_total'));
     $total_art = array_sum(array_column($ventes, 'quantite'));
+    $total_cout = array_sum(array_map(fn($v) => $v['quantite'] * floatval($v['prix_achat']), $ventes));
+    $total_profit = $total_ca - $total_cout;
+    $total_ca_ht = round($total_ca / 1.19, 2);
+    $total_tva = $total_ca - $total_ca_ht;
+    
+    // By mode paiement
+    $by_mode_j = [];
+    foreach($ventes as $v) {
+        $m = $v['mode_paiement'] ?: 'especes';
+        $by_mode_j[$m] = ($by_mode_j[$m] ?? 0) + $v['prix_total'];
+    }
+    // By employee
+    $by_emp_j = [];
+    foreach($ventes as $v) {
+        $emp = $v['vendeur'] ?: 'Inconnu';
+        if(!isset($by_emp_j[$emp])) $by_emp_j[$emp] = ['ca'=>0,'nb'=>0];
+        $by_emp_j[$emp]['ca'] += $v['prix_total'];
+        $by_emp_j[$emp]['nb']++;
+    }
+    arsort($by_mode_j);
     
     ?>
 <!DOCTYPE html>
@@ -200,10 +221,29 @@ if ($type === 'rapport_jour') {
     </div>
     
     <div class="kpis">
-        <div class="kpi"><div class="val"><?=number_format($total_ca)?> DT</div><div class="lbl">Chiffre d'affaires</div></div>
-        <div class="kpi"><div class="val"><?=number_format($total_art)?></div><div class="lbl">Articles vendus</div></div>
+        <div class="kpi"><div class="val"><?=number_format($total_ca,2)?> DT</div><div class="lbl">CA TTC</div></div>
+        <div class="kpi"><div class="val"><?=number_format($total_ca_ht,2)?> DT</div><div class="lbl">CA HT</div></div>
+        <div class="kpi"><div class="val"><?=number_format($total_tva,2)?> DT</div><div class="lbl">TVA 19%</div></div>
+        <div class="kpi" style="border-color:<?=$total_profit>=0?'#28A745':'#E63946'?>"><div class="val" style="color:<?=$total_profit>=0?'#28A745':'#E63946'?>"><?=number_format($total_profit,2)?> DT</div><div class="lbl">Bénéfice net</div></div>
+        <div class="kpi"><div class="val"><?=number_format($total_art)?></div><div class="lbl">Articles</div></div>
         <div class="kpi"><div class="val"><?=count($ventes)?></div><div class="lbl">Transactions</div></div>
     </div>
+    
+    <?php if(count($by_mode_j)>1 || (count($by_mode_j)==1 && !isset($by_mode_j['especes']))): ?>
+    <h2 style="font-size:13px;color:#1B3A5C;margin-bottom:8px;">💳 Répartition par mode de paiement</h2>
+    <table style="margin-bottom:15px"><thead><tr><th>Mode</th><th style="text-align:right">Montant</th><th style="text-align:right">%</th></tr></thead><tbody>
+    <?php foreach($by_mode_j as $m=>$mt): $pct=$total_ca>0?round($mt/$total_ca*100):0; $icons=['especes'=>'💵','carte'=>'💳','virement'=>'🏦','cheque'=>'📋','echeance'=>'📅']; ?>
+    <tr><td><?=($icons[$m]??'').' '.ucfirst($m)?></td><td style="text-align:right"><strong><?=number_format($mt,2)?> DT</strong></td><td style="text-align:right"><?=$pct?>%</td></tr>
+    <?php endforeach; ?></tbody></table>
+    <?php endif; ?>
+    
+    <?php if(count($by_emp_j)>1): ?>
+    <h2 style="font-size:13px;color:#1B3A5C;margin-bottom:8px;">👥 Par vendeur</h2>
+    <table style="margin-bottom:15px"><thead><tr><th>Vendeur</th><th style="text-align:center">Ventes</th><th style="text-align:right">CA</th></tr></thead><tbody>
+    <?php foreach($by_emp_j as $emp=>$d): ?>
+    <tr><td><?=htmlspecialchars($emp)?></td><td style="text-align:center"><?=$d['nb']?></td><td style="text-align:right"><strong><?=number_format($d['ca'],2)?> DT</strong></td></tr>
+    <?php endforeach; ?></tbody></table>
+    <?php endif; ?>
     
     <table>
         <thead><tr><th>Heure</th><th>Franchise</th><th>Produit</th><th>Qté</th><th>Prix</th><th>Total</th><th>Vendeur</th></tr></thead>
@@ -216,7 +256,8 @@ if ($type === 'rapport_jour') {
     </table>
     
     <div class="footer">
-        <p>Généré le <?=date('d/m/Y à H:i')?> — ASEL Mobile</p>
+        <p>Rapport journalier du <?=date('d/m/Y', strtotime($date))?> — Généré le <?=date('d/m/Y à H:i')?></p>
+        <p>CA HT: <?=number_format($total_ca_ht,2)?> DT · TVA: <?=number_format($total_tva,2)?> DT · Bénéfice: <?=number_format($total_profit,2)?> DT</p>
     </div>
 </body>
 </html>
