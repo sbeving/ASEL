@@ -1446,10 +1446,37 @@ function forceAddToCart(id,nom,prix,max){
     renderCart();
 }
 function scanBarcode(code){
-    if(!code)return;
-    const el=document.querySelector(`[data-barcode="${code}"]`);
-    if(el){el.click();document.getElementById('barcodeResult').innerHTML='<span class="text-green-600"><i class="bi bi-check-circle-fill"></i> '+code+' ajouté!</span>';beepOk();}
-    else{document.getElementById('barcodeResult').innerHTML='<span class="text-red-500"><i class="bi bi-x-circle-fill"></i> Code '+code+' non trouvé</span>';beepErr();}
+    if(!code) return;
+    // Try exact barcode match
+    let el = document.querySelector(`[data-barcode="${code}"]`);
+    if(el){ 
+        el.click();
+        document.getElementById('barcodeResult').innerHTML='<span class="text-green-600"><i class="bi bi-check-circle-fill"></i> '+code+' — Ajouté!</span>';
+        beepOk();
+    } else {
+        // Try ref match
+        el = document.querySelector(`[data-search*="${code.toLowerCase()}"]`);
+        if(el && el.dataset.search.split(' ')[1] === code.toLowerCase()) {
+            el.click();
+            document.getElementById('barcodeResult').innerHTML='<span class="text-green-600"><i class="bi bi-check-circle-fill"></i> Réf. '+code+' — Ajouté!</span>';
+            beepOk();
+        } else {
+            // Fall through to name search
+            document.getElementById('searchProd').value = code;
+            filterProducts();
+            const visible = [...document.querySelectorAll('#prodGrid > div')].filter(e=>e.style.display!=='none');
+            if(visible.length === 1) {
+                visible[0].click();
+                document.getElementById('searchProd').value = '';
+                filterProducts();
+                document.getElementById('barcodeResult').innerHTML='<span class="text-green-600"><i class="bi bi-check-circle-fill"></i> Résultat unique — Ajouté!</span>';
+                beepOk();
+            } else {
+                document.getElementById('barcodeResult').innerHTML='<span class="text-red-500"><i class="bi bi-x-circle-fill"></i> Code <b>'+code+'</b> non trouvé</span>';
+                beepErr();
+            }
+        }
+    }
     setTimeout(()=>document.getElementById('barcodeResult').innerHTML='',3000);
 }
 function removeFromCart(i){cart.splice(i,1);renderCart();showToast('Article retiré');}
@@ -1502,7 +1529,20 @@ function renderCart(){
     document.getElementById('btnVente').disabled=false;
     calcMonnaie();
 }
-function filterProducts(){const q=document.getElementById('searchProd').value.toLowerCase();document.querySelectorAll('#prodGrid > div').forEach(el=>{el.style.display=el.dataset.search.includes(q)?'':'none'});}
+function filterProducts(){
+    const q = document.getElementById('searchProd').value;
+    if(!q.trim()) {
+        document.querySelectorAll('#prodGrid > div').forEach(el => el.style.display = '');
+        return;
+    }
+    const ql = q.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9\s]/g,' ').trim();
+    const words = ql.split(/\s+/).filter(Boolean);
+    document.querySelectorAll('#prodGrid > div').forEach(el => {
+        const s = (el.dataset.search||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+        const match = words.every(w => s.includes(w));
+        el.style.display = match ? '' : 'none';
+    });
+}
 function filterCat(cat){document.querySelectorAll('#prodGrid > div').forEach(el=>{el.style.display=(!cat||el.dataset.cat===cat)?'':'none'});document.querySelectorAll('[data-cat]').forEach(b=>{b.className='px-3 py-1.5 rounded-full text-xs font-semibold bg-white text-gray-600 border hover:bg-asel hover:text-white transition-colors'});if(cat){const btn=document.querySelector(`[data-cat="${cat}"]`);if(btn)btn.className='px-3 py-1.5 rounded-full text-xs font-semibold bg-asel text-white';document.getElementById('cat-all').className='px-3 py-1.5 rounded-full text-xs font-semibold bg-white text-gray-600 border'}else{document.getElementById('cat-all').className='px-3 py-1.5 rounded-full text-xs font-semibold bg-asel text-white'}}
 function toggleEcheance(){const mp=document.getElementById('modePaiement').value;const mr=document.getElementById('montantRecuDiv');const ed=document.getElementById('echeanceDiv');if(mp==='echeance'){mr.classList.add('hidden');ed.classList.remove('hidden');}else{mr.classList.remove('hidden');ed.classList.add('hidden');}}
 function calcMonnaie(){const recu=parseFloat(document.getElementById('montantRecu').value)||0;const total=parseFloat(document.getElementById('cartTotal').textContent)||0;const monnaie=recu-total;document.getElementById('monnaieDisplay').textContent=monnaie>0?'Monnaie: '+monnaie.toFixed(1)+' DT':'';}
