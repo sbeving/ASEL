@@ -997,6 +997,9 @@ if ($page === 'dashboard'):
     $vj = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t, COUNT(*) as n, COALESCE(SUM(v.quantite*p.prix_achat),0) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente=CURDATE() $wf");
     $vm = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t, COUNT(*) as n, COALESCE(SUM(v.quantite*p.prix_achat),0) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE MONTH(v.date_vente)=MONTH(CURDATE()) AND YEAR(v.date_vente)=YEAR(CURDATE()) $wf");
     $vh = queryOne("SELECT COALESCE(SUM(prix_total),0) as t FROM ventes WHERE date_vente=DATE_SUB(CURDATE(), INTERVAL 1 DAY) $wf");
+    // Last month comparison
+    $vm_prev = queryOne("SELECT COALESCE(SUM(prix_total),0) as t FROM ventes WHERE MONTH(date_vente)=MONTH(DATE_SUB(CURDATE(),INTERVAL 1 MONTH)) AND YEAR(date_vente)=YEAR(DATE_SUB(CURDATE(),INTERVAL 1 MONTH)) $wf");
+    $month_trend = $vm_prev['t'] > 0 ? round(($vm['t'] - $vm_prev['t']) / $vm_prev['t'] * 100) : 0;
     $alertes = query("SELECT s.*,p.nom as pnom,p.seuil_alerte,p.marque,f.nom as fnom FROM stock s JOIN produits p ON s.produit_id=p.id JOIN franchises f ON s.franchise_id=f.id WHERE s.quantite<=p.seuil_alerte AND p.actif=1 $wfs ORDER BY s.quantite LIMIT 15");
     $pending_transfers = queryOne("SELECT COUNT(*) as c FROM transferts WHERE statut='en_attente'")['c'] ?? 0;
     $pending_demands = queryOne("SELECT COUNT(*) as c FROM demandes_produits WHERE statut='en_attente'")['c'] ?? 0;
@@ -1102,8 +1105,10 @@ if ($page === 'dashboard'):
         <div class="flex items-center justify-between">
             <div>
                 <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Ventes du mois</div>
-                <div class="text-2xl font-black text-asel-dark mt-0.5"><?=number_format($vm['t'])?> <span class="text-sm font-normal text-gray-400">DT</span></div>
-                <div class="text-xs text-gray-400"><?=$vm['n']?> vente(s)</div>
+                <div class="text-2xl font-black text-asel-dark mt-0.5"><?=number_format($vm['t'],2)?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+                <div class="text-xs <?=$month_trend>0?'text-green-600':($month_trend<0?'text-red-500':'text-gray-400')?>">
+                    <?=$vm['n']?> vente(s) <?=$month_trend!=0?($month_trend>0?'↑ +':'↓ ').abs($month_trend).'% vs mois dernier':''?>
+                </div>
             </div>
             <div class="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center"><i class="bi bi-graph-up-arrow text-purple-500 text-lg"></i></div>
         </div>
@@ -3369,10 +3374,20 @@ elseif ($page === 'recharges'):
 // =====================================================
 elseif ($page === 'factures'):
     $where_f = $fid ? "AND f.franchise_id=".intval($fid) : "";
-    $factures = query("SELECT f.*,fr.nom as fnom,c.nom as client_nom,c.prenom as client_prenom,u.nom_complet as vendeur FROM factures f JOIN franchises fr ON f.franchise_id=fr.id LEFT JOIN clients c ON f.client_id=c.id LEFT JOIN utilisateurs u ON f.utilisateur_id=u.id WHERE 1=1 $where_f ORDER BY f.date_facture DESC LIMIT 100");
+    $fac_d1 = $_GET['d1'] ?? date('Y-m-01');
+    $fac_d2 = $_GET['d2'] ?? date('Y-m-d');
+    $factures = query("SELECT f.*,fr.nom as fnom,c.nom as client_nom,c.prenom as client_prenom,u.nom_complet as vendeur FROM factures f JOIN franchises fr ON f.franchise_id=fr.id LEFT JOIN clients c ON f.client_id=c.id LEFT JOIN utilisateurs u ON f.utilisateur_id=u.id WHERE DATE(f.date_facture) BETWEEN ? AND ? $where_f ORDER BY f.date_facture DESC LIMIT 200", [$fac_d1, $fac_d2]);
     $total_factures = array_sum(array_column($factures, 'total_ttc'));
-    $payees = count(array_filter($factures, fn($f) => $f['statut'] === 'payee'));
-    $annulees = count(array_filter($factures, fn($f) => $f['statut'] === 'annulee'));
+    $payees = array_filter($factures, fn($f) => $f['statut'] === 'payee');
+    $annulees = array_filter($factures, fn($f) => $f['statut'] === 'annulee');
+    $en_attente_fac = array_filter($factures, fn($f) => $f['statut'] === 'en_attente');
+    $by_mode = [];
+    foreach ($factures as $fac) {
+        if ($fac['statut'] !== 'annulee') {
+            $m = $fac['mode_paiement'] ?? 'especes';
+            $by_mode[$m] = ($by_mode[$m] ?? 0) + $fac['total_ttc'];
+        }
+    }
 ?>
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-file-earmark-text text-asel"></i> Factures <span class="text-sm font-normal text-gray-400">(<?=count($factures)?>)</span></h1>
@@ -3381,11 +3396,46 @@ elseif ($page === 'factures'):
         <a href="pdf.php?type=rapport_mois&mois=<?=date('Y-m')?><?=$fid?"&fid=$fid":''?>" target="_blank" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-asel hover:text-asel"><i class="bi bi-file-pdf"></i> PDF Mois</a>
     </div>
 </div>
+<!-- Date filter -->
+<div class="bg-white rounded-xl p-3 mb-3 shadow-sm">
+    <form class="flex flex-wrap gap-2 items-center">
+        <input type="hidden" name="page" value="factures">
+        <?php if($fid): ?><input type="hidden" name="fid" value="<?=$fid?>"><?php endif; ?>
+        <div class="flex gap-1 mr-1">
+            <a href="?page=factures<?=$fid?"&fid=$fid":''?>&d1=<?=date('Y-m-d')?>&d2=<?=date('Y-m-d')?>" class="px-2 py-1 rounded text-xs font-medium <?=$fac_d1===date('Y-m-d')&&$fac_d2===date('Y-m-d')?'bg-asel text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'?>">Aujourd'hui</a>
+            <a href="?page=factures<?=$fid?"&fid=$fid":''?>&d1=<?=date('Y-m-01')?>&d2=<?=date('Y-m-d')?>" class="px-2 py-1 rounded text-xs font-medium <?=$fac_d1===date('Y-m-01')&&$fac_d2===date('Y-m-d')?'bg-asel text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'?>">Ce mois</a>
+        </div>
+        <input type="date" name="d1" value="<?=$fac_d1?>" class="border-2 border-gray-200 rounded-lg px-2 py-1 text-sm">
+        <span class="text-gray-400 text-xs">→</span>
+        <input type="date" name="d2" value="<?=$fac_d2?>" class="border-2 border-gray-200 rounded-lg px-2 py-1 text-sm">
+        <button class="bg-asel text-white px-3 py-1 rounded-lg text-sm font-semibold"><i class="bi bi-funnel"></i></button>
+    </form>
+</div>
 <!-- KPIs -->
-<div class="grid grid-cols-3 gap-3 mb-4">
-    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-asel"><div class="text-[10px] text-gray-400 uppercase font-bold">Total</div><div class="text-lg font-black text-asel-dark"><?=number_format($total_factures)?> DT</div></div>
-    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-green-500"><div class="text-[10px] text-gray-400 uppercase font-bold">Payées</div><div class="text-lg font-black text-green-700"><?=$payees?></div></div>
-    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-red-400"><div class="text-[10px] text-gray-400 uppercase font-bold">Annulées</div><div class="text-lg font-black text-red-600"><?=$annulees?></div></div>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-asel">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Total TTC</div>
+        <div class="text-lg font-black text-asel-dark"><?=number_format($total_factures,2)?> DT</div>
+        <div class="text-xs text-gray-400"><?=count($factures)?> factures</div>
+    </div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-green-500">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Payées</div>
+        <div class="text-lg font-black text-green-700"><?=count($payees)?></div>
+    </div>
+    <?php if(count($en_attente_fac)): ?>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-yellow-500">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">En attente</div>
+        <div class="text-lg font-black text-yellow-700"><?=count($en_attente_fac)?></div>
+    </div>
+    <?php endif; ?>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-blue-500">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Par mode</div>
+        <div class="text-xs space-y-0.5 mt-1">
+            <?php foreach($by_mode as $mode => $mt): ?>
+            <div class="flex justify-between"><span class="text-gray-500"><?=$mode?></span><span class="font-bold"><?=number_format($mt,0)?> DT</span></div>
+            <?php endforeach; ?>
+        </div>
+    </div>
 </div>
 <!-- Search -->
 <div class="relative mb-3">
