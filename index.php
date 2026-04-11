@@ -2075,6 +2075,25 @@ elseif ($page === 'stock'):
     </div>
 </div>
 <!-- Instant search + quick filters -->
+<?php
+// Stock KPIs for detail view
+$stock_kpi = queryOne("SELECT COALESCE(SUM(s.quantite),0) as qty, COALESCE(SUM(s.quantite*p.prix_vente),0) as val_ttc, COALESCE(SUM(s.quantite*p.prix_achat),0) as cout FROM stock s JOIN produits p ON s.produit_id=p.id WHERE p.actif=1".($fid?" AND s.franchise_id=".intval($fid):""));
+$stock_profit = ($stock_kpi['val_ttc']??0) - ($stock_kpi['cout']??0);
+?>
+<div class="grid grid-cols-3 gap-3 mb-4">
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-asel">
+        <div class="text-[10px] text-gray-400 font-bold uppercase">Unités</div>
+        <div class="text-xl font-black text-asel-dark"><?=number_format($stock_kpi['qty'])?></div>
+    </div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-blue-500">
+        <div class="text-[10px] text-gray-400 font-bold uppercase">Valeur TTC</div>
+        <div class="text-xl font-black text-asel-dark"><?=number_format($stock_kpi['val_ttc'],0)?> <span class="text-xs text-gray-400">DT</span></div>
+    </div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-green-500">
+        <div class="text-[10px] text-gray-400 font-bold uppercase">Profit potentiel</div>
+        <div class="text-xl font-black <?=$stock_profit>=0?'text-green-600':'text-red-600'?>"><?=number_format($stock_profit,0)?> <span class="text-xs text-gray-400">DT</span></div>
+    </div>
+</div>
 <div class="flex gap-2 mb-4 flex-wrap items-center">
     <div class="relative flex-1 min-w-[200px]">
         <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
