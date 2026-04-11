@@ -1131,6 +1131,10 @@ if ($page === 'dashboard'):
     // Last month comparison
     $vm_prev = queryOne("SELECT COALESCE(SUM(prix_total),0) as t FROM ventes WHERE MONTH(date_vente)=MONTH(DATE_SUB(CURDATE(),INTERVAL 1 MONTH)) AND YEAR(date_vente)=YEAR(DATE_SUB(CURDATE(),INTERVAL 1 MONTH)) $wf");
     $month_trend = $vm_prev['t'] > 0 ? round(($vm['t'] - $vm_prev['t']) / $vm_prev['t'] * 100) : 0;
+    // This week vs last week
+    $vw = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COUNT(*) as n FROM ventes WHERE date_vente >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) AND date_vente <= CURDATE() $wf");
+    $vw_prev = queryOne("SELECT COALESCE(SUM(prix_total),0) as t FROM ventes WHERE date_vente >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE())+7 DAY) AND date_vente < DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) $wf");
+    $week_trend = $vw_prev['t'] > 0 ? round(($vw['t'] - $vw_prev['t']) / $vw_prev['t'] * 100) : 0;
     $alertes = query("SELECT s.*,p.nom as pnom,p.seuil_alerte,p.marque,f.nom as fnom FROM stock s JOIN produits p ON s.produit_id=p.id JOIN franchises f ON s.franchise_id=f.id WHERE s.quantite<=p.seuil_alerte AND p.actif=1 $wfs ORDER BY s.quantite LIMIT 15");
     $pending_transfers = queryOne("SELECT COUNT(*) as c FROM transferts WHERE statut='en_attente'")['c'] ?? 0;
     $pending_demands = queryOne("SELECT COUNT(*) as c FROM demandes_produits WHERE statut='en_attente'")['c'] ?? 0;
@@ -1243,6 +1247,22 @@ if ($page === 'dashboard'):
             </div>
             <div class="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center"><i class="bi bi-graph-up-arrow text-purple-500 text-lg"></i></div>
         </div>
+    </div>
+</div>
+
+<!-- Week comparison row -->
+<div class="grid grid-cols-2 gap-3 mb-4">
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-cyan-500">
+        <div class="text-[10px] font-bold text-gray-400 uppercase">Cette semaine</div>
+        <div class="text-xl font-black text-asel-dark"><?=number_format($vw['t'],2)?> <span class="text-xs text-gray-400">DT</span></div>
+        <div class="text-xs <?=$week_trend>0?'text-green-600':($week_trend<0?'text-red-500':'text-gray-400')?>"><?=$vw['n']?> ventes <?=$week_trend!=0?($week_trend>0?'↑ +':'↓ ').abs($week_trend).'% vs sem. passée':''?></div>
+    </div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-gray-300">
+        <div class="text-[10px] font-bold text-gray-400 uppercase">Semaine passée</div>
+        <div class="text-xl font-black text-gray-500"><?=number_format($vw_prev['t'],2)?> <span class="text-xs text-gray-400">DT</span></div>
+        <?php if($week_trend !== 0): ?>
+        <div class="text-xs text-gray-400">Écart: <?=$week_trend>0?'+':''?><?=number_format($vw['t'] - $vw_prev['t'],2)?> DT</div>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -2862,7 +2882,12 @@ elseif ($page === 'ventes'):
         </td>
     </tr><?php endforeach;?></tbody>
 </table></div></div>
-<script>function filterVentes(){
+<script>function filterAudit(){
+    const q = document.getElementById('auditSearch').value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    document.querySelectorAll('.audit-row').forEach(r=>{r.style.display=(!q||(r.dataset.search||'').includes(q))?'':'none';});
+}
+
+function filterVentes(){
     const q = document.getElementById('ventesSearch').value;
     const qn = q.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9\s]/g,' ').trim();
     document.querySelectorAll('.vente-row').forEach(r=>{
@@ -4368,6 +4393,11 @@ function calcEcart(idx, sys, phys) {
 </form>
 
 <div class="text-xs text-gray-400 mb-2"><?=count($audit_logs)?> entrée(s) trouvée(s)</div>
+<!-- Quick search on audit log -->
+<div class="relative mb-3">
+    <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+    <input type="text" id="auditSearch" class="w-full pl-10 pr-4 py-2 border-2 border-gray-200 rounded-xl text-sm focus:border-asel" placeholder="Rechercher utilisateur, action, cible..." oninput="filterAudit()">
+</div>
 
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <div class="overflow-x-auto"><table class="w-full text-sm">
