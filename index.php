@@ -4786,15 +4786,23 @@ function getNewPointLocation() {
         <div class="px-4 py-3 border-b font-semibold text-sm text-asel-dark flex items-center gap-2"><i class="bi bi-box-seam text-asel"></i> Inventaire Stock Central</div>
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
-                <thead><tr class="bg-indigo-900 text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Catégorie</th><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3 text-left hidden sm:table-cell">Marque</th><th class="px-3 py-3 text-center">Qté</th><th class="px-3 py-3 text-right">P.V.</th><th class="px-3 py-3 text-right hidden sm:table-cell">Valeur</th></tr></thead>
+                <thead><tr class="bg-indigo-900 text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Catégorie</th><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3 text-left hidden sm:table-cell">Marque</th><th class="px-3 py-3 text-center">Qté</th><th class="px-3 py-3 text-right">P.V.</th><th class="px-3 py-3 text-right hidden sm:table-cell">Valeur</th><th class="px-3 py-3 text-center">Dispatch</th></tr></thead>
                 <tbody class="divide-y divide-gray-100"><?php foreach ($central_stock as $s): $v=$s['quantite']*$s['prix_vente']; ?>
                     <tr class="hover:bg-gray-50 <?=$s['quantite']<=0?'bg-red-50/50':($s['quantite']<=3?'bg-amber-50/30':'')?>">
-                        <td class="px-3 py-2 text-xs"><?=$s['cnom']?></td>
-                        <td class="px-3 py-2 font-medium"><?=htmlspecialchars($s['pnom'])?></td>
-                        <td class="px-3 py-2 text-xs text-gray-400 hidden sm:table-cell"><?=$s['marque']?></td>
+                        <td class="px-3 py-2 text-xs"><?=e($s['cnom'])?></td>
+                        <td class="px-3 py-2 font-medium"><?=e($s['pnom'])?></td>
+                        <td class="px-3 py-2 text-xs text-gray-400 hidden sm:table-cell"><?=e($s['marque'])?></td>
                         <td class="px-3 py-2 text-center"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold <?=$s['quantite']<=0?'bg-red-100 text-red-800':($s['quantite']<=3?'bg-amber-100 text-amber-800':'bg-green-100 text-green-800')?>"><?=$s['quantite']?></span></td>
-                        <td class="px-3 py-2 text-right"><?=number_format($s['prix_vente'],1)?></td>
+                        <td class="px-3 py-2 text-right"><?=number_format($s['prix_vente'],2)?></td>
                         <td class="px-3 py-2 text-right font-medium hidden sm:table-cell"><?=number_format($v,0)?></td>
+                        <td class="px-3 py-2 text-center">
+                            <?php if($s['quantite']>0 && count($franchises)>0): ?>
+                            <button onclick="openQuickDispatch(<?=$s['produit_id']?>,'<?=ejs($s['pnom'])?>')" 
+                                class="text-indigo-500 hover:text-indigo-700 p-1 text-sm" title="Dispatcher vers une franchise">
+                                <i class="bi bi-truck"></i>
+                            </button>
+                            <?php endif; ?>
+                        </td>
                     </tr>
                 <?php endforeach; ?></tbody>
                 <tfoot><tr class="bg-indigo-900 text-white font-bold"><td colspan="3" class="px-3 py-3">TOTAL</td><td class="px-3 py-3 text-center"><?=number_format($central_total_qty)?></td><td class="px-3 py-3"></td><td class="px-3 py-3 text-right hidden sm:table-cell"><?=number_format($central_total_val)?> DT</td></tr></tfoot>
@@ -5854,6 +5862,31 @@ function openQuickAddClient() {
 }
 
 // Quick stock entry modal
+function openQuickDispatch(produitId, produitNom) {
+    const csrf = '<?=$csrf?>';
+    const franchises = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => shortF($f['nom'])], $franchises))?>;
+    openModal(
+        modalHeader('bi-truck', 'Dispatch rapide', produitNom) +
+        `<form method="POST" class="p-6 space-y-4">
+            <input type="hidden" name="_csrf" value="${csrf}">
+            <input type="hidden" name="action" value="dispatch_stock">
+            <input type="hidden" name="produit_id" value="${produitId}">
+            ${modalField('Franchise destination *', 'franchise_id', 'select', '', '', franchises)}
+            ${modalRow([
+                modalField('Quantité *', 'quantite', 'number', '1', '1'),
+                modalField('Note', 'note', 'text', '', 'Optionnel'),
+            ])}
+            <div class="flex gap-3">
+                <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm">Annuler</button>
+                <button type="submit" class="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors">
+                    <i class="bi bi-truck"></i> Dispatcher
+                </button>
+            </div>
+        </form>`,
+        {size: 'max-w-sm'}
+    );
+}
+
 function openQuickStockEntry(franchiseId, franchiseName) {
     const csrf = '<?=$csrf?>';
     const prods = <?=json_encode(array_map(fn($p) => ['value' => $p['id'], 'label' => $p['nom'].' ('.$p['cat_nom'].')'], $produits))?>;
