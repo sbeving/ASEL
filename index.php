@@ -2967,6 +2967,7 @@ elseif ($page === 'transferts'):
     <button onclick="openAddCategory()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-asel hover:text-asel transition-colors"><i class="bi bi-folder-plus"></i> Catégorie</button>
     <button onclick="openQuickAddProduct()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-green-500 hover:text-green-600 transition-colors"><i class="bi bi-plus-circle"></i> Produit</button>
     <button onclick="openBarcodeLookup()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-purple-500 hover:text-purple-600 transition-colors"><i class="bi bi-upc-scan"></i> Scanner & Rechercher</button>
+    <button onclick="printSelectedLabels()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-orange-500 hover:text-orange-600 transition-colors"><i class="bi bi-tag"></i> Étiquettes</button>
 </div>
 
 <!-- Products table -->
@@ -2996,7 +2997,7 @@ elseif ($page === 'transferts'):
                 $total_stock = 0;
                 $central_qty = $stock_by_product[$p['id']][$central_id]['qty'] ?? 0;
             ?>
-                <tr class="hover:bg-gray-50 prod-row" data-search="<?=e(strtolower($p['nom'].' '.$p['reference'].' '.$p['marque'].' '.$p['code_barre'].' '.$p['cat_nom']))?>">
+                <tr class="hover:bg-gray-50 prod-row" data-pid="<?=$p['id']?>" data-search="<?=e(strtolower($p['nom'].' '.$p['reference'].' '.$p['marque'].' '.$p['code_barre'].' '.$p['cat_nom']))?>">
                     <td class="px-2 py-1.5">
                         <div class="font-medium text-sm"><?=e($p['nom'])?></div>
                     </td>
@@ -3051,6 +3052,47 @@ elseif ($page === 'transferts'):
 <!-- Instant filter + column sorting -->
 <script>
 // Instant client-side search
+function printSelectedLabels() {
+    // Get all visible product IDs from the table
+    const rows = document.querySelectorAll('#productsTable .prod-row:not([style*="display: none"])');
+    if(!rows.length) { showToast('Aucun produit visible', 'warning'); return; }
+    
+    const ids = [...rows].map(r => r.dataset.pid).filter(Boolean).join(',');
+    if(!ids) {
+        // Fallback: use all visible, get IDs from PHP
+        showToast('Sélectionnez des produits via la recherche pour imprimer des étiquettes', 'info');
+        return;
+    }
+    
+    openModal(modalHeader('bi-tag','Imprimer étiquettes','Définissez la quantité par produit') +
+        `<div class="p-5 space-y-3">
+            <div class="text-sm text-gray-600">${rows.length} produit(s) sélectionné(s)</div>
+            <div class="flex gap-2 items-center">
+                <label class="text-xs font-bold text-gray-500">Quantité par défaut</label>
+                <input type="number" id="labelQtyDefault" value="1" min="1" max="50" class="w-16 border-2 border-gray-200 rounded-lg px-2 py-1 text-sm text-center">
+                <button onclick="const v=document.getElementById('labelQtyDefault').value;document.querySelectorAll('.label-qty-input').forEach(el=>el.value=v)" class="text-xs text-asel underline">Appliquer à tous</button>
+            </div>
+            <div class="max-h-60 overflow-y-auto space-y-1">
+                ${[...rows].slice(0,30).map(r => {
+                    const n = r.querySelector('td:first-child .font-semibold, td:first-child .font-medium')?.textContent?.trim() || '?';
+                    return `<div class="flex items-center gap-2 text-sm py-1 border-b"><span class="flex-1 truncate">${n}</span><input type="number" class="label-qty-input w-14 border-2 border-gray-200 rounded-lg px-2 py-0.5 text-sm text-center" value="1" min="1" max="20" data-id="${r.dataset.pid}"></div>`;
+                }).join('')}
+            </div>
+            <button onclick="doLabelPrint()" class="w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-sm transition-colors"><i class="bi bi-printer"></i> Imprimer</button>
+        </div>`,
+        {size: 'max-w-md'}
+    );
+}
+
+function doLabelPrint() {
+    const inputs = document.querySelectorAll('.label-qty-input[data-id]');
+    const ids = [...inputs].map(i => i.dataset.id).join(',');
+    const qty = [...inputs].map(i => i.value).join(',');
+    if(!ids) return;
+    window.open(`pdf.php?type=etiquettes&ids=${ids}&qty=${qty}`, '_blank');
+    closeModal();
+}
+
 function instantFilter() {
     const q = document.getElementById('instantSearch').value.toLowerCase().trim();
     const qNorm = q.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -4940,7 +4982,7 @@ function closeFab(){document.getElementById('fabActions').classList.add('hidden'
     $pt_user_filter = intval($_GET['uid'] ?? 0);
     
     // Last pointage for current user today
-    $mon_dernier = queryOne("SELECT * FROM pointages WHERE utilisateur_id=? AND DATE(heure)=CURDATE() ORDER BY heure DESC LIMIT 1", [$user['id']]);
+    try { $mon_dernier = queryOne("SELECT * FROM pointages WHERE utilisateur_id=? AND DATE(heure)=CURDATE() ORDER BY heure DESC LIMIT 1", [$user['id']]); } catch(Exception $e) { $mon_dernier = null; }
     $mon_prochain = match($mon_dernier['type_pointage'] ?? '') {
         'entree', 'pause_fin' => 'sortie',
         'sortie' => 'entree',

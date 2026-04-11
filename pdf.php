@@ -333,3 +333,60 @@ if ($type === 'bon_reception' && $id) {
     <div class="footer">ASEL Mobile — Bon de réception <?=e($bon['numero'])?> — Imprimé le <?=date('d/m/Y H:i')?></div>
     </body></html><?php exit;
 }
+
+// === ETIQUETTES PRODUITS (LABEL PRINT) ===
+if ($type === 'etiquettes') {
+    require_once 'config.php';
+    requireLogin();
+    
+    $ids = array_map('intval', explode(',', $_GET['ids'] ?? ''));
+    $qty_map = [];
+    foreach(explode(',', $_GET['qty'] ?? '') as $i => $q) {
+        if(isset($ids[$i])) $qty_map[$ids[$i]] = max(1, intval($q) ?: 1);
+    }
+    
+    if(!$ids || !$ids[0]) { echo "Aucun produit sélectionné"; exit; }
+    
+    $products = query("SELECT p.*,c.nom as cat_nom FROM produits p JOIN categories c ON p.categorie_id=c.id WHERE p.id IN (".implode(',',array_fill(0,count($ids),'?')).")", $ids);
+    
+    header('Content-Type: text/html; charset=utf-8');
+    ?><!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+    <title>Étiquettes produits</title>
+    <style>
+        @page{margin:5mm;size:A4}
+        body{font-family:Arial,sans-serif;margin:0;padding:5mm;background:#fff}
+        .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:3mm}
+        .label{border:1px solid #ddd;border-radius:3px;padding:4px 6px;text-align:center;page-break-inside:avoid;min-height:30mm;display:flex;flex-direction:column;justify-content:space-between}
+        .brand{font-size:7px;color:#999;text-transform:uppercase;letter-spacing:1px}
+        .name{font-size:9px;font-weight:bold;line-height:1.2;margin:2px 0;word-break:break-word}
+        .ref{font-size:7px;color:#666;font-family:monospace}
+        .barcode{margin:2px auto;display:block}
+        .price{font-size:14px;font-weight:900;color:#2AABE2;margin:2px 0}
+        .ht{font-size:7px;color:#999}
+        @media print{body{padding:0;}.no-print{display:none}}
+    </style></head><body>
+    <button onclick="window.print()" class="no-print" style="position:fixed;top:10px;right:10px;background:#2AABE2;color:#fff;border:0;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:bold;z-index:999">🖨️ Imprimer</button>
+    <div class="grid">
+    <?php foreach($products as $p):
+        $qty = $qty_map[$p['id']] ?? 1;
+        for($i=0; $i<$qty; $i++):
+            $code = $p['code_barre'] ?: $p['reference'] ?: "P{$p['id']}";
+            $pv = floatval($p['prix_vente_ttc'] ?: $p['prix_vente']);
+            $pv_ht = floatval($p['prix_vente_ht'] ?: round($pv/1.19,2));
+    ?>
+    <div class="label">
+        <div class="brand"><?=e(shortF('ASEL Mobile'))?></div>
+        <div class="name"><?=e(mb_substr($p['nom'],0,40))?></div>
+        <div class="ref"><?=e($code)?></div>
+        <?php if($code): ?>
+        <img class="barcode" src="api.php?action=barcode_label&code=<?=urlencode($code)?>&name=&price=" height="30" alt="<?=e($code)?>">
+        <?php endif; ?>
+        <div class="price"><?=number_format($pv,2)?> DT</div>
+        <div class="ht">HT: <?=number_format($pv_ht,2)?> DT <?php if($p['marque']): ?>· <?=e($p['marque'])?><?php endif; ?></div>
+    </div>
+    <?php endfor; endforeach; ?>
+    </div>
+    </body></html>
+<?php
+    exit;
+}
