@@ -4792,10 +4792,16 @@ function getNewPointLocation() {
     $central_total_val = 0;
     foreach ($central_stock as $cs) $central_total_val += $cs['quantite'] * $cs['prix_vente'];
     $recent_dispatches = query("SELECT t.*,p.nom as pnom,fd.nom as dest_nom FROM transferts t JOIN produits p ON t.produit_id=p.id JOIN franchises fd ON t.franchise_dest=fd.id WHERE t.franchise_source=? ORDER BY t.date_demande DESC LIMIT 20", [$cid]);
+    $pending_central_demands = query("SELECT d.*,p.nom as pnom,f.nom as fnom,COALESCE(s.quantite,0) as stock_central FROM demandes_produits d LEFT JOIN produits p ON d.produit_id=p.id JOIN franchises f ON d.franchise_id=f.id LEFT JOIN stock s ON s.produit_id=d.produit_id AND s.franchise_id=? WHERE d.statut='en_attente' ORDER BY FIELD(d.urgence,'critique','urgent','normal'), d.date_demande ASC LIMIT 10", [$cid]);
 ?>
 
-    <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-building text-asel"></i> Stock Central (Entrepôt)</h1>
+    <div class="flex justify-between items-center mb-4">
+        <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2">
+            <i class="bi bi-building text-asel"></i> Stock Central (Entrepôt)
+            <?php if(count($pending_central_demands)): ?>
+            <span class="bg-amber-100 text-amber-800 text-xs font-bold px-2 py-0.5 rounded-full"><?=count($pending_central_demands)?> demandes</span>
+            <?php endif; ?>
+        </h1>
         <div class="flex gap-2">
             <?php if(can('add_produit')): ?>
             <button onclick="openQuickAddProduct('stock_central')" class="bg-green-500 hover:bg-green-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors flex items-center gap-1"><i class="bi bi-plus-circle"></i> Nouveau produit</button>
@@ -4805,6 +4811,29 @@ function getNewPointLocation() {
         </div>
     </div>
     
+    <?php if($pending_central_demands): ?>
+    <!-- Pending demands alert -->
+    <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
+        <div class="flex items-center gap-2 mb-2"><i class="bi bi-megaphone-fill text-amber-500"></i><span class="font-bold text-amber-800 text-sm">Demandes en attente — à dispatcher</span></div>
+        <div class="grid sm:grid-cols-2 gap-2">
+        <?php foreach($pending_central_demands as $pd): $urgency_col=['critique'=>'text-red-600','urgent'=>'text-amber-600','normal'=>'text-gray-500']; ?>
+        <div class="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-amber-100">
+            <div>
+                <span class="text-sm font-semibold"><?=e($pd['pnom']?:'Produit libre')?></span>
+                <span class="text-xs text-gray-400 ml-1">← <?=shortF($pd['fnom'])?></span>
+                <span class="text-xs font-bold <?=$urgency_col[$pd['urgence']]??'text-gray-500'?> ml-1">[<?=$pd['urgence']?>]</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-xs font-bold <?=$pd['stock_central']>=$pd['quantite']?'text-green-600':'text-red-500'?>"><?=$pd['stock_central']?>/<?=$pd['quantite']?></span>
+                <?php if($pd['produit_id'] && $pd['stock_central']>0): ?>
+                <button onclick="openQuickDispatch(<?=$pd['produit_id']?>,'<?=ejs($pd['pnom']??'')?>')" class="bg-indigo-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-indigo-600"><i class="bi bi-truck"></i></button>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endforeach; ?>
+        </div>
+    </div>
+    <?php endif; ?>
     <!-- KPIs -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div class="bg-white rounded-xl p-5 shadow-sm border-l-4 border-indigo-500 hover-lift">
