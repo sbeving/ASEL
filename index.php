@@ -4,6 +4,15 @@ requireLogin();
 // Production: suppress PHP notices/warnings to avoid page breakage
 error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED & ~E_STRICT);
 @ini_set('display_errors', 0);
+
+// Auto-update overdue écheances (lightweight — runs in background on each load)
+// Only run once per hour per session to avoid hammering DB
+if(!isset($_SESSION['last_echeance_check']) || (time() - $_SESSION['last_echeance_check']) > 3600) {
+    try {
+        execute("UPDATE echeances SET statut='en_retard' WHERE statut='en_attente' AND date_echeance < CURDATE()");
+        $_SESSION['last_echeance_check'] = time();
+    } catch(Exception $e) { /* silent */ }
+}
 $page = $_GET['page'] ?? 'dashboard';
 $user = currentUser();
 $fid = scopedFranchiseId();
