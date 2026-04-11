@@ -1801,7 +1801,25 @@ elseif ($page === 'stock'):
     </div>
 </div>
 <script>
-function filterStock(){const q=document.getElementById('stockSearch').value.toLowerCase();const rows=document.querySelectorAll('.stock-row');let v=0;rows.forEach(r=>{const m=!q||r.dataset.search.includes(q);r.style.display=m?'':'none';if(m)v++;});document.getElementById('stockCount').textContent=q?v+'/'+rows.length:'';}
+function filterStock(){
+    const q = document.getElementById('stockSearch').value;
+    const rows = document.querySelectorAll('.stock-row');
+    if(!q.trim()) {
+        rows.forEach(r => r.style.display = '');
+        document.getElementById('stockCount').textContent = '';
+        return;
+    }
+    const ql = q.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9\s]/g,' ').trim();
+    const words = ql.split(/\s+/).filter(Boolean);
+    let v = 0;
+    rows.forEach(r => {
+        const s = (r.dataset.search||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+        const match = words.every(w => s.includes(w));
+        r.style.display = match ? '' : 'none';
+        if(match) v++;
+    });
+    document.getElementById('stockCount').textContent = q ? v+'/'+rows.length : '';
+}
 </script>
 
 <?php
@@ -2301,8 +2319,12 @@ elseif ($page === 'demandes'):
 // =====================================================
 elseif ($page === 'ventes'):
     $d1=$_GET['d1']??date('Y-m-01');$d2=$_GET['d2']??date('Y-m-d');
-    $ventes=query("SELECT v.*,p.nom as pnom,f.nom as fnom,u.nom_complet as vendeur FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN franchises f ON v.franchise_id=f.id LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id WHERE v.date_vente BETWEEN ? AND ? ".($fid?"AND v.franchise_id=".intval($fid):"")." ORDER BY v.date_creation DESC LIMIT 200",[$d1,$d2]);
-    $tca=array_sum(array_column($ventes,'prix_total'));$tart=array_sum(array_column($ventes,'quantite'));
+    $ventes=query("SELECT v.*,p.nom as pnom,p.prix_achat,p.prix_achat_ht,f.nom as fnom,u.nom_complet as vendeur FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN franchises f ON v.franchise_id=f.id LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id WHERE v.date_vente BETWEEN ? AND ? ".($fid?"AND v.franchise_id=".intval($fid):"")." ORDER BY v.date_creation DESC LIMIT 200",[$d1,$d2]);
+    $tca=array_sum(array_column($ventes,'prix_total'));
+    $tart=array_sum(array_column($ventes,'quantite'));
+    $tcout=array_sum(array_map(fn($v)=>$v['prix_achat']*$v['quantite'], $ventes));
+    $tprofit=$tca-$tcout;
+    $tmarge=$tca>0?round($tprofit/$tca*100):0;
 ?>
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-receipt text-asel"></i> Historique des ventes</h1>
@@ -2325,19 +2347,27 @@ elseif ($page === 'ventes'):
     </form>
 </div>
 <!-- KPIs -->
-<div class="grid grid-cols-3 gap-3 mb-4">
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
     <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-asel">
         <div class="text-[10px] text-gray-400 uppercase font-bold">Chiffre d'affaires</div>
-        <div class="text-xl font-black text-asel-dark"><?=number_format($tca)?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+        <div class="text-xl font-black text-asel-dark"><?=number_format($tca,2)?> <span class="text-xs font-normal text-gray-400">DT</span></div>
+        <div class="text-xs text-gray-400"><?=count($ventes)?> ventes · <?=number_format($tart)?> articles</div>
+    </div>
+    <?php if(isAdminOrGest()): ?>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-green-500">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Bénéfice</div>
+        <div class="text-xl font-black <?=$tprofit>=0?'text-green-600':'text-red-600'?>"><?=number_format($tprofit,2)?> <span class="text-xs font-normal text-gray-400">DT</span></div>
+        <div class="text-xs text-gray-400">Marge: <b><?=$tmarge?>%</b> · Coût: <?=number_format($tcout,2)?></div>
+    </div>
+    <?php endif; ?>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-purple-500">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Panier moyen</div>
+        <div class="text-xl font-black text-asel-dark"><?=count($ventes)?number_format($tca/count($ventes),2):'0.00'?> <span class="text-xs font-normal text-gray-400">DT</span></div>
     </div>
     <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-emerald-500">
-        <div class="text-[10px] text-gray-400 uppercase font-bold">Articles vendus</div>
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Articles</div>
         <div class="text-xl font-black text-asel-dark"><?=number_format($tart)?></div>
-    </div>
-    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-purple-500">
-        <div class="text-[10px] text-gray-400 uppercase font-bold">Transactions</div>
-        <div class="text-xl font-black text-asel-dark"><?=count($ventes)?></div>
-        <?php if (count($ventes)): ?><div class="text-xs text-gray-400">Moy: <?=number_format($tca/count($ventes),1)?> DT</div><?php endif; ?>
+        <?php if($tart>0): ?><div class="text-xs text-gray-400">Moy: <?=number_format($tca/$tart,2)?> DT/article</div><?php endif; ?>
     </div>
 </div>
 <!-- Search -->
