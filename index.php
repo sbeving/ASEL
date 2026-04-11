@@ -1327,7 +1327,7 @@ elseif ($page === 'pos'):
                 $is_zero = $s['quantite'] <= 0;
             ?>
             <div class="bg-white rounded-lg p-3 flex items-center justify-between cursor-pointer hover:bg-asel-light/50 hover:border-asel border <?=$is_zero?'border-red-200 bg-red-50/30':($is_low?'border-amber-200 bg-amber-50/20':'border-transparent')?> transition-all <?=$is_zero?'opacity-60':''?>"
-                 data-search="<?=e(strtolower($s['pnom'].' '.$s['reference'].' '.$s['code_barre'].' '.$s['marque']))?>"
+                 data-search="<?=e(strtolower($s['pnom'].' '.$s['reference'].' '.$s['code_barre'].' '.$s['marque'].' '.$s['cnom']))?>"
                  data-cat="<?=e($s['cnom'])?>" data-barcode="<?=e($s['code_barre'])?>"
                  onclick="addToCart(<?=$s['produit_id']?>,'<?=ejs($s['pnom'])?>',<?=$s['prix_vente']?>,<?=$s['quantite']?>,<?=$s['seuil_alerte']?>)">
                 <div class="flex-1 min-w-0">
