@@ -3275,7 +3275,10 @@ function submitQuickCloture(ca, art) {
         default => 'c.nom ASC, p.nom ASC',
     };
     
-    $filtered_produits = query("SELECT p.*,c.nom as cat_nom FROM produits p JOIN categories c ON p.categorie_id=c.id WHERE " . implode(' AND ', $pw) . " ORDER BY $order", $pp);
+    $filtered_produits = query("SELECT p.*,c.nom as cat_nom,
+        COALESCE((SELECT SUM(v.quantite) FROM ventes v WHERE v.produit_id=p.id AND v.date_vente>=DATE_SUB(CURDATE(),INTERVAL 30 DAY)),0) as ventes_30j,
+        COALESCE((SELECT SUM(v.quantite) FROM ventes v WHERE v.produit_id=p.id AND v.date_vente>=DATE_SUB(CURDATE(),INTERVAL 90 DAY)),0) as ventes_90j
+        FROM produits p JOIN categories c ON p.categorie_id=c.id WHERE " . implode(' AND ', $pw) . " ORDER BY $order", $pp);
     $all_marques = query("SELECT DISTINCT marque FROM produits WHERE actif=1 AND marque!='' ORDER BY marque");
     $total_produits = count($filtered_produits);
     
@@ -3363,6 +3366,7 @@ function submitQuickCloture(ca, art) {
                 <th class="px-2 py-3 text-left hidden md:table-cell cursor-pointer hover:bg-white/10" onclick="sortTable(3)">Marque</th>
                 <th class="px-2 py-3 text-right cursor-pointer hover:bg-white/10 hidden md:table-cell" onclick="sortTable(4)">PA HT</th>
                 <th class="px-2 py-3 text-right cursor-pointer hover:bg-white/10" onclick="sortTable(5)">PV TTC</th>
+                <th class="px-2 py-3 text-center cursor-pointer hover:bg-white/10 hidden lg:table-cell" onclick="sortTable(6)" title="Ventes 30 derniers jours">V.30j</th>
                 <th class="px-2 py-3 text-center cursor-pointer hover:bg-white/10" onclick="sortTable(6)">Marge</th>
                 <?php if ($central_id): ?>
                 <th class="px-2 py-3 text-center bg-indigo-900 cursor-pointer hover:bg-indigo-800" onclick="sortTable(6)" title="Stock Central">Central</th>
@@ -3396,6 +3400,11 @@ function submitQuickCloture(ca, art) {
                     </td>
                     <td class="px-2 py-1.5 text-center">
                         <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold <?=$m>=30?'bg-green-100 text-green-800':($m>=15?'bg-yellow-100 text-yellow-800':'bg-red-100 text-red-800')?>"><?=number_format($m,0)?>%</span>
+                    </td>
+                    <!-- Ventes 30j -->
+                    <td class="px-2 py-1.5 text-center hidden lg:table-cell">
+                        <?php $v30 = intval($p['ventes_30j']??0); ?>
+                        <span class="text-xs font-bold <?=$v30<=0?'text-gray-300':($v30>=10?'text-green-600':'text-asel')?>"><?=$v30>0?$v30:'—'?></span>
                     </td>
                     <?php if ($central_id): ?>
                     <td class="px-2 py-1.5 text-center bg-indigo-50">
