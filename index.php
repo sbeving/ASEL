@@ -780,6 +780,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $page = 'familles_categories';
     }
     // === ADD PRODUCT WITH HT/TTC ===
+    elseif ($action === 'duplicate_produit' && can('add_produit')) {
+        $src_id = intval($_POST['source_id']);
+        $src = queryOne("SELECT * FROM produits WHERE id=?", [$src_id]);
+        if($src) {
+            $new_nom = 'Copie — ' . $src['nom'];
+            execute("INSERT INTO produits (nom,categorie_id,sous_categorie_id,prix_achat,prix_vente,prix_achat_ht,prix_achat_ttc,prix_vente_ht,prix_vente_ttc,tva_rate,marque,fournisseur_id,description,seuil_alerte) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                [$new_nom,$src['categorie_id'],$src['sous_categorie_id'],$src['prix_achat'],$src['prix_vente'],$src['prix_achat_ht'],$src['prix_achat_ttc'],$src['prix_vente_ht'],$src['prix_vente_ttc'],$src['tva_rate'],$src['marque'],$src['fournisseur_id'],$src['description'],$src['seuil_alerte']]);
+            $new_pid = db()->lastInsertId();
+            foreach(query("SELECT id FROM franchises WHERE actif=1") as $f) execute("INSERT IGNORE INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,0)",[$f['id'],$new_pid]);
+            $_SESSION['flash'] = ['type'=>'success','msg'=>"Produit dupliqué: <b>$new_nom</b> — Modifiez les infos"];
+            auditLog('duplicate_produit','produit',$new_pid,['source'=>$src_id,'nom'=>$new_nom]);
+        }
+        $page = 'produits';
+    }
     elseif ($action === 'add_produit_v2' && can('add_produit')) {
         $tva_rate = floatval($_POST['tva_rate'] ?? 19);
         $pa_ht = floatval($_POST['prix_achat_ht']);
@@ -3577,6 +3591,7 @@ function submitQuickCloture(ca, art) {
                             <button onclick="openEditProduct(<?=$p['id']?>,'<?=ejs($p['nom'])?>',<?=$p['categorie_id']?>,'<?=ejs($p['marque'])?>','<?=ejs($p['reference'])?>','<?=ejs($p['code_barre'])?>',<?=$p['prix_achat']?>,<?=$p['prix_vente']?>,<?=$p['seuil_alerte']?>,<?=floatval($p['prix_achat_ht']??0)?>,<?=floatval($p['prix_vente_ht']??0)?>,<?=floatval($p['tva_rate']??19)?>, '<?=ejs($p['description']??'')?>')" class="text-asel hover:text-asel-dark" title="Modifier"><i class="bi bi-pencil text-sm"></i></button>
                             <?php if($p['code_barre'] || $p['reference']): ?>
                             <a href="pdf.php?type=etiquettes&ids=<?=$p['id']?>&qty=1" target="_blank" class="text-orange-400 hover:text-orange-600" title="Imprimer étiquette"><i class="bi bi-tag text-sm"></i></a>
+                            <form method="POST" class="inline"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="duplicate_produit"><input type="hidden" name="source_id" value="<?=$p['id']?>"><button class="text-gray-300 hover:text-blue-500" title="Dupliquer ce produit"><i class="bi bi-copy text-sm"></i></button></form>
                             <?php endif; ?>
                             <?php if(isAdmin()): ?>
                             <form method="POST" class="inline" onsubmit="return confirm('Désactiver?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="toggle_produit"><input type="hidden" name="produit_id" value="<?=$p['id']?>">
