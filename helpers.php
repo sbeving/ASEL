@@ -31,7 +31,7 @@ define('PERMISSIONS', [
         'gestion_services', 'gestion_asel', 'echeances', 'inventaire',
         'notifications', 'mon_compte', 'stock_central',
         // Actions
-        'vente', 'entree_stock', 'transfert', 'transfert_valider',
+        'vente', 'entree_stock', 'entree_multi_stock', 'transfert', 'transfert_valider',
         'retour', 'cloture_submit', 'add_produit', 'edit_produit',
         'demande_produit', 'traiter_demande', 'edit_user', 'add_user',
         'dispatch', 'export', 'add_client', 'edit_client', 'add_service',
@@ -57,7 +57,7 @@ define('PERMISSIONS', [
         'points_reseau', 'fournisseurs', 'bons_reception', 'tresorerie',
         'familles_categories',
         // Actions
-        'entree_stock', 'transfert', 'transfert_valider',
+        'vente', 'entree_stock', 'entree_multi_stock', 'transfert', 'transfert_valider',
         'traiter_demande', 'dispatch', 'dispatch_stock', 'export',
         'add_client', 'edit_client', 'add_produit', 'edit_produit',
         'add_fournisseur', 'edit_fournisseur',
@@ -76,7 +76,7 @@ define('PERMISSIONS', [
         'clients', 'services', 'recharges', 'factures',
         'echeances', 'inventaire', 'notifications', 'mon_compte',
         // Actions — franchise can ONLY sell, enter stock, and manage their own data
-        'vente', 'entree_stock', 'transfert', 'retour',
+        'vente', 'entree_stock', 'entree_multi_stock', 'transfert', 'retour',
         'cloture_submit', 'demande_produit', 'add_client', 'edit_client',
         'vente_recharge', 'create_facture', 'pay_echeance', 'create_echeance',
         'submit_inventaire', 'validate_cloture', 'validate_inventaire',

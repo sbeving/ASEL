@@ -717,7 +717,11 @@ $csrf = csrfToken();
     <script>
     // Session timeout: auto-logout after 30 min inactivity
     let sessionTimer;
-    function resetTimer(){clearTimeout(sessionTimer);sessionTimer=setTimeout(()=>{alert('Session expirée. Reconnexion requise.');location.href='logout.php';},30*60*1000);}
+    function resetTimer(){clearTimeout(sessionTimer);sessionTimer=setTimeout(()=>{
+        openModal(modalHeader('bi-clock-history','Session expirée','Votre session a expiré') +
+            `<div class="p-6 text-center"><p class="text-gray-600 mb-4">Veuillez vous reconnecter pour continuer.</p><a href="logout.php" class="w-full block py-2.5 rounded-xl bg-asel text-white font-bold text-sm">Se reconnecter</a></div>`,
+            {size:'max-w-xs'});
+    },30*60*1000);}
     document.addEventListener('mousemove',resetTimer);document.addEventListener('keypress',resetTimer);resetTimer();
     </script>
     <style>
@@ -2433,9 +2437,11 @@ elseif ($page === 'transferts'):
 <?php elseif ($page === 'cloture'): $cl_fid=$fid?:(currentFranchise()?:($franchises[0]['id']??1));
     $sys = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COALESCE(SUM(quantite),0) as a FROM ventes WHERE franchise_id=? AND date_vente=CURDATE()", [$cl_fid]);
     $recent_clotures = query("SELECT cl.*,f.nom as fnom,u.nom_complet as par FROM clotures cl JOIN franchises f ON cl.franchise_id=f.id LEFT JOIN utilisateurs u ON cl.utilisateur_id=u.id WHERE cl.franchise_id=? ORDER BY cl.date_cloture DESC LIMIT 10", [$cl_fid]);
-    // Trésorerie today
-    $tr_today_enc = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE franchise_id=? AND type_mouvement='encaissement' AND date_mouvement=CURDATE()", [$cl_fid])['t'];
-    $tr_today_dec = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE franchise_id=? AND type_mouvement='decaissement' AND date_mouvement=CURDATE()", [$cl_fid])['t'];
+    // Trésorerie today (requires migration v8)
+    try {
+        $tr_today_enc = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE franchise_id=? AND type_mouvement='encaissement' AND date_mouvement=CURDATE()", [$cl_fid])['t'];
+        $tr_today_dec = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE franchise_id=? AND type_mouvement='decaissement' AND date_mouvement=CURDATE()", [$cl_fid])['t'];
+    } catch(Exception $e) { $tr_today_enc = $tr_today_dec = 0; }
     $tr_solde = $tr_today_enc - $tr_today_dec;
     $ecart_tresorerie = $tr_today_enc - $sys['t'];
     // Already closed today?
@@ -2521,9 +2527,11 @@ elseif ($page === 'transferts'):
     $tva_rate_moy = 19; // default
     $total_ca_ht = round($total_ca / (1 + $tva_rate_moy/100), 2);
     $total_tva = $total_ca - $total_ca_ht;
-    // Tresorerie for period
-    $tr_enc = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE type_mouvement='encaissement' AND date_mouvement BETWEEN ? AND ?",$r_fid ? [$d1,$d2,[$r_fid]] : [$d1,$d2])['t'];
-    $tr_dec = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE type_mouvement='decaissement' AND date_mouvement BETWEEN ? AND ?", [$d1,$d2])['t'];
+    // Tresorerie for period (requires migration v8)
+    try {
+        $tr_enc = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE type_mouvement='encaissement' AND date_mouvement BETWEEN ? AND ?", [$d1,$d2])['t'];
+        $tr_dec = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE type_mouvement='decaissement' AND date_mouvement BETWEEN ? AND ?", [$d1,$d2])['t'];
+    } catch(Exception $e) { $tr_enc = $tr_dec = 0; }
     // Daily sales for sparkline
     $daily = query("SELECT date_vente as d, SUM(prix_total) as ca FROM ventes WHERE date_vente BETWEEN ? AND ? $r_fwhere GROUP BY date_vente ORDER BY date_vente", [$d1,$d2]);
 ?>
@@ -4215,7 +4223,9 @@ function openEditFournisseur(btn) {
 <div class="p-4 lg:p-6 max-w-7xl mx-auto pb-20">
 <!-- ====================== BONS DE RECEPTION PAGE ====================== -->
 <?php if ($page === 'bons_reception' && can('bons_reception')):
-    $bons = query("SELECT br.*,f.nom as fnom,fo.nom as fourn_nom,u.nom_complet as unom FROM bons_reception br JOIN franchises f ON br.franchise_id=f.id LEFT JOIN fournisseurs fo ON br.fournisseur_id=fo.id LEFT JOIN utilisateurs u ON br.utilisateur_id=u.id ORDER BY br.date_creation DESC LIMIT 100");
+    try {
+        $bons = query("SELECT br.*,f.nom as fnom,fo.nom as fourn_nom,u.nom_complet as unom FROM bons_reception br JOIN franchises f ON br.franchise_id=f.id LEFT JOIN fournisseurs fo ON br.fournisseur_id=fo.id LEFT JOIN utilisateurs u ON br.utilisateur_id=u.id ORDER BY br.date_creation DESC LIMIT 100");
+    } catch(Exception $e) { $bons = []; }
 ?>
 <div class="flex justify-between items-center mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-receipt text-asel"></i> Bons de réception <span class="text-sm font-normal text-gray-400">(<?=count($bons)?>)</span></h1>
@@ -4394,7 +4404,7 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
 <?php if ($page === 'tresorerie' && can('tresorerie')):
     $tr_fid = $fid ?: ($franchises[0]['id'] ?? 1);
     $tr_mois = $_GET['mois'] ?? date('Y-m');
-    $mouvements_tresorerie = query("SELECT t.*,u.nom_complet as unom FROM tresorerie t LEFT JOIN utilisateurs u ON t.utilisateur_id=u.id WHERE t.franchise_id=? AND t.date_mouvement LIKE ? ORDER BY t.date_mouvement DESC, t.id DESC", [$tr_fid, "$tr_mois%"]);
+    try { $mouvements_tresorerie = query("SELECT t.*,u.nom_complet as unom FROM tresorerie t LEFT JOIN utilisateurs u ON t.utilisateur_id=u.id WHERE t.franchise_id=? AND t.date_mouvement LIKE ? ORDER BY t.date_mouvement DESC, t.id DESC", [$tr_fid, "$tr_mois%"]); } catch(Exception $e) { $mouvements_tresorerie = []; }
     $total_enc = 0; $total_dec = 0;
     foreach($mouvements_tresorerie as $mt){ if($mt['type_mouvement']==='encaissement') $total_enc+=$mt['montant']; else $total_dec+=$mt['montant']; }
     $solde = $total_enc - $total_dec;
@@ -4449,9 +4459,9 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
 <div class="p-4 lg:p-6 max-w-7xl mx-auto pb-20">
 <!-- ====================== FAMILLES & CATEGORIES PAGE ====================== -->
 <?php if ($page === 'familles_categories' && can('familles_categories')):
-    $all_familles = query("SELECT * FROM familles WHERE actif=1 ORDER BY nom") ?? [];
+    try { $all_familles = query("SELECT * FROM familles WHERE actif=1 ORDER BY nom") ?? []; } catch(Exception $e) { $all_familles = []; }
     $all_cats = query("SELECT c.*,f.nom as fnom FROM categories c LEFT JOIN familles f ON c.famille_id=f.id ORDER BY f.nom,c.nom");
-    $all_scats = query("SELECT sc.*,c.nom as cnom FROM sous_categories sc JOIN categories c ON sc.categorie_id=c.id ORDER BY c.nom,sc.nom") ?? [];
+    try { $all_scats = query("SELECT sc.*,c.nom as cnom FROM sous_categories sc JOIN categories c ON sc.categorie_id=c.id ORDER BY c.nom,sc.nom") ?? []; } catch(Exception $e) { $all_scats = []; }
 ?>
 <h1 class="text-2xl font-bold text-asel-dark mb-4"><i class="bi bi-diagram-3 text-asel"></i> Familles, Catégories & Sous-catégories</h1>
 <div class="grid md:grid-cols-3 gap-4">
