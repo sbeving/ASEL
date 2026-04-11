@@ -3566,6 +3566,9 @@ function submitQuickCloture(ca, art) {
                         <div class="flex gap-0.5">
                             <button onclick="viewProductDetails(<?=$p['id']?>,'<?=ejs($p['nom'])?>','<?=ejs($p['reference'])?>','<?=ejs($p['marque'])?>','<?=ejs($p['cat_nom'])?>',<?=$p['prix_achat']?>,<?=$p['prix_vente']?>,'<?=ejs($p['code_barre'])?>',<?=$p['seuil_alerte']?>)" class="text-gray-400 hover:text-asel" title="Détails"><i class="bi bi-eye text-sm"></i></button>
                             <button onclick="openEditProduct(<?=$p['id']?>,'<?=ejs($p['nom'])?>',<?=$p['categorie_id']?>,'<?=ejs($p['marque'])?>','<?=ejs($p['reference'])?>','<?=ejs($p['code_barre'])?>',<?=$p['prix_achat']?>,<?=$p['prix_vente']?>,<?=$p['seuil_alerte']?>,<?=floatval($p['prix_achat_ht']??0)?>,<?=floatval($p['prix_vente_ht']??0)?>,<?=floatval($p['tva_rate']??19)?>, '<?=ejs($p['description']??'')?>')" class="text-asel hover:text-asel-dark" title="Modifier"><i class="bi bi-pencil text-sm"></i></button>
+                            <?php if($p['code_barre'] || $p['reference']): ?>
+                            <a href="pdf.php?type=etiquettes&ids=<?=$p['id']?>&qty=1" target="_blank" class="text-orange-400 hover:text-orange-600" title="Imprimer étiquette"><i class="bi bi-tag text-sm"></i></a>
+                            <?php endif; ?>
                             <?php if(isAdmin()): ?>
                             <form method="POST" class="inline" onsubmit="return confirm('Désactiver?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="toggle_produit"><input type="hidden" name="produit_id" value="<?=$p['id']?>">
                             <button class="text-gray-300 hover:text-red-500" title="Désactiver"><i class="bi bi-eye-slash text-sm"></i></button></form>
