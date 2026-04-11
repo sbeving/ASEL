@@ -167,10 +167,29 @@ case 'export_clients':
 case 'export_produits':
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename=produits_asel_'.date('Ymd').'.csv');
+    echo "\xEF\xBB\xBF"; // UTF-8 BOM for Excel
     $out = fopen('php://output', 'w');
-    fputcsv($out, ['Nom','Catégorie','Marque','Référence','Code-barres','Prix achat','Prix vente','Marge %']);
-    $rows = query("SELECT p.*,c.nom as cnom FROM produits p JOIN categories c ON p.categorie_id=c.id WHERE p.actif=1 ORDER BY c.nom,p.nom");
-    foreach ($rows as $r) { $m=$r['prix_vente']>0?(($r['prix_vente']-$r['prix_achat'])/$r['prix_vente']*100):0; fputcsv($out, [$r['nom'],$r['cnom'],$r['marque'],$r['reference'],$r['code_barre'],$r['prix_achat'],$r['prix_vente'],number_format($m,1)]); }
+    fputcsv($out, ['Nom','Catégorie','Sous-catégorie','Marque','Référence','Code-barres',
+        'PA HT','PA TTC','PV HT','PV TTC','TVA %','Marge %','Seuil alerte','Fournisseur'], ';');
+    $rows = query("SELECT p.*,c.nom as cnom,sc.nom as scnom,f.nom as fnom FROM produits p 
+        JOIN categories c ON p.categorie_id=c.id 
+        LEFT JOIN sous_categories sc ON p.sous_categorie_id=sc.id
+        LEFT JOIN fournisseurs f ON p.fournisseur_id=f.id 
+        WHERE p.actif=1 ORDER BY c.nom,p.nom");
+    foreach ($rows as $r) {
+        $pa_ht = floatval($r['prix_achat_ht'] ?: round($r['prix_achat']/1.19,2));
+        $pa_ttc = floatval($r['prix_achat_ttc'] ?: $r['prix_achat']);
+        $pv_ht = floatval($r['prix_vente_ht'] ?: round($r['prix_vente']/1.19,2));
+        $pv_ttc = floatval($r['prix_vente_ttc'] ?: $r['prix_vente']);
+        $tva = floatval($r['tva_rate'] ?: 19);
+        $marge = $pv_ht > 0 ? round(($pv_ht-$pa_ht)/$pv_ht*100,1) : 0;
+        fputcsv($out, [
+            $r['nom'],$r['cnom'],$r['scnom']??'',$r['marque']??'',$r['reference']??'',$r['code_barre']??'',
+            number_format($pa_ht,2,',',''),number_format($pa_ttc,2,',',''),
+            number_format($pv_ht,2,',',''),number_format($pv_ttc,2,',',''),
+            $tva,$marge,$r['seuil_alerte']??3,$r['fnom']??''
+        ], ';');
+    }
     fclose($out);
     exit;
 
@@ -254,6 +273,27 @@ case 'barcode_label':
     <text x='" . (($x+10)/2) . "' y='75' text-anchor='middle' font-family='monospace' font-size='10'>$code</text>
     <text x='" . (($x+10)/2) . "' y='87' text-anchor='middle' font-family='sans-serif' font-size='8' fill='#666'>$name - $price DT</text>
     </svg>";
+    exit;
+
+case 'global_search':
+    $q = trim($_GET['q'] ?? '');
+    if(strlen($q) < 2) { echo json_encode(['results'=>[]]); exit; }
+    $results = [];
+    $ql = "%$q%";
+    
+    // Products
+    $prods = query("SELECT id,nom,reference,marque FROM produits WHERE actif=1 AND (nom LIKE ? OR reference LIKE ? OR code_barre LIKE ? OR marque LIKE ?) LIMIT 5", [$ql,$ql,$ql,$ql]);
+    foreach($prods as $p) $results[] = ['title'=>$p['nom'].($p['marque']?" · {$p['marque']}":''),'type'=>'Produit','icon'=>'bi-tag','url'=>"index.php?page=produits&pf_q=".urlencode($p['nom'])];
+    
+    // Clients
+    $clients = query("SELECT id,nom,prenom,telephone FROM clients WHERE actif=1 AND (nom LIKE ? OR prenom LIKE ? OR telephone LIKE ?) LIMIT 3", [$ql,$ql,$ql]);
+    foreach($clients as $c) $results[] = ['title'=>$c['nom'].' '.($c['prenom']??'').($c['telephone']?" · {$c['telephone']}":''),'type'=>'Client','icon'=>'bi-person','url'=>"index.php?page=clients"];
+    
+    // Factures  
+    $facts = query("SELECT id,numero,total_ttc FROM factures WHERE numero LIKE ? LIMIT 3", [$ql]);
+    foreach($facts as $f) $results[] = ['title'=>$f['numero']." — ".number_format($f['total_ttc'],2)." DT",'type'=>'Facture','icon'=>'bi-file-earmark-text','url'=>"receipt.php?id={$f['id']}"];
+    
+    echo json_encode(['results'=>array_slice($results, 0, 10)]);
     exit;
 
 case 'get_bon_lines':

@@ -891,6 +891,11 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
 <div class="lg:hidden fixed top-0 left-0 right-0 z-50 bg-asel text-white px-4 py-3 flex items-center justify-between shadow-lg">
     <div class="font-black text-lg tracking-wider"><span class="bg-gradient-to-r from-red-400 via-yellow-300 to-green-400 bg-clip-text text-transparent">A</span>SEL</div>
     <div class="flex items-center gap-3">
+        <!-- Quick search mobile -->
+        <button onclick="document.getElementById('globalSearchBar').classList.toggle('hidden')" class="p-1" title="Recherche rapide"><i class="bi bi-search text-lg"></i></button>
+        <?php if (can('pos')): ?>
+        <a href="?page=pos" class="p-1" title="POS"><i class="bi bi-cart3 text-lg"></i></a>
+        <?php endif; ?>
         <?php if ($notif_count > 0): ?>
         <a href="?page=notifications" class="relative">
             <i class="bi bi-bell text-xl"></i>
@@ -899,6 +904,17 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
         <?php endif; ?>
         <button onclick="document.getElementById('sidebar').classList.toggle('-translate-x-full');document.getElementById('backdrop').classList.toggle('hidden')" class="p-1"><i class="bi bi-list text-2xl"></i></button>
     </div>
+</div>
+<!-- Global search bar (mobile, toggleable) -->
+<div id="globalSearchBar" class="lg:hidden hidden fixed top-14 left-0 right-0 z-40 bg-white shadow-lg px-4 py-3 border-b">
+    <div class="relative">
+        <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+        <input type="text" id="globalSearchInput" placeholder="Rechercher produit, client, facture..." 
+            class="w-full pl-9 pr-4 py-2.5 border-2 border-asel/30 rounded-xl text-sm focus:border-asel outline-none"
+            oninput="doGlobalSearch(this.value)"
+            onkeydown="if(event.key==='Escape'){document.getElementById('globalSearchBar').classList.add('hidden')}">
+    </div>
+    <div id="globalSearchResults" class="mt-2 hidden space-y-1 max-h-60 overflow-y-auto"></div>
 </div>
 
 <!-- Sidebar -->
@@ -6253,6 +6269,40 @@ document.addEventListener('keydown', e => {
         showShortcuts();
     }
 });
+
+// F3 = global search
+document.addEventListener('keydown', e => {
+    if(e.key === 'F3') {
+        e.preventDefault();
+        const bar = document.getElementById('globalSearchBar');
+        if(bar) { bar.classList.remove('hidden'); document.getElementById('globalSearchInput')?.focus(); }
+    }
+});
+
+let globalSearchTimer = null;
+function doGlobalSearch(q) {
+    clearTimeout(globalSearchTimer);
+    const res = document.getElementById('globalSearchResults');
+    if(!q || q.length < 2) { res.classList.add('hidden'); return; }
+    globalSearchTimer = setTimeout(() => {
+        fetch('api.php?action=global_search&q=' + encodeURIComponent(q))
+            .then(r => r.json())
+            .then(data => {
+                if(!data.results?.length) {
+                    res.innerHTML = '<div class="text-xs text-gray-400 text-center py-2">Aucun résultat</div>';
+                } else {
+                    res.innerHTML = data.results.map(r => 
+                        `<a href="${r.url}" class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-asel-light text-sm">
+                            <i class="bi ${r.icon} text-asel"></i>
+                            <span class="flex-1">${r.title}</span>
+                            <span class="text-[10px] text-gray-400">${r.type}</span>
+                        </a>`
+                    ).join('');
+                }
+                res.classList.remove('hidden');
+            });
+    }, 250);
+}
 
 function showShortcuts() {
     openModal(
