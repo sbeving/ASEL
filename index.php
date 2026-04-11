@@ -3129,13 +3129,18 @@ elseif ($page === 'clients'):
         <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3">Nom</th><th class="px-3 py-3 hidden sm:table-cell">Tél</th><th class="px-3 py-3">Type</th><th class="px-3 py-3 hidden md:table-cell">Entreprise</th><th class="px-3 py-3 hidden md:table-cell">MF</th><th class="px-3 py-3">Date</th><th class="px-3 py-3">Edit</th></tr></thead>
         <tbody class="divide-y"><?php foreach ($clients as $c): $tb=['passager'=>'bg-gray-100','boutique'=>'bg-blue-100 text-blue-800','entreprise'=>'bg-purple-100 text-purple-800']; ?>
             <tr class="hover:bg-gray-50 client-row" data-search="<?=e(strtolower($c['nom'].' '.($c['prenom']??'').' '.$c['telephone'].' '.$c['email'].' '.($c['entreprise']??'').' '.$c['type_client']))?>">
-                <td class="px-3 py-2 font-medium"><?=htmlspecialchars($c['nom'].' '.($c['prenom']??''))?></td>
-                <td class="px-3 py-2 hidden sm:table-cell"><?=$c['telephone']?></td>
+                <td class="px-3 py-2 font-medium">
+                    <button onclick="openClientProfile(<?=$c['id']?>,'<?=ejs($c['nom'].' '.($c['prenom']??''))?>')" class="text-left hover:text-asel font-medium"><?=e($c['nom'].' '.($c['prenom']??''))?></button>
+                </td>
+                <td class="px-3 py-2 hidden sm:table-cell"><a href="tel:<?=e($c['telephone'])?>" class="text-asel"><?=e($c['telephone'])?></a></td>
                 <td class="px-3 py-2"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?=$tb[$c['type_client']]??''?>"><?=$c['type_client']?></span></td>
-                <td class="px-3 py-2 text-xs hidden md:table-cell"><?=$c['entreprise']?></td>
-                <td class="px-3 py-2 text-xs font-mono hidden md:table-cell"><?=$c['matricule_fiscal']?></td>
+                <td class="px-3 py-2 text-xs hidden md:table-cell"><?=e($c['entreprise']??'')?></td>
+                <td class="px-3 py-2 text-xs font-mono hidden md:table-cell"><?=e($c['matricule_fiscal']??'')?></td>
                 <td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m/Y',strtotime($c['date_creation']))?></td>
-                <td class="px-3 py-2"><button onclick="document.getElementById('ec<?=$c['id']?>').classList.toggle('hidden')" class="text-asel"><i class="bi bi-pencil"></i></button></td>
+                <td class="px-3 py-2 flex gap-1">
+                    <button onclick="openClientProfile(<?=$c['id']?>,'<?=ejs($c['nom'].' '.($c['prenom']??''))?>')" class="text-gray-400 hover:text-asel p-1" title="Profil & balance"><i class="bi bi-person-lines-fill text-sm"></i></button>
+                    <button onclick="document.getElementById('ec<?=$c['id']?>').classList.toggle('hidden')" class="text-gray-400 hover:text-asel p-1" title="Modifier"><i class="bi bi-pencil text-sm"></i></button>
+                </td>
             </tr>
             <tr id="ec<?=$c['id']?>" class="hidden bg-blue-50"><td colspan="7" class="px-4 py-3">
                 <form method="POST" class="flex flex-wrap gap-2 items-end"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="edit_client"><input type="hidden" name="client_id" value="<?=$c['id']?>">
@@ -3153,7 +3158,41 @@ elseif ($page === 'clients'):
     </table></div>
 </div>
 
-<script>function filterClients(){const q=document.getElementById('clientSearch').value.toLowerCase();const rows=document.querySelectorAll('.client-row');let v=0;rows.forEach(r=>{const m=!q||r.dataset.search.includes(q);r.style.display=m?'':'none';const er=r.nextElementSibling;if(er&&er.id&&er.id.startsWith('ec')&&!m)er.style.display='none';if(m)v++;});document.getElementById('clientCount').textContent=q?v+'/'+rows.length:'';}</script>
+<script>function filterClients(){const q=document.getElementById('clientSearch').value.toLowerCase();const rows=document.querySelectorAll('.client-row');let v=0;rows.forEach(r=>{const m=!q||r.dataset.search.includes(q);r.style.display=m?'':'none';const er=r.nextElementSibling;if(er&&er.id&&er.id.startsWith('ec')&&!m)er.style.display='none';if(m)v++;});document.getElementById('clientCount').textContent=q?v+'/'+rows.length:'';}
+
+function openClientProfile(cid, nom) {
+    openModal(modalHeader('bi-person-lines-fill', nom, 'Profil client & historique') +
+        `<div class="p-5" id="clientProfileContent"><div class="text-center py-8 text-gray-400"><i class="bi bi-hourglass-split text-2xl animate-spin block mb-2"></i>Chargement...</div></div>`,
+        {size: 'max-w-lg'}
+    );
+    fetch('api.php?action=client_profile&id=' + cid)
+        .then(r => r.json())
+        .then(d => {
+            if(!d.client) return;
+            const c = d.client;
+            const du = d.echeances_pending?.reduce((s,e)=>s+parseFloat(e.montant),0) || 0;
+            let ecHtml = d.echeances_pending?.length ? d.echeances_pending.map(e =>
+                `<div class="flex justify-between py-1.5 border-b text-sm"><span>${e.date_label} <span class="text-xs text-gray-400">${e.note||''}</span></span><span class="font-bold text-red-600">${parseFloat(e.montant).toFixed(2)} DT</span></div>`
+            ).join('') : '<div class="text-gray-400 text-sm py-2 text-center">Aucune échéance en attente ✅</div>';
+            let ventesHtml = d.ventes?.length ? d.ventes.slice(0,5).map(v =>
+                `<div class="flex justify-between py-1.5 border-b text-sm"><span class="text-gray-600">${v.date_label}</span><span class="font-bold">${parseFloat(v.total).toFixed(2)} DT</span></div>`
+            ).join('') : '<div class="text-gray-400 text-sm py-2 text-center">Aucun achat enregistré</div>';
+            
+            document.getElementById('clientProfileContent').innerHTML = `
+                <div class="grid grid-cols-2 gap-3 mb-4">
+                    <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-400">Téléphone</div><a href="tel:${c.telephone}" class="font-bold text-asel">${c.telephone||'—'}</a></div>
+                    <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-400">Type</div><span class="font-bold">${c.type_client}</span></div>
+                    ${c.entreprise?`<div class="bg-gray-50 rounded-lg p-3 col-span-2"><div class="text-xs text-gray-400">Entreprise · MF</div><span class="font-bold">${c.entreprise}</span> ${c.matricule_fiscal?`<span class="text-xs font-mono text-gray-500">· ${c.matricule_fiscal}</span>`:''}  </div>`:''}
+                </div>
+                ${du > 0 ? `<div class="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 flex justify-between items-center"><span class="font-bold text-red-700">💰 Solde dû</span><span class="text-xl font-black text-red-600">${du.toFixed(2)} DT</span></div>` : ''}
+                <div class="mb-4"><div class="font-bold text-sm mb-2 text-gray-700">Échéances en attente</div>${ecHtml}</div>
+                <div><div class="font-bold text-sm mb-2 text-gray-700">Derniers achats</div>${ventesHtml}</div>
+                <a href="?page=echeances" class="mt-4 w-full flex items-center justify-center gap-2 py-2 rounded-xl border-2 border-asel text-asel font-bold text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-credit-card"></i> Voir toutes les échéances</a>
+            `;
+        })
+        .catch(() => document.getElementById('clientProfileContent').innerHTML = '<div class="p-4 text-red-500 text-sm text-center">Erreur lors du chargement</div>');
+}
+</script>
 
 <?php
 // =====================================================

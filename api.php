@@ -265,6 +265,38 @@ case 'get_bon_lines':
     } catch(Exception $e) { echo json_encode([]); }
     exit;
 
+case 'client_profile':
+    $cid = intval($_GET['id'] ?? 0);
+    if (!$cid) { echo json_encode(['error'=>'no_id']); exit; }
+    $client = queryOne("SELECT * FROM clients WHERE id=?", [$cid]);
+    if (!$client) { echo json_encode(['error'=>'not_found']); exit; }
+    
+    $echeances_pending = query("SELECT e.montant, e.date_echeance, e.note, f.numero as facture_num 
+        FROM echeances e LEFT JOIN factures f ON e.facture_id=f.id 
+        WHERE e.client_id=? AND e.statut IN ('en_attente','en_retard') 
+        ORDER BY e.date_echeance ASC LIMIT 10", [$cid]);
+    
+    $ventes = query("SELECT v.date_vente as date_label, SUM(v.prix_total) as total 
+        FROM ventes v WHERE v.client_id=? GROUP BY DATE(v.date_vente) ORDER BY v.date_vente DESC LIMIT 5", [$cid]);
+    
+    $total_achats = queryOne("SELECT COALESCE(SUM(prix_total),0) as t FROM ventes WHERE client_id=?", [$cid])['t'];
+    
+    // Format dates
+    foreach ($echeances_pending as &$e) {
+        $e['date_label'] = date('d/m/Y', strtotime($e['date_echeance']));
+    }
+    foreach ($ventes as &$v) {
+        $v['date_label'] = date('d/m/Y', strtotime($v['date_label']));
+    }
+    
+    echo json_encode([
+        'client' => $client,
+        'echeances_pending' => $echeances_pending,
+        'ventes' => $ventes,
+        'total_achats' => $total_achats,
+    ]);
+    exit;
+
 case 'export_tresorerie':
     if (!can('tresorerie')) { http_response_code(403); exit; }
     $tr_fid = $_GET['fid'] ?? null;
