@@ -3128,6 +3128,15 @@ function submitQuickCloture(ca, art) {
     // By hour (peak hours analysis) - only for single day or narrow range
     $day_diff = (strtotime($d2) - strtotime($d1)) / 86400;
     $by_hour = $day_diff <= 7 ? query("SELECT HOUR(v.date_creation) as hr, COALESCE(SUM(v.prix_total),0) as ca, COUNT(*) as tx FROM ventes v WHERE v.date_vente BETWEEN ? AND ? $r_fwhere GROUP BY HOUR(v.date_creation) ORDER BY hr", [$d1,$d2]) : [];
+    
+    // Reorder suggestions: products with high sales velocity + low stock
+    $reorder_suggestions = query("SELECT p.nom, p.reference, p.marque, p.seuil_alerte,
+        COALESCE((SELECT SUM(v.quantite) FROM ventes v WHERE v.produit_id=p.id AND v.date_vente>=DATE_SUB(CURDATE(),INTERVAL 30 DAY)),0) as ventes_30j,
+        COALESCE((SELECT SUM(s.quantite) FROM stock s WHERE s.produit_id=p.id),0) as stock_total
+        FROM produits p WHERE p.actif=1
+        HAVING ventes_30j > 0 AND stock_total <= GREATEST(ventes_30j * 0.5, p.seuil_alerte)
+        ORDER BY (ventes_30j / GREATEST(stock_total,0.1)) DESC LIMIT 8");
+    $r_fwhere_v = $r_fid ? "AND v.franchise_id=".intval($r_fid) : "";
     $total_cout = queryOne("SELECT COALESCE(SUM(v.quantite*p.prix_achat),0) as c FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente BETWEEN ? AND ? $r_fwhere", [$d1,$d2])['c'];
     $total_profit = $total_ca - $total_cout;
     $total_margin = $total_ca > 0 ? round($total_profit / $total_ca * 100) : 0;
@@ -3248,6 +3257,28 @@ function submitQuickCloture(ca, art) {
     </div>
     <div class="flex justify-between text-[9px] text-gray-400">
         <span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span>
+    </div>
+</div>
+<?php endif; ?>
+
+<?php if($reorder_suggestions): ?>
+<div class="bg-orange-50 border border-orange-200 rounded-xl p-4 mt-4">
+    <div class="flex items-center gap-2 mb-3"><i class="bi bi-cart-plus-fill text-orange-500 text-lg"></i><span class="font-bold text-orange-800">Suggestions de réapprovisionnement</span><span class="text-xs text-orange-600 ml-auto">Ventes rapides / stock bas</span></div>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
+    <?php foreach($reorder_suggestions as $rs): 
+        $days_stock = $rs['ventes_30j']>0 ? round($rs['stock_total'] / ($rs['ventes_30j']/30)) : 999;
+    ?>
+    <div class="bg-white rounded-lg p-3 border border-orange-100">
+        <div class="font-semibold text-sm truncate"><?=e($rs['nom'])?></div>
+        <div class="text-xs text-gray-400"><?=e($rs['marque'])?> · <?=e($rs['reference']??'')?></div>
+        <div class="flex justify-between mt-2 text-xs">
+            <span class="text-green-600 font-bold"><?=$rs['ventes_30j']?>/mois</span>
+            <span class="<?=$rs['stock_total']<=0?'text-red-600 font-bold':'text-amber-600 font-semibold'?>"><?=$rs['stock_total']?> en stock</span>
+        </div>
+        <?php if($days_stock<999): ?><div class="text-[10px] text-red-500 font-bold mt-1">⏰ Épuisé dans ~<?=$days_stock?> j</div><?php endif; ?>
+        <a href="?page=entree" class="mt-2 flex items-center justify-center gap-1 text-[10px] font-bold bg-orange-100 hover:bg-orange-200 text-orange-700 px-2 py-1 rounded-lg transition-colors"><i class="bi bi-box-arrow-in-down"></i> Commander</a>
+    </div>
+    <?php endforeach; ?>
     </div>
 </div>
 <?php endif; ?>
