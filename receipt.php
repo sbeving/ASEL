@@ -85,10 +85,23 @@ $lignes = query("SELECT * FROM facture_lignes WHERE facture_id=?", [$id]);
     
     <div class="line"></div>
     
-    <div class="row"><span>Paiement:</span><span><?=$f['mode_paiement']?></span></div>
+    <div class="row"><span>Paiement:</span><span><?=ucfirst($f['mode_paiement'])?></span></div>
     <?php if($f['mode_paiement']==='especes' && $f['montant_recu']>0): ?>
     <div class="row"><span>Reçu:</span><span><?=number_format($f['montant_recu'],2)?> DT</span></div>
+    <?php if($f['monnaie']>0): ?>
     <div class="row bold"><span>Monnaie:</span><span><?=number_format($f['monnaie'],2)?> DT</span></div>
+    <?php endif; ?>
+    <?php elseif($f['mode_paiement']==='echeance'): ?>
+    <?php if($f['montant_recu']>0): ?><div class="row"><span>Espèces versées:</span><span><?=number_format($f['montant_recu'],2)?> DT</span></div><?php endif; ?>
+    <?php
+    // Show echeances on receipt
+    $echeances_ticket = query("SELECT * FROM echeances WHERE facture_id=? ORDER BY date_echeance", [$id]);
+    if($echeances_ticket):
+    ?>
+    <div style="margin-top:3px;font-size:9px;font-weight:bold">ÉCHÉANCIER:</div>
+    <?php foreach($echeances_ticket as $i=>$ech): ?>
+    <div class="row" style="font-size:9px"><span>Lot <?=($i+1)?> — <?=date('d/m/Y',strtotime($ech['date_echeance']))?></span><span><?=number_format($ech['montant'],2)?> DT</span></div>
+    <?php endforeach; endif; ?>
     <?php endif; ?>
     
     <div class="line"></div>

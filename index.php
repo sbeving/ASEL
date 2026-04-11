@@ -3293,8 +3293,28 @@ elseif ($page === 'factures'):
         FROM echeances e JOIN factures f ON e.facture_id=f.id JOIN clients c ON e.client_id=c.id JOIN franchises fr ON e.franchise_id=fr.id WHERE 1=1 $where_ef ORDER BY e.date_echeance ASC");
     $en_attente = array_filter($echeances, fn($e) => $e['statut']==='en_attente');
     $en_retard = array_filter($echeances, fn($e) => $e['statut']==='en_retard');
+    $total_du = array_sum(array_column(array_filter($echeances, fn($e) => $e['statut']!=='payee'), 'montant'));
+    $total_encaisse = array_sum(array_column(array_filter($echeances, fn($e) => $e['statut']==='payee'), 'montant'));
 ?>
-<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-credit-card text-asel"></i> Échéances de paiement</h1>
+<div class="flex justify-between items-center mb-4">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-credit-card text-asel"></i> Échéances <span class="text-sm font-normal text-gray-400">(<?=count($echeances)?>)</span></h1>
+</div>
+<!-- KPIs -->
+<div class="grid grid-cols-3 gap-3 mb-4">
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-red-400">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">À encaisser</div>
+        <div class="text-xl font-black text-red-600"><?=number_format($total_du,2)?> DT</div>
+        <div class="text-xs text-gray-400"><?=count($en_attente)+count($en_retard)?> lots en attente</div>
+    </div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-green-500">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Encaissé</div>
+        <div class="text-xl font-black text-green-700"><?=number_format($total_encaisse,2)?> DT</div>
+    </div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-red-600">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">En retard</div>
+        <div class="text-xl font-black <?=count($en_retard)?'text-red-600':'text-gray-400'?>"><?=count($en_retard)?></div>
+    </div>
+</div>
 
 <!-- Créer échéances par lot -->
 <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
