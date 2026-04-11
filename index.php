@@ -1195,7 +1195,9 @@ if ($page === 'dashboard'):
         <?php if (can('pos')): ?><a href="?page=pos" class="bg-asel hover:bg-asel-dark text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors"><i class="bi bi-cart3"></i> Nouvelle vente</a><?php endif; ?>
         <?php if (can('entree')): ?><button onclick="openQuickStockEntry('<?=$fid?:($franchises[0]['id']??'')?>','<?=ejs($fid?shortF($franchises[0]['nom']??''):'')?>') " class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-asel hover:text-asel transition-colors"><i class="bi bi-box-arrow-in-down"></i> Entrée stock</button><?php endif; ?>
         <?php if (can('add_produit')): ?><button onclick="openQuickAddProduct()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-green-500 hover:text-green-600 transition-colors"><i class="bi bi-plus-circle"></i> Produit</button><?php endif; ?>
-        <?php if (isAdmin()): ?><button onclick="openBarcodeLookup()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-purple-500 hover:text-purple-600 transition-colors"><i class="bi bi-upc-scan"></i> Scanner</button><?php endif; ?>
+        <?php if (isAdmin()): ?><button onclick="openBarcodeLookup()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-purple-500 hover:text-purple-600 transition-colors"><i class="bi bi-upc-scan"></i> Scanner</button>
+        <a href="pdf.php?type=rapport_jour&date=<?=date('Y-m-d')?><?=$fid?"&fid=$fid":''?>" target="_blank" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-orange-500 hover:text-orange-600 transition-colors"><i class="bi bi-file-pdf"></i> Bilan du jour</a>
+        <?php endif; ?>
     </div>
 </div>
 <!-- Today's at-a-glance banner -->
