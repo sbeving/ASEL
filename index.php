@@ -1756,23 +1756,52 @@ function toggleCamera(){
 // STOCK
 // =====================================================
 elseif ($page === 'stock'):
-    if (!$fid && can('view_all_franchises')): ?>
-<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-box-seam text-asel"></i> Stock</h1>
-<div class="bg-white rounded-xl shadow-sm p-8 max-w-md mx-auto text-center">
-    <i class="bi bi-shop text-5xl text-asel/30"></i>
-    <h3 class="font-bold text-asel-dark mt-4 mb-2">Choisissez une franchise</h3>
-    <div class="space-y-2 mt-4">
-    <?php foreach ($franchises as $f): ?>
-        <a href="?page=stock&fid=<?=$f['id']?>" class="block bg-asel hover:bg-asel-dark text-white font-semibold py-3 rounded-xl transition-all"><?= shortF($f['nom']) ?></a>
+    if (!$fid && can('view_all_franchises')):
+        // Show franchise cards with stock summary
+        $franchise_stocks = query("SELECT f.id, f.nom, COALESCE(SUM(s.quantite),0) as total_qty, COALESCE(SUM(s.quantite*p.prix_vente),0) as valeur FROM franchises f LEFT JOIN stock s ON f.id=s.franchise_id LEFT JOIN produits p ON s.produit_id=p.id WHERE f.actif=1 GROUP BY f.id,f.nom ORDER BY f.nom");
+?>
+<div class="flex items-center justify-between mb-4">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-box-seam text-asel"></i> Stock</h1>
+    <a href="?page=stock&fid=all" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-2 rounded-xl hover:border-asel hover:text-asel transition-colors"><i class="bi bi-grid"></i> Voir tout</a>
+</div>
+<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    <?php foreach ($franchise_stocks as $f):
+        $low = queryOne("SELECT COUNT(*) as c FROM stock s JOIN produits p ON s.produit_id=p.id WHERE s.franchise_id=? AND s.quantite<=p.seuil_alerte AND p.actif=1", [$f['id']])['c'];
+    ?>
+    <a href="?page=stock&fid=<?=$f['id']?>" class="bg-white border-2 border-transparent hover:border-asel rounded-xl p-5 shadow-sm transition-all group">
+        <div class="flex items-start justify-between mb-3">
+            <div class="w-10 h-10 bg-asel/10 rounded-xl flex items-center justify-center group-hover:bg-asel transition-colors">
+                <i class="bi bi-shop text-asel group-hover:text-white"></i>
+            </div>
+            <?php if($low > 0): ?>
+            <span class="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full">⚠️ <?=$low?> bas</span>
+            <?php endif; ?>
+        </div>
+        <div class="font-bold text-asel-dark"><?=shortF($f['nom'])?></div>
+        <div class="text-sm text-gray-500 mt-1"><?=number_format($f['total_qty'])?> unités</div>
+        <div class="text-xs text-asel font-semibold mt-0.5"><?=number_format($f['valeur'])?> DT</div>
+    </a>
     <?php endforeach; ?>
-    </div>
 </div>
 <?php return; endif;
+    // fid=all means show all franchises (no filter)
+    if ($fid === 'all') $fid = null;
     $stock = query("SELECT s.*,p.nom as pnom,p.prix_vente,p.prix_achat,p.reference,p.marque,c.nom as cnom,f.nom as fnom FROM stock s JOIN produits p ON s.produit_id=p.id JOIN categories c ON p.categorie_id=c.id JOIN franchises f ON s.franchise_id=f.id WHERE p.actif=1 ".($fid?"AND s.franchise_id=".intval($fid):"")." ORDER BY f.nom,c.nom,p.nom");
 ?>
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
-    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-box-seam text-asel"></i> État du stock</h1>
+    <div class="flex items-center gap-3">
+        <a href="?page=stock" class="text-gray-400 hover:text-asel"><i class="bi bi-arrow-left text-lg"></i></a>
+        <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-box-seam text-asel"></i> Stock <?php if($fid): ?><span class="text-lg font-normal text-gray-400">— <?php foreach($allFranchises as $af) { if($af['id']==$fid) echo shortF($af['nom']); } ?></span><?php endif; ?></h1>
+    </div>
     <div class="flex gap-2">
+        <?php if(can('view_all_franchises') && $fid): ?>
+        <select onchange="location.href='?page=stock&fid='+this.value" class="border-2 border-gray-200 rounded-xl px-3 py-1.5 text-xs">
+            <option value="">Toutes</option>
+            <?php foreach($allFranchises as $af): ?>
+            <option value="<?=$af['id']?>" <?=$fid==$af['id']?'selected':''?>><?=shortF($af['nom'])?></option>
+            <?php endforeach; ?>
+        </select>
+        <?php endif; ?>
         <a href="api.php?action=export_stock<?=$fid?"&fid=$fid":""?>" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export</a>
     </div>
 </div>
