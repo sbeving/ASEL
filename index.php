@@ -75,6 +75,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,prix_unitaire,utilisateur_id) VALUES (?,?,'vente',?,?,?)",
                 [$vfid, $item['id'], $item['qty'], $item['prix'], $user['id']]);
             execute("UPDATE stock SET quantite=GREATEST(0,quantite-?) WHERE franchise_id=? AND produit_id=?", [$item['qty'], $vfid, $item['id']]);
+            // Auto-notify on stock bas after sale
+            $new_stock = queryOne("SELECT s.quantite,p.seuil_alerte,p.nom FROM stock s JOIN produits p ON s.produit_id=p.id WHERE s.franchise_id=? AND s.produit_id=?", [$vfid,$item['id']]);
+            if ($new_stock && $new_stock['quantite'] <= $new_stock['seuil_alerte'] && $new_stock['quantite'] >= 0) {
+                $fname = queryOne("SELECT nom FROM franchises WHERE id=?",[$vfid])['nom']??'';
+                $level = $new_stock['quantite'] <= 0 ? 'danger' : 'warning';
+                $msg = $new_stock['quantite'] <= 0 ? "ÉPUISÉ" : "Stock bas: {$new_stock['quantite']} restant(s)";
+                try { execute("INSERT INTO notifications (franchise_id,titre,message,type_notif,lien) VALUES (?,?,?,?,?)",
+                    [$vfid, "⚠️ {$new_stock['nom']}", shortF($fname)." — $msg", $level, "index.php?page=entree&fid=$vfid"]); } catch(Exception $e) {}
+            }
         }
         
         // Create echeances if payment by lot
@@ -2013,11 +2022,17 @@ elseif ($page === 'stock'):
         <a href="api.php?action=export_stock<?=$fid?"&fid=$fid":""?>" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export</a>
     </div>
 </div>
-<!-- Instant search -->
-<div class="relative mb-4">
-    <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-    <input type="text" id="stockSearch" class="w-full pl-10 pr-4 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:border-asel" placeholder="Rechercher produit, marque, catégorie..." oninput="filterStock()">
-    <span id="stockCount" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400"></span>
+<!-- Instant search + quick filters -->
+<div class="flex gap-2 mb-4 flex-wrap items-center">
+    <div class="relative flex-1 min-w-[200px]">
+        <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+        <input type="text" id="stockSearch" class="w-full pl-10 pr-4 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:border-asel" placeholder="Rechercher produit, marque, catégorie..." oninput="filterStock()">
+        <span id="stockCount" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400"></span>
+    </div>
+    <button onclick="filterStockLow()" id="btnStockLow" class="px-3 py-2 rounded-xl text-xs font-bold bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors border-2 border-transparent" title="Afficher stock bas seulement">⚠️ Stock bas</button>
+    <button onclick="filterStockZero()" id="btnStockZero" class="px-3 py-2 rounded-xl text-xs font-bold bg-red-100 text-red-700 hover:bg-red-200 transition-colors border-2 border-transparent" title="Afficher épuisés seulement">🔴 Épuisés</button>
+    <button onclick="clearStockFilter()" class="px-3 py-2 rounded-xl text-xs font-bold bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors">Tout</button>
+</div>
 </div>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <div class="overflow-x-auto">
@@ -2068,6 +2083,40 @@ function filterStock(){
         if(match) v++;
     });
     document.getElementById('stockCount').textContent = q ? v+'/'+rows.length : '';
+}
+
+function filterStockLow(){
+    clearStockFilter();
+    const rows = document.querySelectorAll('.stock-row');
+    let v=0;
+    rows.forEach(r => {
+        const isLow = r.classList.contains('bg-amber-50/30') || r.classList.contains('bg-red-50/50');
+        r.style.display = isLow ? '' : 'none';
+        if(isLow) v++;
+    });
+    document.getElementById('stockCount').textContent = v+' stock(s) bas';
+    document.getElementById('btnStockLow').classList.add('border-amber-500');
+}
+
+function filterStockZero(){
+    clearStockFilter();
+    const rows = document.querySelectorAll('.stock-row');
+    let v=0;
+    rows.forEach(r => {
+        const isZero = r.classList.contains('bg-red-50/50');
+        r.style.display = isZero ? '' : 'none';
+        if(isZero) v++;
+    });
+    document.getElementById('stockCount').textContent = v+' épuisé(s)';
+    document.getElementById('btnStockZero').classList.add('border-red-500');
+}
+
+function clearStockFilter(){
+    document.getElementById('stockSearch').value = '';
+    document.querySelectorAll('.stock-row').forEach(r => r.style.display = '');
+    document.getElementById('stockCount').textContent = '';
+    document.getElementById('btnStockLow').classList.remove('border-amber-500');
+    document.getElementById('btnStockZero').classList.remove('border-red-500');
 }
 </script>
 
