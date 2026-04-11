@@ -305,4 +305,25 @@ if ($type === 'rapport_mois') {
 }
 
 // Default
-echo "Type de PDF non reconnu. Types disponibles: facture, rapport_jour, rapport_mois";
+echo "Type de PDF non reconnu. Types disponibles: facture, rapport_jour, rapport_mois, bon_reception";
+
+// === BON DE RECEPTION PDF ===
+if ($type === 'bon_reception' && $id) {
+    $bon = queryOne("SELECT br.*,f.nom as fnom,fo.nom as fourn_nom,fo.adresse as fourn_adresse,fo.telephone as fourn_tel,u.nom_complet as unom FROM bons_reception br JOIN franchises f ON br.franchise_id=f.id LEFT JOIN fournisseurs fo ON br.fournisseur_id=fo.id LEFT JOIN utilisateurs u ON br.utilisateur_id=u.id WHERE br.id=?", [$id]);
+    if (!$bon) { http_response_code(404); echo "Bon introuvable"; exit; }
+    try { $lignes = query("SELECT bl.*,p.nom as pnom,p.reference as pref FROM bon_reception_lignes bl JOIN produits p ON bl.produit_id=p.id WHERE bl.bon_id=? ORDER BY bl.id", [$id]); } catch(Exception $e) { $lignes = []; }
+    header('Content-Type: text/html; charset=utf-8');
+    ?><!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Bon réception <?=e($bon['numero'])?></title>
+    <style>body{font-family:Arial,sans-serif;font-size:12px;margin:20px;color:#333;}.logo{font-size:20px;font-weight:900;color:#2AABE2;}.header{display:flex;justify-content:space-between;border-bottom:2px solid #2AABE2;padding-bottom:12px;margin-bottom:16px;}.meta{text-align:right;font-size:11px;color:#555;}.bon-num{font-size:16px;font-weight:bold;color:#2AABE2;}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}.info-box{background:#f8f9fa;padding:8px;border-radius:4px;font-size:11px;}label{font-size:9px;color:#999;text-transform:uppercase;display:block;}table{width:100%;border-collapse:collapse;margin:12px 0;}th{background:#1B3A5C;color:#fff;padding:7px;text-align:left;font-size:10px;}td{padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;}.totals{float:right;width:220px;font-size:11px;}.tr{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #eee;}.tf{font-weight:bold;font-size:13px;color:#1B3A5C;border-top:2px solid #1B3A5C;padding-top:4px;margin-top:2px;}.footer{clear:both;margin-top:30px;font-size:9px;color:#aaa;text-align:center;border-top:1px solid #eee;padding-top:8px;}@media print{.no-print{display:none}}</style>
+    </head><body>
+    <button onclick="window.print()" class="no-print" style="position:fixed;top:10px;right:10px;background:#2AABE2;color:#fff;border:0;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:bold">🖨️ Imprimer</button>
+    <div class="header"><div><div class="logo">ASEL Mobile</div><small><?=e(shortF($bon['fnom']))?></small></div><div class="meta"><div>BON DE RÉCEPTION</div><div class="bon-num"><?=e($bon['numero'])?></div><div><?=date('d/m/Y',strtotime($bon['date_reception']))?></div><div>Par: <?=e($bon['unom']??'—')?></div></div></div>
+    <div class="info-grid"><div class="info-box"><label>Franchise</label><strong><?=e(shortF($bon['fnom']))?></strong></div><div class="info-box"><label>Fournisseur</label><strong><?=e($bon['fourn_nom']??'—')?></strong><?php if($bon['fourn_adresse']): ?><div><?=e($bon['fourn_adresse'])?></div><?php endif; ?></div></div>
+    <?php if($bon['note']): ?><div style="background:#fff3cd;padding:6px 10px;border-radius:4px;margin-bottom:10px;font-size:11px"><strong>Note:</strong> <?=e($bon['note'])?></div><?php endif; ?>
+    <table><thead><tr><th>Produit</th><th>Réf.</th><th>Qté</th><th>P.U. HT</th><th>TVA%</th><th>P.U. TTC</th><th>Total TTC</th></tr></thead><tbody>
+    <?php foreach($lignes as $l): ?><tr><td><?=e($l['pnom'])?></td><td style="font-family:monospace;font-size:10px"><?=e($l['pref']??'')?></td><td style="text-align:center;font-weight:bold"><?=$l['quantite']?></td><td style="text-align:right"><?=number_format($l['prix_unitaire_ht'],2)?></td><td style="text-align:center"><?=number_format($l['tva_rate']??19,0)?>%</td><td style="text-align:right"><?=number_format($l['prix_unitaire_ttc'],2)?></td><td style="text-align:right;font-weight:bold"><?=number_format($l['total_ttc'],2)?></td></tr><?php endforeach; ?>
+    </tbody></table>
+    <div class="totals"><div class="tr"><span>Total HT</span><span><?=number_format($bon['total_ht'],2)?> DT</span></div><div class="tr"><span>TVA</span><span><?=number_format($bon['tva'],2)?> DT</span></div><div class="tr tf"><span>TOTAL TTC</span><span><?=number_format($bon['total_ttc'],2)?> DT</span></div></div>
+    <div class="footer">ASEL Mobile — Bon de réception <?=e($bon['numero'])?> — Imprimé le <?=date('d/m/Y H:i')?></div>
+    </body></html><?php exit;
+}

@@ -252,6 +252,38 @@ case 'barcode_label':
     </svg>";
     exit;
 
+case 'get_bon_lines':
+    $bon_id = intval($_GET['bon_id'] ?? 0);
+    if (!$bon_id) { echo json_encode([]); exit; }
+    try {
+        $lines = query("SELECT bl.*, p.nom as produit_nom FROM bon_reception_lignes bl LEFT JOIN produits p ON bl.produit_id=p.id WHERE bl.bon_id=?", [$bon_id]);
+        echo json_encode($lines);
+    } catch(Exception $e) { echo json_encode([]); }
+    exit;
+
+case 'export_tresorerie':
+    if (!can('tresorerie')) { http_response_code(403); exit; }
+    $tr_fid = $_GET['fid'] ?? null;
+    $mois = $_GET['mois'] ?? date('Y-m');
+    $where = $tr_fid ? "AND franchise_id=".intval($tr_fid) : "";
+    $rows = query("SELECT t.*,f.nom as fnom,u.nom_complet as unom FROM tresorerie t JOIN franchises f ON t.franchise_id=f.id LEFT JOIN utilisateurs u ON t.utilisateur_id=u.id WHERE t.date_mouvement LIKE ? $where ORDER BY t.date_mouvement DESC", ["$mois%"]);
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="tresorerie_'.$mois.'.csv"');
+    echo "\xEF\xBB\xBF"; // BOM UTF-8
+    echo "Date,Franchise,Type,Montant,Motif,Référence,Par\n";
+    foreach($rows as $r) {
+        echo implode(',', [
+            $r['date_mouvement'],
+            '"'.shortF($r['fnom']).'"',
+            $r['type_mouvement'],
+            number_format($r['montant'],2),
+            '"'.str_replace('"','""',$r['motif']??'').'"',
+            '"'.str_replace('"','""',$r['reference']??'').'"',
+            '"'.str_replace('"','""',$r['unom']??'').'"',
+        ])."\n";
+    }
+    exit;
+
 default:
     echo json_encode(['error' => 'Unknown action']);
 }

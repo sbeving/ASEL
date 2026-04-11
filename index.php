@@ -4072,18 +4072,29 @@ function getNewPointLocation() {
 <div class="p-4 lg:p-6 max-w-7xl mx-auto pb-20">
 <!-- ====================== BONS DE RECEPTION PAGE ====================== -->
 <?php if ($page === 'bons_reception' && can('bons_reception')):
-    $bons = query("SELECT br.*,f.nom as fnom,fo.nom as fourn_nom,u.nom_complet as unom FROM bons_reception br JOIN franchises f ON br.franchise_id=f.id LEFT JOIN fournisseurs fo ON br.fournisseur_id=fo.id LEFT JOIN utilisateurs u ON br.utilisateur_id=u.id ORDER BY br.date_creation DESC LIMIT 50");
+    $bons = query("SELECT br.*,f.nom as fnom,fo.nom as fourn_nom,u.nom_complet as unom FROM bons_reception br JOIN franchises f ON br.franchise_id=f.id LEFT JOIN fournisseurs fo ON br.fournisseur_id=fo.id LEFT JOIN utilisateurs u ON br.utilisateur_id=u.id ORDER BY br.date_creation DESC LIMIT 100");
 ?>
 <div class="flex justify-between items-center mb-4">
-    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-receipt text-asel"></i> Bons de réception</h1>
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-receipt text-asel"></i> Bons de réception <span class="text-sm font-normal text-gray-400">(<?=count($bons)?>)</span></h1>
     <button onclick="openBonReception()" class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-bold"><i class="bi bi-plus-lg"></i> Nouveau bon</button>
+</div>
+<!-- KPIs -->
+<?php
+$total_bons = array_sum(array_column($bons,'total_ttc'));
+$total_bons_ht = array_sum(array_column($bons,'total_ht'));
+$bons_ce_mois = count(array_filter($bons, fn($b) => date('Y-m', strtotime($b['date_reception'])) === date('Y-m')));
+?>
+<div class="grid grid-cols-3 gap-3 mb-4">
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-asel"><div class="text-[10px] text-gray-400 font-bold uppercase">Total TTC</div><div class="text-lg font-black text-asel-dark"><?=number_format($total_bons,2)?> DT</div><div class="text-xs text-gray-400">HT: <?=number_format($total_bons_ht,2)?></div></div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-blue-500"><div class="text-[10px] text-gray-400 font-bold uppercase">Ce mois</div><div class="text-lg font-black text-asel-dark"><?=$bons_ce_mois?> bons</div></div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-green-500"><div class="text-[10px] text-gray-400 font-bold uppercase">Total</div><div class="text-lg font-black text-asel-dark"><?=count($bons)?> bons</div></div>
 </div>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <table class="w-full text-sm">
-        <thead><tr class="bg-asel-dark text-white text-xs uppercase"><th class="px-3 py-2 text-left">N°</th><th class="px-3 py-2">Date</th><th class="px-3 py-2 hidden sm:table-cell">Franchise</th><th class="px-3 py-2 hidden md:table-cell">Fournisseur</th><th class="px-3 py-2 text-right hidden sm:table-cell">HT</th><th class="px-3 py-2 text-right hidden md:table-cell">TVA</th><th class="px-3 py-2 text-right">TTC</th><th class="px-3 py-2 hidden sm:table-cell">Par</th></tr></thead>
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase"><th class="px-3 py-2 text-left">N°</th><th class="px-3 py-2">Date</th><th class="px-3 py-2 hidden sm:table-cell">Franchise</th><th class="px-3 py-2 hidden md:table-cell">Fournisseur</th><th class="px-3 py-2 text-right hidden sm:table-cell">HT</th><th class="px-3 py-2 text-right hidden md:table-cell">TVA</th><th class="px-3 py-2 text-right">TTC</th><th class="px-3 py-2 hidden sm:table-cell">Par</th><th class="px-3 py-2">Actions</th></tr></thead>
         <tbody class="divide-y">
         <?php foreach($bons as $b): ?>
-        <tr class="hover:bg-asel-light/30">
+        <tr class="hover:bg-asel-light/20">
             <td class="px-3 py-2 font-mono font-bold text-asel text-xs"><?=e($b['numero'])?></td>
             <td class="px-3 py-2 text-center text-xs"><?=date('d/m/Y', strtotime($b['date_reception']))?></td>
             <td class="px-3 py-2 text-center text-xs hidden sm:table-cell"><?=e(shortF($b['fnom']))?></td>
@@ -4092,14 +4103,61 @@ function getNewPointLocation() {
             <td class="px-3 py-2 text-right font-mono text-xs text-gray-400 hidden md:table-cell"><?=number_format($b['tva'],2)?></td>
             <td class="px-3 py-2 text-right font-mono font-bold"><?=number_format($b['total_ttc'],2)?> <span class="text-xs text-gray-400">DT</span></td>
             <td class="px-3 py-2 text-center text-xs hidden sm:table-cell"><?=e($b['unom'] ?? '')?></td>
+            <td class="px-3 py-2">
+                <div class="flex gap-1.5">
+                    <button onclick="viewBon(<?=$b['id']?>,'<?=ejs($b['numero'])?>','<?=ejs($b['fourn_nom']??'')?>','<?=ejs($b['fnom'])?>','<?=date('d/m/Y',strtotime($b['date_reception']))?>',<?=floatval($b['total_ht'])?>,<?=floatval($b['tva'])?>,<?=floatval($b['total_ttc'])?>,'<?=ejs($b['note']??'')?>')" 
+                        class="text-asel hover:text-asel-dark p-1" title="Voir détails">
+                        <i class="bi bi-eye text-sm"></i>
+                    </button>
+                    <a href="pdf.php?type=bon_reception&id=<?=$b['id']?>" target="_blank" 
+                       class="text-gray-400 hover:text-asel p-1" title="Imprimer">
+                        <i class="bi bi-printer text-sm"></i>
+                    </a>
+                </div>
+            </td>
         </tr>
         <?php endforeach; ?>
-        <?php if(empty($bons)): ?><tr><td colspan="8" class="px-3 py-8 text-center text-gray-400">Aucun bon de réception</td></tr><?php endif; ?>
+        <?php if(empty($bons)): ?><tr><td colspan="9" class="px-3 py-8 text-center text-gray-400"><i class="bi bi-inbox text-2xl block mb-2 opacity-30"></i>Aucun bon de réception</td></tr><?php endif; ?>
         </tbody>
     </table>
 </div>
 <script>
-function openBonReception(){
+function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
+    // Load bon lines via fetch
+    fetch(`api.php?action=get_bon_lines&bon_id=${id}`)
+        .then(r => r.json())
+        .then(lines => {
+            let lignesHtml = '';
+            if(lines && lines.length) {
+                lignesHtml = lines.map(l => `<tr class="border-b"><td class="py-2 text-sm">${l.produit_nom||'?'}</td><td class="py-2 text-center text-sm">${l.quantite}</td><td class="py-2 text-right text-sm">${parseFloat(l.prix_unitaire_ht||0).toFixed(2)} HT</td><td class="py-2 text-right text-sm font-bold">${parseFloat(l.total_ttc||0).toFixed(2)} TTC</td></tr>`).join('');
+            } else {
+                lignesHtml = '<tr><td colspan="4" class="py-4 text-center text-gray-400 text-sm">Lignes non disponibles</td></tr>';
+            }
+            openModal(
+                modalHeader('bi-receipt', `Bon ${numero}`, `${franchise} — ${date}`) +
+                `<div class="p-5">
+                    <div class="grid grid-cols-2 gap-3 mb-4 text-sm">
+                        <div><span class="text-gray-400">Fournisseur:</span> <b>${fourn||'—'}</b></div>
+                        <div><span class="text-gray-400">Date:</span> <b>${date}</b></div>
+                    </div>
+                    <table class="w-full text-sm mb-4"><thead><tr class="bg-gray-50 text-xs uppercase"><th class="py-1.5 text-left">Produit</th><th class="py-1.5 text-center">Qté</th><th class="py-1.5 text-right">P.U. HT</th><th class="py-1.5 text-right">Total TTC</th></tr></thead><tbody>${lignesHtml}</tbody></table>
+                    <div class="bg-gray-50 rounded-xl p-3 text-sm space-y-1">
+                        <div class="flex justify-between"><span class="text-gray-500">Total HT</span><span class="font-semibold">${ht.toFixed(2)} DT</span></div>
+                        <div class="flex justify-between"><span class="text-gray-500">TVA</span><span>${tva.toFixed(2)} DT</span></div>
+                        <div class="flex justify-between text-base border-t pt-2"><span class="font-bold">Total TTC</span><span class="font-black text-asel">${ttc.toFixed(2)} DT</span></div>
+                    </div>
+                    ${note ? `<div class="mt-3 text-xs text-gray-500"><i class="bi bi-chat-square-text"></i> ${note}</div>` : ''}
+                    <a href="pdf.php?type=bon_reception&id=${id}" target="_blank" class="mt-4 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-asel text-white font-bold text-sm hover:bg-asel-dark transition-colors"><i class="bi bi-printer"></i> Imprimer</a>
+                </div>`,
+                {size: 'max-w-lg'}
+            );
+        })
+        .catch(() => {
+            openModal(modalHeader('bi-receipt', `Bon ${numero}`, `${franchise} — ${date}`) +
+                `<div class="p-5 text-center text-gray-400">Erreur lors du chargement des lignes</div>`,
+                {size:'max-w-lg'});
+        });
+}
     let lignes = [];
     const prods = <?=json_encode(array_map(fn($p)=>['id'=>$p['id'],'nom'=>$p['nom'],'ref'=>$p['reference'],'cat'=>$p['cat_nom'],'pa'=>$p['prix_achat'],'tva'=>$p['tva_rate']??19], $produits))?>;
     const fournList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>$f['nom']], $fournisseurs))?>;
@@ -4202,6 +4260,9 @@ function openBonReception(){
 ?>
 <div class="flex justify-between items-center mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-cash-stack text-asel"></i> Trésorerie</h1>
+    <div class="flex gap-2">
+        <a href="api.php?action=export_tresorerie&mois=<?=e($tr_mois)?><?=$tr_fid?"&fid=$tr_fid":''?>" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-2 rounded-xl hover:border-asel hover:text-asel transition-colors"><i class="bi bi-download"></i> Export CSV</a>
+    </div>
     <button onclick="openModal(modalHeader('bi-plus-circle','Mouvement de trésorerie','Encaissement ou décaissement')+`<form method=post class='p-6 space-y-3'><input type=hidden name=_csrf value='<?=$csrf?>'><input type=hidden name=action value=add_tresorerie><input type=hidden name=franchise_id value=<?=$tr_fid?>><div><label class='text-xs font-bold text-gray-500'>Type *</label><select name=type_mouvement required class='w-full border-2 rounded-xl px-3 py-2 text-sm'><option value=encaissement>💰 Encaissement</option><option value=decaissement>💸 Décaissement</option></select></div><div><label class='text-xs font-bold text-gray-500'>Montant (DT) *</label><input name=montant type=number step=0.01 required class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>Motif</label><input name=motif class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>Référence</label><input name=reference class='w-full border-2 rounded-xl px-3 py-2 text-sm' placeholder='N° facture, etc.'></div><div><label class='text-xs font-bold text-gray-500'>Date</label><input name=date_mouvement type=date value='<?=date('Y-m-d')?>' class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><button type=submit class='w-full py-2.5 rounded-xl bg-asel text-white font-bold text-sm'>Enregistrer</button></form>`)" class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-bold"><i class="bi bi-plus-lg"></i> Nouveau</button>
 </div>
 <!-- Franchise + mois selector -->
