@@ -228,7 +228,14 @@ case 'quick_stats':
     $pending_transfers = queryOne("SELECT COUNT(*) as c FROM transferts WHERE statut='en_attente'")['c'];
     $pending_demands = queryOne("SELECT COUNT(*) as c FROM demandes_produits WHERE statut='en_attente'")['c'];
     $low_stock = queryOne("SELECT COUNT(*) as c FROM stock s JOIN produits p ON s.produit_id=p.id WHERE s.quantite<=p.seuil_alerte AND p.actif=1 ".($fid?"AND s.franchise_id=".intval($fid):""))['c'];
-    echo json_encode(['today_ca'=>$today_ca, 'today_tx'=>$today_tx, 'pending_transfers'=>$pending_transfers, 'pending_demands'=>$pending_demands, 'low_stock'=>$low_stock]);
+    $result = ['today_ca'=>$today_ca, 'today_tx'=>$today_tx, 'pending_transfers'=>$pending_transfers, 'pending_demands'=>$pending_demands, 'low_stock'=>$low_stock];
+    // If pid specified, add stock for that product at that franchise
+    $pid = intval($_GET['pid'] ?? 0);
+    if($pid && $fid) {
+        $stock_p = queryOne("SELECT COALESCE(quantite,0) as q FROM stock WHERE franchise_id=? AND produit_id=?", [intval($fid), $pid]);
+        $result['stock_produit'] = intval($stock_p['q'] ?? 0);
+    }
+    echo json_encode($result);
     break;
 
 // === ACTIVITY LOG ===

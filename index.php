@@ -2946,13 +2946,46 @@ elseif ($page === 'transferts'):
             <div><label class="form-label">De (source)</label><select name="source" class="form-input"><?php foreach($allFranchises as $f):?><option value="<?=$f['id']?>"><?=shortF($f['nom'])?></option><?php endforeach;?></select></div>
             <div><label class="form-label">Vers (destination)</label><select name="dest" class="form-input"><?php foreach($allFranchises as $f):?><option value="<?=$f['id']?>"><?=shortF($f['nom'])?></option><?php endforeach;?></select></div>
         </div>
-        <div><label class="form-label">Produit</label><select name="produit_id" class="ts-select w-full" data-placeholder="Rechercher un produit..."><?php foreach($produits as $p):?><option value="<?=$p['id']?>"><?=e($p['nom'])?> (<?=e($p['cat_nom'])?>)</option><?php endforeach;?></select></div>
+        <div><label class="form-label">Produit</label>
+            <select name="produit_id" id="transfertProduit" class="ts-select w-full" data-placeholder="Rechercher un produit..." onchange="checkTransfertStock()">
+                <?php foreach($produits as $p):?>
+                <option value="<?=$p['id']?>"><?=e($p['nom'])?> (<?=e($p['cat_nom'])?>)</option>
+                <?php endforeach;?>
+            </select>
+            <div id="transfertStockInfo" class="mt-1 text-xs text-gray-400 hidden"></div>
+        </div>
         <div class="grid grid-cols-2 gap-3">
-            <div><label class="form-label">Quantité</label><input name="quantite" type="number" min="1" value="1" class="form-input text-center font-bold"></div>
+            <div><label class="form-label">Quantité</label><input name="quantite" id="transfertQty" type="number" min="1" value="1" class="form-input text-center font-bold"></div>
             <div><label class="form-label">Note</label><input name="note" class="form-input" placeholder="Raison du transfert..."></div>
         </div>
         <button type="submit" class="btn-submit"><i class="bi bi-send"></i> Envoyer la demande</button>
     </form>
+    <script>
+    function checkTransfertStock() {
+        const pid = document.getElementById('transfertProduit')?.value;
+        const src = document.querySelector('select[name="source"]')?.value;
+        const info = document.getElementById('transfertStockInfo');
+        if(!pid || !src || !info) return;
+        
+        fetch(`api.php?action=barcode_full_lookup&code=__id__${pid}__src__${src}`)
+            .catch(()=>{});
+        
+        // Quick client-side stock check from stock data
+        // Use api.php client lookup to get stock
+        fetch(`api.php?action=quick_stats&fid=${src}&pid=${pid}`)
+            .then(r=>r.json())
+            .then(d=>{
+                if(d.stock_produit !== undefined) {
+                    info.textContent = `Stock disponible à la source: ${d.stock_produit} unité(s)`;
+                    info.className = `mt-1 text-xs font-bold ${d.stock_produit>0?'text-green-600':'text-red-500'}`;
+                    info.classList.remove('hidden');
+                    document.getElementById('transfertQty').max = d.stock_produit;
+                }
+            })
+            .catch(()=>{});
+    }
+    document.querySelector('select[name="source"]')?.addEventListener('change', checkTransfertStock);
+    </script>
 </div>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <div class="px-4 py-3 border-b font-semibold text-sm flex items-center gap-2"><i class="bi bi-clock-history text-gray-400"></i> Historique (<?=count($transferts)?>)</div>
