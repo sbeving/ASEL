@@ -2850,9 +2850,18 @@ elseif ($page === 'transferts'):
 </div>
 
 <?php elseif ($page === 'retours'): $r_fid=$fid?:(currentFranchise()?:($franchises[0]['id']??1));
-    $recent_retours = query("SELECT r.*,p.nom as pnom,f.nom as fnom,u.nom_complet as par FROM retours r JOIN produits p ON r.produit_id=p.id JOIN franchises f ON r.franchise_id=f.id LEFT JOIN utilisateurs u ON r.utilisateur_id=u.id ".($r_fid?"WHERE r.franchise_id=".intval($r_fid):"")." ORDER BY r.date_retour DESC LIMIT 20");
+    $recent_retours = query("SELECT r.*,p.nom as pnom,p.prix_vente,f.nom as fnom,u.nom_complet as par FROM retours r JOIN produits p ON r.produit_id=p.id JOIN franchises f ON r.franchise_id=f.id LEFT JOIN utilisateurs u ON r.utilisateur_id=u.id ".($r_fid?"WHERE r.franchise_id=".intval($r_fid):"")." ORDER BY r.date_retour DESC LIMIT 30");
+    $total_retours = count($recent_retours);
+    $nb_echanges = count(array_filter($recent_retours, fn($r) => $r['type_retour']==='echange'));
+    $val_retours = array_sum(array_map(fn($r) => $r['quantite'] * floatval($r['prix_vente']), array_filter($recent_retours, fn($r) => $r['type_retour']==='retour')));
 ?>
-<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-arrow-counterclockwise text-asel"></i> Retours & Échanges</h1>
+<h1 class="text-2xl font-bold text-asel-dark mb-4 flex items-center gap-2"><i class="bi bi-arrow-counterclockwise text-asel"></i> Retours & Échanges</h1>
+<!-- KPIs -->
+<div class="grid grid-cols-3 gap-3 mb-4">
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-amber-500"><div class="text-[10px] text-gray-400 font-bold uppercase">Retours (30 derniers)</div><div class="text-xl font-black text-asel-dark"><?=$total_retours - $nb_echanges?></div></div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-blue-500"><div class="text-[10px] text-gray-400 font-bold uppercase">Échanges</div><div class="text-xl font-black text-asel-dark"><?=$nb_echanges?></div></div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-red-400"><div class="text-[10px] text-gray-400 font-bold uppercase">Valeur rendue</div><div class="text-xl font-black text-red-600"><?=number_format($val_retours,2)?> <span class="text-xs text-gray-400">DT</span></div></div>
+</div>
 <div class="grid lg:grid-cols-2 gap-6">
 <div class="form-card">
     <h3><i class="bi bi-arrow-counterclockwise text-amber-500"></i> Nouveau retour / échange</h3>
@@ -4018,6 +4027,13 @@ function calcEcart(idx, sys, phys) {
     $session_duration = time() - $login_time;
     $session_hours = floor($session_duration / 3600);
     $session_mins = floor(($session_duration % 3600) / 60);
+    // My stats today
+    $mes_ventes_today = queryOne("SELECT COALESCE(SUM(prix_total),0) as ca, COUNT(*) as nb FROM ventes WHERE utilisateur_id=? AND date_vente=CURDATE()", [$user['id']]);
+    $mes_ventes_mois = queryOne("SELECT COALESCE(SUM(prix_total),0) as ca, COUNT(*) as nb FROM ventes WHERE utilisateur_id=? AND MONTH(date_vente)=MONTH(CURDATE()) AND YEAR(date_vente)=YEAR(CURDATE())", [$user['id']]);
+    // Pointage today
+    try {
+        $mon_pointage_today = query("SELECT * FROM pointages WHERE utilisateur_id=? AND DATE(heure)=CURDATE() ORDER BY heure ASC", [$user['id']]);
+    } catch(Exception $e) { $mon_pointage_today = []; }
 ?>
 <h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-person-gear text-asel"></i> Mon compte</h1>
 
@@ -4034,6 +4050,30 @@ function calcEcart(idx, sys, phys) {
         <div>Session: <?=$session_hours?>h<?=str_pad($session_mins,2,'0',STR_PAD_LEFT)?></div>
         <div>Depuis <?=date('H:i', $login_time)?></div>
     </div>
+</div>
+
+<!-- My today stats -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-asel">
+        <div class="text-[10px] text-gray-400 font-bold uppercase">Mes ventes aujourd'hui</div>
+        <div class="text-xl font-black text-asel-dark"><?=number_format($mes_ventes_today['ca'],2)?> DT</div>
+        <div class="text-xs text-gray-400"><?=$mes_ventes_today['nb']?> transaction(s)</div>
+    </div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-purple-500">
+        <div class="text-[10px] text-gray-400 font-bold uppercase">Mes ventes ce mois</div>
+        <div class="text-xl font-black text-asel-dark"><?=number_format($mes_ventes_mois['ca'],2)?> DT</div>
+        <div class="text-xs text-gray-400"><?=$mes_ventes_mois['nb']?> transaction(s)</div>
+    </div>
+    <?php if($mon_pointage_today): ?>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-green-500 col-span-2">
+        <div class="text-[10px] text-gray-400 font-bold uppercase">Mon pointage aujourd'hui</div>
+        <div class="flex gap-2 flex-wrap mt-1">
+        <?php foreach($mon_pointage_today as $pt): $label=match($pt['type_pointage']){'entree'=>'Entrée','sortie'=>'Sortie','pause_debut'=>'Pause','pause_fin'=>'Retour',default=>$pt['type_pointage']}; $col=match($pt['type_pointage']){'entree'=>'bg-green-100 text-green-700','sortie'=>'bg-red-100 text-red-700','pause_debut'=>'bg-yellow-100 text-yellow-700',default=>'bg-blue-100 text-blue-700'}; ?>
+        <span class="inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg <?=$col?>"><?=$label?> <?=date('H:i',strtotime($pt['heure']))?></span>
+        <?php endforeach; ?>
+        </div>
+    </div>
+    <?php endif; ?>
 </div>
 
 <div class="grid lg:grid-cols-2 gap-6">
