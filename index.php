@@ -2260,12 +2260,19 @@ elseif ($page === 'entree'):
     $e_fid = $fid ?: currentFranchise();
     if (!$e_fid && can('view_all_franchises')): ?>
 <h1 class="text-2xl font-bold text-asel-dark mb-4 flex items-center gap-2"><i class="bi bi-box-arrow-in-down text-asel"></i> Entrée de stock</h1>
+<?php
+// Load all stock counts in one query (avoid N+1)
+$stock_counts = [];
+foreach(query("SELECT franchise_id, SUM(quantite) as t FROM stock GROUP BY franchise_id") as $sc) {
+    $stock_counts[$sc['franchise_id']] = intval($sc['t']);
+}
+?>
 <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-    <?php foreach ($allFranchises as $f): $sc=queryOne("SELECT SUM(quantite) as t FROM stock WHERE franchise_id=?",[$f['id']]); ?>
+    <?php foreach ($allFranchises as $f): $sc_qty = $stock_counts[$f['id']] ?? 0; ?>
     <a href="?page=entree&fid=<?=$f['id']?>" class="bg-white border-2 border-transparent hover:border-asel rounded-xl p-5 shadow-sm transition-all group">
         <div class="flex items-center gap-3 mb-3">
             <div class="w-10 h-10 bg-asel/10 rounded-xl flex items-center justify-center group-hover:bg-asel transition-colors"><i class="bi bi-shop text-asel group-hover:text-white"></i></div>
-            <div><div class="font-bold text-asel-dark"><?=shortF($f['nom'])?></div><div class="text-xs text-gray-400"><?=number_format($sc['t']??0)?> articles en stock</div></div>
+            <div><div class="font-bold text-asel-dark"><?=shortF($f['nom'])?></div><div class="text-xs text-gray-400"><?=number_format($sc_qty)?> articles en stock</div></div>
         </div>
         <div class="flex justify-end"><span class="text-xs font-bold text-asel group-hover:text-asel-dark">Gérer →</span></div>
     </a>
@@ -5609,9 +5616,15 @@ try {
 <!-- Mobile FAB -->
 <div class="lg:hidden fixed bottom-6 right-6 z-40 flex flex-col gap-2 items-end" id="fabMenu">
     <div class="hidden flex-col gap-2 items-end mb-2" id="fabActions">
-        <a href="?page=pos" class="bg-asel text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-cart3"></i> Vente</a>
-        <button onclick="openQuickStockEntry('','');closeFab()" class="bg-emerald-500 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-box-arrow-in-down"></i> Entrée</button>
+        <a href="?page=pos" class="bg-asel text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2" onclick="closeFab()"><i class="bi bi-cart3"></i> Vente</a>
+        <?php if(can('entree_stock')): ?>
+        <button onclick="closeFab();location.href='?page=entree'" class="bg-emerald-500 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-box-arrow-in-down"></i> Entrée stock</button>
+        <?php endif; ?>
         <button onclick="openBarcodeLookup();closeFab()" class="bg-purple-500 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-upc-scan"></i> Scanner</button>
+        <?php if(can('pointage')): ?>
+        <a href="?page=pointage" class="bg-orange-500 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2" onclick="closeFab()"><i class="bi bi-clock-history"></i> Pointage</a>
+        <?php endif; ?>
+        <a href="?page=rapports" class="bg-gray-600 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2" onclick="closeFab()"><i class="bi bi-graph-up"></i> Rapports</a>
     </div>
     <button onclick="toggleFab()" class="bg-asel hover:bg-asel-dark text-white shadow-xl w-14 h-14 rounded-full flex items-center justify-center transition-transform" id="fabBtn">
         <i class="bi bi-plus-lg text-2xl" id="fabIcon"></i>
