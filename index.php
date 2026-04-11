@@ -1790,7 +1790,9 @@ function renderCart(){
             </div>
             <div class="flex flex-col items-end gap-1">
                 <div class="text-sm font-bold text-asel-dark">${lineTotal.toFixed(2)}</div>
-                <input type="number" value="${c.remise>0?c.remise:''}" min="0" step="0.5" class="w-14 text-center text-xs border rounded py-0.5 ${c.remise>0?'border-orange-300 text-orange-600':'border-gray-200 text-gray-400'}" onchange="updateRemise(${i},this.value)" placeholder="Remise" title="Remise DT">
+                <input type="number" value="${c.remise>0?c.remise:''}" min="0" step="0.5" class="w-12 text-center text-xs border rounded py-0.5 ${c.remise>0?'border-orange-300 text-orange-600':'border-gray-200 text-gray-400'}" onchange="updateRemise(${i},this.value)" placeholder="Rem." title="Remise DT">
+                <button type="button" onclick="updateRemise(${i},+(c.qty*c.prix*0.05).toFixed(2));renderCart()" class="text-[9px] bg-gray-100 hover:bg-orange-100 hover:text-orange-600 text-gray-400 px-1 rounded transition-colors" title="5%">5%</button>
+                <button type="button" onclick="updateRemise(${i},+(c.qty*c.prix*0.1).toFixed(2));renderCart()" class="text-[9px] bg-gray-100 hover:bg-orange-100 hover:text-orange-600 text-gray-400 px-1 rounded transition-colors" title="10%">10%</button>
             </div>
             <button class="text-gray-200 hover:text-red-500 transition-colors p-0.5 mt-1 opacity-0 group-hover:opacity-100" onclick="removeFromCart(${i})" title="Retirer"><i class="bi bi-x-lg text-xs"></i></button>
         </div>`;
@@ -2717,7 +2719,7 @@ elseif ($page === 'demandes'):
 // =====================================================
 elseif ($page === 'ventes'):
     $d1=$_GET['d1']??date('Y-m-01');$d2=$_GET['d2']??date('Y-m-d');
-    $ventes=query("SELECT v.*,p.nom as pnom,p.prix_achat,p.prix_achat_ht,f.nom as fnom,u.nom_complet as vendeur,fa.numero as facture_num FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN franchises f ON v.franchise_id=f.id LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id LEFT JOIN factures fa ON v.facture_id=fa.id WHERE v.date_vente BETWEEN ? AND ? ".($fid?"AND v.franchise_id=".intval($fid):"")." ORDER BY v.date_creation DESC LIMIT 200",[$d1,$d2]);
+    $ventes=query("SELECT v.*,p.nom as pnom,p.prix_achat,p.prix_achat_ht,f.nom as fnom,u.nom_complet as vendeur,fa.numero as facture_num,fa.mode_paiement FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN franchises f ON v.franchise_id=f.id LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id LEFT JOIN factures fa ON v.facture_id=fa.id WHERE v.date_vente BETWEEN ? AND ? ".($fid?"AND v.franchise_id=".intval($fid):"")." ORDER BY v.date_creation DESC LIMIT 200",[$d1,$d2]);
     $tca=array_sum(array_column($ventes,'prix_total'));
     $tart=array_sum(array_column($ventes,'quantite'));
     $tcout=array_sum(array_map(fn($v)=>$v['prix_achat']*$v['quantite'], $ventes));
@@ -2774,13 +2776,18 @@ elseif ($page === 'ventes'):
     <input type="text" id="ventesSearch" class="w-full pl-10 pr-4 py-2 border-2 border-gray-200 rounded-xl text-sm focus:border-asel" placeholder="Rechercher produit, franchise, vendeur..." oninput="filterVentes()">
 </div>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm" id="ventesTable">
-    <thead class="sticky-thead"><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Date</th><th class="px-3 py-3 text-left">Franchise</th><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3 text-center">Qté</th><th class="px-3 py-3 text-right">Total</th><th class="px-3 py-3 text-left hidden sm:table-cell">Vendeur</th><th class="px-3 py-3 text-center">🧾</th></tr></thead>
-    <tbody class="divide-y divide-gray-100"><?php foreach($ventes as $v):?><tr class="hover:bg-gray-50 vente-row" data-search="<?=e(strtolower($v['pnom'].' '.shortF($v['fnom']).' '.($v['vendeur']??'').' '.($v['facture_num']??'')))?>">
+    <thead class="sticky-thead"><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Date</th><th class="px-3 py-3 text-left hidden sm:table-cell">Franchise</th><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3 text-center">Qté</th><th class="px-3 py-3 text-right">Total</th><th class="px-3 py-3 text-center hidden md:table-cell">Mode</th><th class="px-3 py-3 text-left hidden sm:table-cell">Vendeur</th><th class="px-3 py-3 text-center">🧾</th></tr></thead>
+    <tbody class="divide-y divide-gray-100"><?php 
+    $mode_icons=['especes'=>'💵','carte'=>'💳','virement'=>'🏦','cheque'=>'📋','echeance'=>'📅'];
+    foreach($ventes as $v):?><tr class="hover:bg-gray-50 vente-row" data-search="<?=e(strtolower($v['pnom'].' '.shortF($v['fnom']).' '.($v['vendeur']??'').' '.($v['facture_num']??'').' '.($v['mode_paiement']??'')))?>">
         <td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m H:i',strtotime($v['date_creation']))?></td>
-        <td class="px-3 py-2 text-xs"><?=shortF($v['fnom'])?></td>
+        <td class="px-3 py-2 text-xs hidden sm:table-cell"><?=shortF($v['fnom'])?></td>
         <td class="px-3 py-2 font-medium"><?=e($v['pnom'])?></td>
         <td class="px-3 py-2 text-center"><?=$v['quantite']?></td>
         <td class="px-3 py-2 text-right font-bold"><?=number_format($v['prix_total'],2)?></td>
+        <td class="px-3 py-2 text-center hidden md:table-cell" title="<?=e($v['mode_paiement']??'')?>">
+            <?=$mode_icons[$v['mode_paiement']??''] ?? '—'?>
+        </td>
         <td class="px-3 py-2 text-xs text-gray-400 hidden sm:table-cell"><?=e($v['vendeur']??'')?></td>
         <td class="px-3 py-2 text-center">
             <?php if($v['facture_id']): ?>
