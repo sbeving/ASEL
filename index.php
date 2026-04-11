@@ -310,8 +310,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     elseif ($action === 'add_client') {
         $cfid = can('view_all_franchises') ? ($_POST['franchise_id'] ?? null) : currentFranchise();
-        execute("INSERT INTO clients (nom,prenom,telephone,email,type_client,entreprise,matricule_fiscal,franchise_id) VALUES (?,?,?,?,?,?,?,?)",
-            [$_POST['nom'], $_POST['prenom'] ?? '', $_POST['telephone'] ?? '', $_POST['email'] ?? '', $_POST['type_client'] ?? 'passager', $_POST['entreprise'] ?? '', $_POST['matricule_fiscal'] ?? '', $cfid]);
+        execute("INSERT INTO clients (nom,prenom,telephone,email,type_client,entreprise,matricule_fiscal,franchise_id,adresse,notes) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            [$_POST['nom'], $_POST['prenom'] ?? '', $_POST['telephone'] ?? '', $_POST['email'] ?? '', $_POST['type_client'] ?? 'passager', $_POST['entreprise'] ?? '', $_POST['matricule_fiscal'] ?? '', $cfid, strParam('adresse'), strParam('notes',1000)]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Client ajouté!'];
         auditLog('add_client', 'client', db()->lastInsertId(), ['nom'=>$_POST['nom'], 'type'=>$_POST['type_client']??'passager']);
     }
@@ -415,8 +415,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['flash'] = ['type'=>'success','msg'=>"$nb_echeances échéances créées pour " . ($client['nom']??'client') . "!"];
     }
     elseif ($action === 'edit_client') {
-        execute("UPDATE clients SET nom=?,prenom=?,telephone=?,email=?,type_client=?,entreprise=?,matricule_fiscal=?,actif=? WHERE id=?",
-            [$_POST['nom'], $_POST['prenom']??'', $_POST['telephone']??'', $_POST['email']??'', $_POST['type_client']??'passager', $_POST['entreprise']??'', $_POST['matricule_fiscal']??'', $_POST['actif']??1, $_POST['client_id']]);
+        execute("UPDATE clients SET nom=?,prenom=?,telephone=?,email=?,type_client=?,entreprise=?,matricule_fiscal=?,actif=?,notes=? WHERE id=?",
+            [$_POST['nom'], $_POST['prenom']??'', $_POST['telephone']??'', $_POST['email']??'', $_POST['type_client']??'passager', $_POST['entreprise']??'', $_POST['matricule_fiscal']??'', $_POST['actif']??1, strParam('notes',1000), $_POST['client_id']]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Client mis à jour!'];
         auditLog('edit_client', 'client', $_POST['client_id'], ['nom'=>$_POST['nom']]);
     }
@@ -1958,6 +1958,7 @@ function loadClientInfo(cid) {
             badge.innerHTML = `<div class="flex items-center gap-2 text-xs bg-gray-50 border rounded-xl px-3 py-2">
                 <span class="font-bold text-asel-dark">${c.nom} ${c.prenom||''}</span>
                 ${c.telephone ? `<a href="tel:${c.telephone}" class="text-asel ml-1"><i class="bi bi-telephone"></i> ${c.telephone}</a>` : ''}
+                ${c.telephone ? `<a href="https://wa.me/${(c.telephone||'').replace(/[^0-9]/g,'')}" target="_blank" class="text-green-600 hover:text-green-700 ml-1" title="WhatsApp"><i class="bi bi-whatsapp"></i></a>` : ''}
                 ${achats > 0 ? `<span class="text-gray-400 ml-auto">Total: <b class="text-asel">${achats.toFixed(0)} DT</b></span>` : ''}
                 ${du > 0 ? `<span class="ml-1 bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded">⚠️ Doit: ${du.toFixed(2)} DT</span>` : ''}
             </div>`;
@@ -3862,6 +3863,7 @@ elseif ($page === 'clients'):
             <div><label class="form-label">📋 Matricule fiscal</label><input name="matricule_fiscal" class="form-input" placeholder="0000000/X/X/X/000"></div>
         </div>
         <div><label class="form-label">📝 Adresse</label><input name="adresse" class="form-input" placeholder="Adresse complète"></div>
+        <div><label class="form-label">📋 Notes internes</label><textarea name="notes" class="form-input" rows="2" placeholder="Notes confidentielles sur ce client..."></textarea></div>
         <div class="mt-4"><button type="submit" class="btn-submit"><i class="bi bi-check-circle"></i> Ajouter le client</button></div>
     </form>
     <script>function toggleEntreprise(v){document.getElementById('entrepriseFields').style.display=(v==='entreprise'||v==='boutique')?'grid':'none';}</script>
@@ -3935,6 +3937,7 @@ function openClientProfile(cid, nom) {
                 <div class="mb-4"><div class="font-bold text-sm mb-2 text-gray-700">Échéances en attente</div>${ecHtml}</div>
                 <div><div class="font-bold text-sm mb-2 text-gray-700">Derniers achats</div>${ventesHtml}</div>
                 <a href="?page=echeances" class="mt-4 w-full flex items-center justify-center gap-2 py-2 rounded-xl border-2 border-asel text-asel font-bold text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-credit-card"></i> Voir toutes les échéances</a>
+                ${d.client.notes ? `<div class="mt-3 bg-yellow-50 rounded-xl p-3 text-sm text-gray-700"><i class="bi bi-sticky text-yellow-500"></i> <b>Notes:</b> ${d.client.notes}</div>` : ''}
             `;
         })
         .catch(() => document.getElementById('clientProfileContent').innerHTML = '<div class="p-4 text-red-500 text-sm text-center">Erreur lors du chargement</div>');
