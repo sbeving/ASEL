@@ -5082,6 +5082,47 @@ function closeFab(){document.getElementById('fabActions').classList.add('hidden'
     </div>
     <?php endif; ?>
 </div>
+
+<!-- Monthly summary (admin only) -->
+<?php if(can('view_all_franchises')): ?>
+<?php
+$pt_mois = $_GET['mois'] ?? date('Y-m');
+try {
+    $monthly_summary = query("SELECT u.nom_complet, u.id,
+        COUNT(CASE WHEN p.type_pointage='entree' THEN 1 END) as nb_entrees,
+        COUNT(CASE WHEN p.type_pointage='sortie' THEN 1 END) as nb_sorties,
+        COUNT(DISTINCT DATE(p.heure)) as jours_travailles
+        FROM pointages p JOIN utilisateurs u ON p.utilisateur_id=u.id
+        WHERE DATE_FORMAT(p.heure,'%Y-%m')=?
+        GROUP BY u.id, u.nom_complet ORDER BY u.nom_complet", [$pt_mois]);
+} catch(Exception $e) { $monthly_summary = []; }
+?>
+<?php if($monthly_summary): ?>
+<div class="bg-white rounded-xl shadow-sm overflow-hidden mt-4">
+    <div class="px-4 py-3 border-b flex items-center justify-between">
+        <h3 class="font-semibold text-sm flex items-center gap-2"><i class="bi bi-calendar-month text-asel"></i> Récap mensuel</h3>
+        <form class="flex gap-2 items-center">
+            <input type="hidden" name="page" value="pointage">
+            <input type="month" name="mois" value="<?=e($pt_mois)?>" class="border-2 border-gray-200 rounded-lg px-2 py-1 text-sm">
+            <button class="bg-asel text-white px-3 py-1 rounded-lg text-sm font-bold"><i class="bi bi-funnel"></i></button>
+        </form>
+    </div>
+    <table class="w-full text-sm">
+        <thead><tr class="bg-gray-50 text-xs uppercase font-semibold text-gray-500"><th class="px-4 py-2 text-left">Employé</th><th class="px-4 py-2 text-center">Jours</th><th class="px-4 py-2 text-center">Entrées</th><th class="px-4 py-2 text-center">Sorties</th></tr></thead>
+        <tbody class="divide-y">
+        <?php foreach($monthly_summary as $ms): ?>
+        <tr class="hover:bg-gray-50">
+            <td class="px-4 py-2 font-medium"><?=e($ms['nom_complet'])?></td>
+            <td class="px-4 py-2 text-center"><span class="inline-flex px-2 py-0.5 rounded-full text-xs font-bold <?=$ms['jours_travailles']>=22?'bg-green-100 text-green-800':($ms['jours_travailles']>=15?'bg-yellow-100 text-yellow-800':'bg-gray-100 text-gray-700')?>"><?=$ms['jours_travailles']?> j</span></td>
+            <td class="px-4 py-2 text-center"><?=$ms['nb_entrees']?></td>
+            <td class="px-4 py-2 text-center <?=$ms['nb_entrees']!=$ms['nb_sorties']?'text-red-500 font-bold':''?>"><?=$ms['nb_sorties']?></td>
+        </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+</div>
+<?php endif; ?>
+<?php endif; ?>
 <?php endif; ?>
 
 <script>
