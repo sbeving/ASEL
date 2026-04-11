@@ -411,6 +411,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Client mis à jour!'];
         auditLog('edit_client', 'client', $_POST['client_id'], ['nom'=>$_POST['nom']]);
     }
+    elseif ($action === 'pay_facture' && can('vente')) {
+        $fac_id = intval($_POST['facture_id']);
+        $fac = queryOne("SELECT * FROM factures WHERE id=?", [$fac_id]);
+        if($fac && $fac['statut'] === 'en_attente') {
+            execute("UPDATE factures SET statut='payee' WHERE id=?", [$fac_id]);
+            // Record in tresorerie
+            try {
+                execute("INSERT INTO tresorerie (franchise_id,type_mouvement,montant,motif,reference,utilisateur_id) VALUES (?,?,?,?,?,?)",
+                    [$fac['franchise_id'], 'encaissement', $fac['total_ttc'], 'Règlement facture', $fac['numero'], $user['id']]);
+            } catch(Exception $e) {}
+            $_SESSION['flash'] = ['type'=>'success','msg'=>'Facture '.$fac['numero'].' marquée payée!'];
+            auditLog('pay_facture', 'facture', $fac_id, ['numero'=>$fac['numero'], 'total'=>$fac['total_ttc']]);
+        }
+    }
     elseif ($action === 'cancel_facture' && isAdmin()) {
         $fac = queryOne("SELECT * FROM factures WHERE id=?", [$_POST['facture_id']]);
         if ($fac && $fac['statut'] !== 'annulee') {
@@ -3475,7 +3489,10 @@ elseif ($page === 'clients'):
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_client') {
         // Already handled above
     }
-    $clients = query("SELECT c.*,f.nom as fnom FROM clients c LEFT JOIN franchises f ON c.franchise_id=f.id ORDER BY c.date_creation DESC LIMIT 100");
+    $clients = query("SELECT c.*,f.nom as fnom,
+        COALESCE((SELECT SUM(prix_total) FROM ventes WHERE client_id=c.id),0) as total_achats,
+        COALESCE((SELECT SUM(montant) FROM echeances WHERE client_id=c.id AND statut IN ('en_attente','en_retard')),0) as solde_du
+        FROM clients c LEFT JOIN franchises f ON c.franchise_id=f.id ORDER BY c.date_creation DESC LIMIT 100");
 ?>
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-person-lines-fill text-asel"></i> Clients <span class="text-sm font-normal text-gray-400">(<?=count($clients)?>)</span></h1>
@@ -3519,7 +3536,7 @@ elseif ($page === 'clients'):
 
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <div class="overflow-x-auto"><table class="w-full text-sm">
-        <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3">Nom</th><th class="px-3 py-3 hidden sm:table-cell">Tél</th><th class="px-3 py-3">Type</th><th class="px-3 py-3 hidden md:table-cell">Entreprise</th><th class="px-3 py-3 hidden md:table-cell">MF</th><th class="px-3 py-3">Date</th><th class="px-3 py-3">Edit</th></tr></thead>
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Nom</th><th class="px-3 py-3 hidden sm:table-cell">Tél</th><th class="px-3 py-3">Type</th><th class="px-3 py-3 hidden md:table-cell">Entreprise</th><th class="px-3 py-3 text-right hidden sm:table-cell">Total achats</th><th class="px-3 py-3 text-right hidden sm:table-cell">Solde dû</th><th class="px-3 py-3">Date</th><th class="px-3 py-3">Actions</th></tr></thead>
         <tbody class="divide-y"><?php foreach ($clients as $c): $tb=['passager'=>'bg-gray-100','boutique'=>'bg-blue-100 text-blue-800','entreprise'=>'bg-purple-100 text-purple-800']; ?>
             <tr class="hover:bg-gray-50 client-row" data-search="<?=e(strtolower($c['nom'].' '.($c['prenom']??'').' '.$c['telephone'].' '.$c['email'].' '.($c['entreprise']??'').' '.$c['type_client']))?>">
                 <td class="px-3 py-2 font-medium">
@@ -3529,6 +3546,10 @@ elseif ($page === 'clients'):
                 <td class="px-3 py-2"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?=$tb[$c['type_client']]??''?>"><?=$c['type_client']?></span></td>
                 <td class="px-3 py-2 text-xs hidden md:table-cell"><?=e($c['entreprise']??'')?></td>
                 <td class="px-3 py-2 text-xs font-mono hidden md:table-cell"><?=e($c['matricule_fiscal']??'')?></td>
+                <td class="px-3 py-2 text-right text-xs font-bold text-asel hidden sm:table-cell"><?=$c['total_achats']>0?number_format($c['total_achats'],2).' DT':'—'?></td>
+                <td class="px-3 py-2 text-right text-xs hidden sm:table-cell">
+                    <?php if($c['solde_du']>0): ?><span class="font-bold text-red-600"><?=number_format($c['solde_du'],2)?> DT</span><?php else: ?><span class="text-green-500">✓</span><?php endif; ?>
+                </td>
                 <td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m/Y',strtotime($c['date_creation']))?></td>
                 <td class="px-3 py-2 flex gap-1">
                     <button onclick="openClientProfile(<?=$c['id']?>,'<?=ejs($c['nom'].' '.($c['prenom']??''))?>')" class="text-gray-400 hover:text-asel p-1" title="Profil & balance"><i class="bi bi-person-lines-fill text-sm"></i></button>
@@ -3739,9 +3760,17 @@ elseif ($page === 'factures'):
                 <td class="px-3 py-2 text-right font-bold"><?=number_format($f['total_ttc'],2)?></td>
                 <td class="px-3 py-2"><span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium <?=$stat_b[$f['statut']]??''?>"><?=$f['statut']?></span></td>
                 <td class="px-3 py-2">
-                    <div class="flex gap-1">
-                        <a href="pdf.php?type=facture&id=<?=$f['id']?>" target="_blank" class="text-asel hover:text-asel-dark" title="PDF"><i class="bi bi-file-pdf"></i></a>
-                        <button onclick="previewReceipt(<?=$f['id']?>)" class="text-gray-400 hover:text-gray-600" title="Aperçu ticket"><i class="bi bi-receipt"></i></button>
+                    <div class="flex gap-1 items-center">
+                        <a href="pdf.php?type=facture&id=<?=$f['id']?>" target="_blank" class="text-asel hover:text-asel-dark p-0.5" title="PDF"><i class="bi bi-file-pdf text-sm"></i></a>
+                        <button onclick="previewReceipt(<?=$f['id']?>)" class="text-gray-400 hover:text-gray-600 p-0.5" title="Aperçu ticket"><i class="bi bi-receipt text-sm"></i></button>
+                        <?php if($f['statut']==='en_attente' && can('pay_facture')): ?>
+                        <form method="POST" class="inline">
+                            <input type="hidden" name="_csrf" value="<?=$csrf?>">
+                            <input type="hidden" name="action" value="pay_facture">
+                            <input type="hidden" name="facture_id" value="<?=$f['id']?>">
+                            <button type="submit" class="text-green-500 hover:text-green-700 p-0.5" title="Marquer payée"><i class="bi bi-check-circle text-sm"></i></button>
+                        </form>
+                        <?php endif; ?>
                         <?php if(isAdmin() && $f['statut']==='payee'): ?>
                         <form method="POST" class="inline" id="cancelFact<?=$f['id']?>"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="cancel_facture"><input type="hidden" name="facture_id" value="<?=$f['id']?>">
                         <button type="button" onclick="confirmCancelFacture('cancelFact<?=$f['id']?>','<?=ejs($f['numero'])?>')" class="text-red-400 hover:text-red-600" title="Annuler"><i class="bi bi-x-circle"></i></button></form>
