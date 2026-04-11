@@ -2613,9 +2613,21 @@ document.getElementById('entreeSearch').addEventListener('keydown', e => {
 elseif ($page === 'demandes'):
     $is_franchise = (userRole() === 'franchise');
     $can_treat = isAdminOrGest();
-    $demandes = query("SELECT d.*,p.nom as pnom,f.nom as fnom,u.nom_complet as demandeur FROM demandes_produits d LEFT JOIN produits p ON d.produit_id=p.id JOIN franchises f ON d.franchise_id=f.id LEFT JOIN utilisateurs u ON d.demandeur_id=u.id ".($is_franchise?"WHERE d.franchise_id=".intval(currentFranchise()):"")." ORDER BY FIELD(d.statut,'en_attente','en_cours','livre','rejete'), d.date_demande DESC LIMIT 50");
+    $cid_dm = getCentralId();
+    $demandes = query("SELECT d.*,p.nom as pnom,f.nom as fnom,u.nom_complet as demandeur,
+        COALESCE(s.quantite,0) as stock_central
+        FROM demandes_produits d 
+        LEFT JOIN produits p ON d.produit_id=p.id 
+        JOIN franchises f ON d.franchise_id=f.id 
+        LEFT JOIN utilisateurs u ON d.demandeur_id=u.id
+        LEFT JOIN stock s ON s.produit_id=d.produit_id AND s.franchise_id=?
+        ".($is_franchise?"WHERE d.franchise_id=".intval(currentFranchise()):"")."
+        ORDER BY FIELD(d.statut,'en_attente','en_cours','livre','rejete'), FIELD(d.urgence,'critique','urgent','normal'), d.date_demande DESC LIMIT 50", [$cid_dm]);
+    $pending_dm = count(array_filter($demandes, fn($d) => $d['statut']==='en_attente'));
 ?>
-<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-megaphone text-asel"></i> Demandes de produits</h1>
+<div class="flex justify-between items-center mb-4">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-megaphone text-asel"></i> Demandes <?php if($pending_dm):?><span class="bg-amber-100 text-amber-800 text-xs font-bold px-2 py-0.5 rounded-full"><?=$pending_dm?> en attente</span><?php endif;?></h1>
+</div>
 
 <?php if ($is_franchise): ?>
 <div class="form-card max-w-lg mb-6">
@@ -2636,11 +2648,26 @@ elseif ($page === 'demandes'):
 
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <div class="overflow-x-auto"><table class="w-full text-sm">
-        <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Date</th><th class="px-3 py-3 text-left">Franchise</th><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3">Qté</th><th class="px-3 py-3">Urgence</th><th class="px-3 py-3">Statut</th><?php if($can_treat):?><th class="px-3 py-3">Action</th><?php endif;?></tr></thead>
-        <tbody class="divide-y divide-gray-100"><?php foreach ($demandes as $d): $ub=['normal'=>'bg-green-100 text-green-800','urgent'=>'bg-yellow-100 text-yellow-800','critique'=>'bg-red-100 text-red-800']; $sb=['en_attente'=>'bg-gray-100 text-gray-800','en_cours'=>'bg-blue-100 text-blue-800','livre'=>'bg-green-100 text-green-800','rejete'=>'bg-red-100 text-red-800']; ?>
-            <tr class="hover:bg-gray-50"><td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m H:i',strtotime($d['date_demande']))?></td><td class="px-3 py-2 text-xs"><?=shortF($d['fnom'])?></td><td class="px-3 py-2 font-medium"><?=$d['pnom']?:$d['nom_produit']?:'—'?></td><td class="px-3 py-2 text-center"><?=$d['quantite']?></td>
-            <td class="px-3 py-2 text-center"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?=$ub[$d['urgence']]??''?>"><?=$d['urgence']?></span></td>
-            <td class="px-3 py-2 text-center"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?=$sb[$d['statut']]??''?>"><?=$d['statut']?></span></td>
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Date</th><th class="px-3 py-3 text-left">Franchise</th><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3 text-center">Demandé</th><?php if($can_treat && $cid_dm):?><th class="px-3 py-3 text-center bg-indigo-900">Central</th><?php endif;?><th class="px-3 py-3 text-center">Urgence</th><th class="px-3 py-3 text-center">Statut</th><?php if($can_treat):?><th class="px-3 py-3">Action</th><?php endif;?></tr></thead>
+        <tbody class="divide-y divide-gray-100"><?php foreach ($demandes as $d): 
+            $ub=['normal'=>'bg-green-100 text-green-800','urgent'=>'bg-yellow-100 text-yellow-800','critique'=>'bg-red-100 text-red-800']; 
+            $sb=['en_attente'=>'bg-gray-100 text-gray-800','en_cours'=>'bg-blue-100 text-blue-800','livre'=>'bg-green-100 text-green-800','rejete'=>'bg-red-100 text-red-800'];
+            $stock_ok = $d['stock_central'] >= $d['quantite'];
+        ?>
+            <tr class="hover:bg-gray-50 <?=$d['urgence']==='critique'?'bg-red-50/30':($d['urgence']==='urgent'?'bg-amber-50/20':'')?>">
+                <td class="px-3 py-2 text-xs text-gray-400 whitespace-nowrap"><?=date('d/m H:i',strtotime($d['date_demande']))?></td>
+                <td class="px-3 py-2 text-xs"><?=shortF($d['fnom'])?></td>
+                <td class="px-3 py-2 font-medium"><?=e($d['pnom']?:$d['nom_produit']?:'—')?></td>
+                <td class="px-3 py-2 text-center font-bold"><?=$d['quantite']?></td>
+                <?php if($can_treat && $cid_dm): ?>
+                <td class="px-3 py-2 text-center bg-indigo-50">
+                    <?php if($d['produit_id']): ?>
+                    <span class="font-bold text-xs <?=$stock_ok?'text-indigo-700':'text-red-600'?>"><?=$d['stock_central']?> <?=!$stock_ok?'⚠️':''?></span>
+                    <?php else: ?><span class="text-gray-300 text-xs">—</span><?php endif; ?>
+                </td>
+                <?php endif; ?>
+                <td class="px-3 py-2 text-center"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?=$ub[$d['urgence']]??''?>"><?=$d['urgence']?></span></td>
+                <td class="px-3 py-2 text-center"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?=$sb[$d['statut']]??''?>"><?=$d['statut']?></span></td>
             <?php if($can_treat):?><td class="px-3 py-2"><?php if($d['statut']==='en_attente'):?>
                 <form method="POST" class="flex gap-1"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="traiter_demande"><input type="hidden" name="demande_id" value="<?=$d['id']?>"><input name="reponse" class="border rounded px-2 py-1 text-xs w-20" placeholder="Note">
                 <button name="decision" value="livre" class="bg-green-500 text-white px-2 py-1 rounded text-xs" title="Livré">📦</button>
