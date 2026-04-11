@@ -2476,7 +2476,14 @@ elseif ($page === 'ventes'):
     <thead class="sticky-thead"><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Date</th><th class="px-3 py-3 text-left">Franchise</th><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3 text-center">Qté</th><th class="px-3 py-3 text-right">Total</th><th class="px-3 py-3 text-left hidden sm:table-cell">Vendeur</th></tr></thead>
     <tbody class="divide-y divide-gray-100"><?php foreach($ventes as $v):?><tr class="hover:bg-gray-50 vente-row" data-search="<?=e(strtolower($v['pnom'].' '.shortF($v['fnom']).' '.($v['vendeur']??'')))?>"><td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m H:i',strtotime($v['date_creation']))?></td><td class="px-3 py-2 text-xs"><?=shortF($v['fnom'])?></td><td class="px-3 py-2"><?=htmlspecialchars($v['pnom'])?></td><td class="px-3 py-2 text-center"><?=$v['quantite']?></td><td class="px-3 py-2 text-right font-bold"><?=number_format($v['prix_total'],1)?></td><td class="px-3 py-2 text-xs text-gray-400 hidden sm:table-cell"><?=$v['vendeur']?></td></tr><?php endforeach;?></tbody>
 </table></div></div>
-<script>function filterVentes(){const q=document.getElementById('ventesSearch').value.toLowerCase();document.querySelectorAll('.vente-row').forEach(r=>{r.style.display=(!q||r.dataset.search.includes(q))?'':'none';});}</script>
+<script>function filterVentes(){
+    const q = document.getElementById('ventesSearch').value;
+    const qn = q.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9\s]/g,' ').trim();
+    document.querySelectorAll('.vente-row').forEach(r=>{
+        const s = (r.dataset.search||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+        r.style.display=(!qn||s.includes(qn))?'':'none';
+    });
+}</script>
 
 <?php
 // =====================================================
@@ -2662,12 +2669,21 @@ elseif ($page === 'transferts'):
     // Daily sales for sparkline
     $daily = query("SELECT date_vente as d, SUM(prix_total) as ca FROM ventes WHERE date_vente BETWEEN ? AND ? $r_fwhere GROUP BY date_vente ORDER BY date_vente", [$d1,$d2]);
 ?>
-<div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+<div class="flex flex-wrap justify-between items-center gap-3 mb-3">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-graph-up text-asel"></i> Rapports</h1>
     <div class="flex gap-2">
-        <a href="pdf.php?type=rapport_jour&date=<?=date('Y-m-d')?>" target="_blank" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-asel hover:text-asel"><i class="bi bi-file-pdf"></i> PDF Jour</a>
-        <a href="pdf.php?type=rapport_mois&mois=<?=date('Y-m')?>" target="_blank" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-asel hover:text-asel"><i class="bi bi-file-pdf"></i> PDF Mois</a>
+        <a href="pdf.php?type=rapport_jour&date=<?=date('Y-m-d')?><?=$r_fid?"&fid=$r_fid":''?>" target="_blank" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-asel hover:text-asel"><i class="bi bi-file-pdf"></i> PDF Jour</a>
+        <a href="pdf.php?type=rapport_mois&mois=<?=date('Y-m')?><?=$r_fid?"&fid=$r_fid":''?>" target="_blank" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-asel hover:text-asel"><i class="bi bi-file-pdf"></i> PDF Mois</a>
     </div>
+</div>
+<?php if(can('view_all_franchises')): ?>
+<div class="flex gap-2 mb-3 flex-wrap">
+    <a href="?page=rapports&d1=<?=$d1?>&d2=<?=$d2?>" class="px-3 py-1.5 rounded-lg text-xs font-bold <?=!$r_fid?'bg-asel text-white':'bg-white border-2 border-gray-200 text-gray-600 hover:border-asel hover:text-asel'?>">Toutes</a>
+    <?php foreach($franchises as $rf): ?>
+    <a href="?page=rapports&d1=<?=$d1?>&d2=<?=$d2?>&fid=<?=$rf['id']?>" class="px-3 py-1.5 rounded-lg text-xs font-bold <?=$r_fid==$rf['id']?'bg-asel text-white':'bg-white border-2 border-gray-200 text-gray-600 hover:border-asel hover:text-asel'?>"><?=shortF($rf['nom'])?></a>
+    <?php endforeach; ?>
+</div>
+<?php endif; ?>
 </div>
 <!-- Date filter with shortcuts -->
 <div class="bg-white rounded-xl shadow-sm p-3 mb-4">
