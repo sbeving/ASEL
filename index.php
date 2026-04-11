@@ -223,11 +223,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     elseif ($action === 'cloture_submit') {
         $cfid = can('view_all_franchises') ? $_POST['franchise_id'] : currentFranchise();
-        $sys = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COALESCE(SUM(quantite),0) as a FROM ventes WHERE franchise_id=? AND date_vente=?", [$cfid, $_POST['date_cloture']]);
+        $date_cl = $_POST['date_cloture'];
+        $sys = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COALESCE(SUM(quantite),0) as a FROM ventes WHERE franchise_id=? AND date_vente=?", [$cfid, $date_cl]);
+        $declare = floatval($_POST['total_declare']);
+        $ecart = $declare - $sys['t'];
         execute("INSERT INTO clotures (franchise_id,date_cloture,total_ventes_declare,total_articles_declare,total_ventes_systeme,total_articles_systeme,commentaire,utilisateur_id) VALUES (?,?,?,?,?,?,?,?)",
-            [$cfid, $_POST['date_cloture'], $_POST['total_declare'], $_POST['articles_declare'], $sys['t'], $sys['a'], $_POST['commentaire'] ?? '', $user['id']]);
-        $_SESSION['flash'] = ['type'=>'success','msg'=>'Clôture soumise!'];
-        auditLog('cloture_submit', 'franchise', $cfid, ['date'=>$_POST['date_cloture'], 'declare'=>$_POST['total_declare'], 'systeme'=>$sys['t']]);
+            [$cfid, $date_cl, $declare, $_POST['articles_declare'], $sys['t'], $sys['a'], $_POST['commentaire'] ?? '', $user['id']]);
+        // Auto-record declared amount in trésorerie for the day
+        try {
+            execute("INSERT INTO tresorerie (franchise_id,type_mouvement,montant,motif,reference,date_mouvement,utilisateur_id) VALUES (?,?,?,?,?,?,?)",
+                [$cfid, 'encaissement', $declare, 'Clôture journalière déclarée', 'CL-'.$date_cl, $date_cl, $user['id']]);
+        } catch(Exception $e) {}
+        $ecart_msg = abs($ecart) < 0.01 ? '' : ($ecart > 0 ? " (excédent: +".number_format($ecart,2)." DT)" : " (manque: ".number_format($ecart,2)." DT)");
+        $_SESSION['flash'] = ['type'=>abs($ecart)>1?'warning':'success','msg'=>'Clôture soumise! Déclaré: '.number_format($declare,2).' DT'.$ecart_msg];
+        auditLog('cloture_submit', 'franchise', $cfid, ['date'=>$date_cl, 'declare'=>$declare, 'systeme'=>$sys['t'], 'ecart'=>$ecart]);
     }
     elseif ($action === 'add_produit') {
         $nom = trim($_POST['nom'] ?? '');
@@ -1459,6 +1468,30 @@ fetch('api.php?action=chart_top_products<?=$fid?"&fid=$fid":""?>').then(r=>r.jso
 </div>
 <?php endif; ?>
 </div>
+
+<!-- Top clients this month (admin) -->
+<?php if(isAdminOrGest()): 
+    $top_clients = query("SELECT c.nom, c.prenom, c.telephone, COALESCE(SUM(v.prix_total),0) as ca, COUNT(*) as nb FROM ventes v JOIN clients c ON v.client_id=c.id WHERE MONTH(v.date_vente)=MONTH(CURDATE()) AND YEAR(v.date_vente)=YEAR(CURDATE()) $wf GROUP BY c.id ORDER BY ca DESC LIMIT 5");
+    if($top_clients): ?>
+<div class="bg-white rounded-xl shadow-sm overflow-hidden mt-4">
+    <div class="px-4 py-3 border-b font-semibold text-sm text-asel-dark flex items-center justify-between">
+        <span class="flex items-center gap-2"><i class="bi bi-star text-amber-500"></i> Top clients ce mois</span>
+        <a href="?page=clients" class="text-xs text-asel hover:underline">Tous →</a>
+    </div>
+    <div class="divide-y">
+    <?php foreach($top_clients as $i=>$tc): ?>
+    <div class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50">
+        <span class="w-5 h-5 flex items-center justify-center text-[10px] font-black <?=$i===0?'bg-amber-100 text-amber-700':($i===1?'bg-gray-100 text-gray-600':($i===2?'bg-orange-50 text-orange-600':'bg-gray-50 text-gray-400'))?> rounded-full"><?=$i+1?></span>
+        <div class="flex-1 min-w-0">
+            <div class="text-sm font-semibold truncate"><?=e($tc['nom'].' '.($tc['prenom']??''))?></div>
+            <div class="text-xs text-gray-400"><?=$tc['nb']?> achats</div>
+        </div>
+        <div class="text-sm font-bold text-asel"><?=number_format($tc['ca'],2)?> DT</div>
+    </div>
+    <?php endforeach; ?>
+    </div>
+</div>
+<?php endif; endif; ?>
 
 <?php
 // =====================================================
