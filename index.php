@@ -3044,6 +3044,9 @@ elseif ($page === 'transferts'):
     $by_cat=query("SELECT c.nom,SUM(v.prix_total) as ca,SUM(v.quantite) as qty,SUM(v.quantite*p.prix_achat) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN categories c ON p.categorie_id=c.id WHERE v.date_vente BETWEEN ? AND ? $r_fwhere GROUP BY c.nom ORDER BY ca DESC",[$d1,$d2]);
     // By vendeur (employee performance)
     $by_vendeur = query("SELECT u.nom_complet, COALESCE(SUM(v.prix_total),0) as ca, COALESCE(SUM(v.quantite),0) as art, COUNT(DISTINCT v.id) as tx FROM ventes v LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id WHERE v.date_vente BETWEEN ? AND ? $r_fwhere GROUP BY v.utilisateur_id, u.nom_complet ORDER BY ca DESC LIMIT 10", [$d1,$d2]);
+    // By hour (peak hours analysis) - only for single day or narrow range
+    $day_diff = (strtotime($d2) - strtotime($d1)) / 86400;
+    $by_hour = $day_diff <= 7 ? query("SELECT HOUR(v.date_creation) as hr, COALESCE(SUM(v.prix_total),0) as ca, COUNT(*) as tx FROM ventes v WHERE v.date_vente BETWEEN ? AND ? $r_fwhere GROUP BY HOUR(v.date_creation) ORDER BY hr", [$d1,$d2]) : [];
     $total_cout = queryOne("SELECT COALESCE(SUM(v.quantite*p.prix_achat),0) as c FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente BETWEEN ? AND ? $r_fwhere", [$d1,$d2])['c'];
     $total_profit = $total_ca - $total_cout;
     $total_margin = $total_ca > 0 ? round($total_profit / $total_ca * 100) : 0;
@@ -3147,6 +3150,26 @@ elseif ($page === 'transferts'):
 <?php if($top):?><div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="px-4 py-3 border-b font-semibold text-sm flex items-center gap-2"><i class="bi bi-trophy text-amber-500"></i> Top 15 produits</div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="sticky-thead"><tr class="bg-gray-50 text-xs"><th class="px-3 py-2 text-left">#</th><th class="px-3 py-2 text-left">Produit</th><th class="px-3 py-2 text-center">Qté</th><th class="px-3 py-2 text-right">CA</th><th class="px-3 py-2 text-right">Bénéfice</th></tr></thead><tbody class="divide-y"><?php foreach($top as $i=>$t): $profit=$t['ca']-$t['cout']; ?><tr class="hover:bg-gray-50"><td class="px-3 py-2 text-xs text-gray-400"><?=$i+1?></td><td class="px-3 py-2"><div class="font-medium"><?=e($t['nom'])?></div><div class="text-xs text-gray-400"><?=e($t['marque'])?> · <?=e($t['reference'])?></div></td><td class="px-3 py-2 text-center font-semibold"><?=$t['qty']?></td><td class="px-3 py-2 text-right font-bold"><?=number_format($t['ca'])?></td><td class="px-3 py-2 text-right font-bold <?=$profit>=0?'text-green-600':'text-red-600'?>"><?=number_format($profit)?></td></tr><?php endforeach;?></tbody></table></div></div><?php endif;?>
 <?php if($by_cat):?><div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="px-4 py-3 border-b font-semibold text-sm flex items-center gap-2"><i class="bi bi-pie-chart text-asel"></i> Par catégorie</div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="sticky-thead"><tr class="bg-gray-50 text-xs"><th class="px-3 py-2 text-left">Catégorie</th><th class="px-3 py-2 text-center">Qté</th><th class="px-3 py-2 text-right">CA</th><th class="px-3 py-2 text-right">%</th></tr></thead><tbody class="divide-y"><?php foreach($by_cat as $c): $cpct=$total_ca>0?round($c['ca']/$total_ca*100):0; ?><tr class="hover:bg-gray-50"><td class="px-3 py-2 font-medium"><?=e($c['nom'])?></td><td class="px-3 py-2 text-center"><?=$c['qty']?></td><td class="px-3 py-2 text-right font-bold"><?=number_format($c['ca'])?></td><td class="px-3 py-2 text-right text-xs"><span class="bg-asel/10 text-asel font-bold px-1.5 py-0.5 rounded"><?=$cpct?>%</span></td></tr><?php endforeach;?></tbody></table></div></div><?php endif;?>
 <?php if($by_vendeur): ?><div class="bg-white rounded-xl shadow-sm overflow-hidden mt-4 col-span-2"><div class="px-4 py-3 border-b font-semibold text-sm flex items-center gap-2"><i class="bi bi-people text-asel"></i> Performance par vendeur</div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="sticky-thead"><tr class="bg-gray-50 text-xs"><th class="px-3 py-2 text-left">Vendeur</th><th class="px-3 py-2 text-center">Ventes</th><th class="px-3 py-2 text-center">Articles</th><th class="px-3 py-2 text-right">CA</th><th class="px-3 py-2 text-right">%</th><th class="px-3 py-2 text-right hidden sm:table-cell">Moy/vente</th></tr></thead><tbody class="divide-y"><?php foreach($by_vendeur as $bv): $vpct=$total_ca>0?round($bv['ca']/$total_ca*100):0; ?><tr class="hover:bg-gray-50"><td class="px-3 py-2 font-medium"><?=e($bv['nom_complet']??'Inconnu')?></td><td class="px-3 py-2 text-center"><?=$bv['tx']?></td><td class="px-3 py-2 text-center"><?=$bv['art']?></td><td class="px-3 py-2 text-right font-bold"><?=number_format($bv['ca'],2)?></td><td class="px-3 py-2 text-right text-xs"><span class="bg-green-50 text-green-700 font-bold px-1.5 py-0.5 rounded"><?=$vpct?>%</span></td><td class="px-3 py-2 text-right text-xs text-gray-400 hidden sm:table-cell"><?=$bv['tx']>0?number_format($bv['ca']/$bv['tx'],2).'DT':'—'?></td></tr><?php endforeach;?></tbody></table></div></div><?php endif; ?>
+<?php if($by_hour && count($by_hour)>1): ?>
+<div class="bg-white rounded-xl shadow-sm p-4 mt-4 col-span-2">
+    <div class="font-bold text-sm mb-3 flex items-center gap-2"><i class="bi bi-clock text-asel"></i> Ventes par heure (heures de pointe)</div>
+    <?php $max_hr = max(array_column($by_hour,'ca')); ?>
+    <div class="flex items-end gap-1 h-16 mb-1">
+    <?php for($h=0;$h<24;$h++): 
+        $hr_data = null;
+        foreach($by_hour as $bh) if($bh['hr']==$h) { $hr_data=$bh; break; }
+        $bar_h = $hr_data && $max_hr>0 ? max(3, round($hr_data['ca']/$max_hr*60)) : 0;
+    ?>
+    <div class="flex-1 flex flex-col items-center" title="<?=$h?>h: <?=$hr_data?number_format($hr_data['ca'],0).' DT':'0 DT'?>">
+        <?php if($bar_h>0): ?><div class="w-full bg-asel/70 hover:bg-asel rounded-t transition-colors" style="height:<?=$bar_h?>px"></div><?php else: ?><div class="w-full" style="height:1px"></div><?php endif; ?>
+    </div>
+    <?php endfor; ?>
+    </div>
+    <div class="flex justify-between text-[9px] text-gray-400">
+        <span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span>
+    </div>
+</div>
+<?php endif; ?>
 </div>
 
 <?php elseif ($page === 'produits' && can('produits')):

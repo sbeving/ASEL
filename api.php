@@ -146,11 +146,38 @@ case 'export_ventes':
     $d2 = $_GET['d2'] ?? date('Y-m-d');
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename=ventes_asel_'.$d1.'_'.$d2.'.csv');
+    echo "\xEF\xBB\xBF";
     $out = fopen('php://output', 'w');
-    fputcsv($out, ['Date','Franchise','Produit','Marque','Quantité','Prix unitaire','Remise','Total','Mode paiement','Vendeur']);
+    fputcsv($out, ['Date','Heure','Franchise','Catégorie','Produit','Marque','Référence','Quantité','P.U. HT','P.U. TTC','Remise','Total TTC','Mode paiement','Client','Vendeur'], ';');
     $wf = $fid ? "AND v.franchise_id=".intval($fid) : "";
-    $rows = query("SELECT v.*,p.nom as pnom,p.marque,f.nom as fnom,u.nom_complet as vendeur FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN franchises f ON v.franchise_id=f.id LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id WHERE v.date_vente BETWEEN ? AND ? $wf ORDER BY v.date_creation",[$d1,$d2]);
-    foreach ($rows as $r) fputcsv($out, [date('d/m/Y H:i',strtotime($r['date_creation'])),str_replace('ASEL Mobile — ','',$r['fnom']),$r['pnom'],$r['marque'],$r['quantite'],$r['prix_unitaire'],$r['remise'],$r['prix_total'],$r['mode_paiement']??'especes',$r['vendeur']]);
+    $rows = query("SELECT v.*,p.nom as pnom,p.marque,p.reference,p.prix_vente_ht,c.nom as cnom,f.nom as fnom,
+        cl.nom as cnom_cl,cl.prenom as cprenom_cl,u.nom_complet as vendeur,fa.mode_paiement
+        FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN categories c ON p.categorie_id=c.id
+        JOIN franchises f ON v.franchise_id=f.id 
+        LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id
+        LEFT JOIN clients cl ON v.client_id=cl.id
+        LEFT JOIN factures fa ON v.facture_id=fa.id
+        WHERE v.date_vente BETWEEN ? AND ? $wf ORDER BY v.date_creation",[$d1,$d2]);
+    foreach ($rows as $r) {
+        $pu_ht = $r['prix_vente_ht'] ?: round($r['prix_unitaire']/1.19,2);
+        fputcsv($out, [
+            date('d/m/Y',strtotime($r['date_creation'])),
+            date('H:i',strtotime($r['date_creation'])),
+            str_replace(['ASEL Mobile — ','ASEL Mobile - '],'',$r['fnom']),
+            $r['cnom'],
+            $r['pnom'],
+            $r['marque'],
+            $r['reference']??'',
+            $r['quantite'],
+            number_format($pu_ht,2,',',''),
+            number_format($r['prix_unitaire'],2,',',''),
+            number_format($r['remise'],2,',',''),
+            number_format($r['prix_total'],2,',',''),
+            $r['mode_paiement']??'especes',
+            trim(($r['cnom_cl']??'').' '.($r['cprenom_cl']??'')),
+            $r['vendeur']??''
+        ], ';');
+    }
     fclose($out);
     exit;
 
