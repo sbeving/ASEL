@@ -4049,8 +4049,8 @@ function getNewPointLocation() {
     $all_fournisseurs = query("SELECT * FROM fournisseurs ORDER BY actif DESC, nom");
 ?>
 <div class="flex justify-between items-center mb-4">
-    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-truck text-asel"></i> Fournisseurs</h1>
-    <button onclick="openModal(modalHeader('bi-plus-circle','Nouveau fournisseur','Ajouter un fournisseur')+`<form method=post class='p-6 space-y-3'><input type=hidden name=_csrf value='<?=$csrf?>'><input type=hidden name=action value=add_fournisseur><div><label class='text-xs font-bold text-gray-500'>Nom *</label><input name=nom required class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div class='grid grid-cols-2 gap-3'><div><label class='text-xs font-bold text-gray-500'>Téléphone</label><input name=telephone class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>Email</label><input name=email type=email class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div></div><div><label class='text-xs font-bold text-gray-500'>Adresse</label><input name=adresse class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>ICE / Matricule fiscal</label><input name=ice class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><button type=submit class='w-full py-2.5 rounded-xl bg-asel text-white font-bold text-sm'>Enregistrer</button></form>`)" class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-bold"><i class="bi bi-plus-lg"></i> Ajouter</button>
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-truck text-asel"></i> Fournisseurs <span class="text-sm font-normal text-gray-400">(<?=count($all_fournisseurs)?>)</span></h1>
+    <button onclick="openAddFournisseur()" class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-bold"><i class="bi bi-plus-lg"></i> Ajouter</button>
 </div>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <table class="w-full text-sm">
@@ -4064,12 +4064,47 @@ function getNewPointLocation() {
             <td class="px-3 py-2 text-center hidden sm:table-cell"><?=e($f['adresse'])?></td>
             <td class="px-3 py-2 text-center text-xs font-mono"><?=e($f['ice'] ?? '')?></td>
             <td class="px-3 py-2 text-center"><?=$f['actif']?'<span class="text-green-600 text-xs font-bold">Actif</span>':'<span class="text-red-500 text-xs">Inactif</span>'?></td>
-            <td class="px-3 py-2 text-center"><button onclick="openModal(modalHeader('bi-pencil','Modifier fournisseur','')+`<form method=post class='p-6 space-y-3'><input type=hidden name=_csrf value='<?=$csrf?>'><input type=hidden name=action value=edit_fournisseur><input type=hidden name=id value=<?=$f['id']?>><div><label class='text-xs font-bold text-gray-500'>Nom *</label><input name=nom value='<?=e($f['nom'])?>' required class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div class='grid grid-cols-2 gap-3'><div><label class='text-xs font-bold text-gray-500'>Téléphone</label><input name=telephone value='<?=e($f['telephone'])?>' class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>Email</label><input name=email value='<?=e($f['email'])?>' class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div></div><div><label class='text-xs font-bold text-gray-500'>Adresse</label><input name=adresse value='<?=e($f['adresse'])?>' class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>ICE</label><input name=ice value='<?=e($f['ice'] ?? '')?>' class='w-full border-2 rounded-xl px-3 py-2 text-sm'></div><div><label class='text-xs font-bold text-gray-500'>Statut</label><select name=actif class='w-full border-2 rounded-xl px-3 py-2 text-sm'><option value=1 <?=$f['actif']?'selected':''?>>Actif</option><option value=0 <?=!$f['actif']?'selected':''?>>Inactif</option></select></div><button type=submit class='w-full py-2.5 rounded-xl bg-asel text-white font-bold text-sm'>Enregistrer</button></form>`)" class="text-asel hover:text-asel-dark"><i class="bi bi-pencil"></i></button></td>
+            <td class="px-3 py-2 text-center"><button onclick="openEditFournisseur(this)" 
+    data-id="<?=$f['id']?>" data-nom="<?=e($f['nom'])?>" data-tel="<?=e($f['telephone']??'')?>"
+    data-email="<?=e($f['email']??'')?>" data-adresse="<?=e($f['adresse']??'')?>" 
+    data-ice="<?=e($f['ice']??'')?>" data-actif="<?=$f['actif']?>"
+    class="text-asel hover:text-asel-dark p-1"><i class="bi bi-pencil"></i></button></td>
         </tr>
         <?php endforeach; ?>
         </tbody>
     </table>
 </div>
+
+<script>
+function openAddFournisseur() {
+    openModal(modalHeader('bi-plus-circle','Nouveau fournisseur','') +
+        `<form method="post" class="p-6 space-y-3">
+        <input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="add_fournisseur">
+        ${modalField('Nom *','nom','text','','Nom du fournisseur')}
+        ${modalRow([modalField('Téléphone','telephone','tel','',''),modalField('Email','email','email','','')])}
+        ${modalField('Adresse','adresse','text','','')}
+        ${modalField('ICE / Matricule fiscal','ice','text','','')}
+        <button type="submit" class="w-full py-2.5 rounded-xl bg-asel text-white font-bold text-sm">Enregistrer</button>
+        </form>`, {size:'max-w-md'});
+}
+function openEditFournisseur(btn) {
+    const d = btn.dataset;
+    openModal(modalHeader('bi-pencil','Modifier fournisseur',d.nom) +
+        `<form method="post" class="p-6 space-y-3">
+        <input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="edit_fournisseur"><input type="hidden" name="id" value="${d.id}">
+        ${modalField('Nom *','nom','text',d.nom,'')}
+        ${modalRow([modalField('Téléphone','telephone','tel',d.tel,''),modalField('Email','email','email',d.email,'')])}
+        ${modalField('Adresse','adresse','text',d.adresse,'')}
+        ${modalField('ICE','ice','text',d.ice,'')}
+        <div><label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Statut</label>
+        <select name="actif" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm">
+            <option value="1" ${d.actif=='1'?'selected':''}>Actif</option>
+            <option value="0" ${d.actif=='0'?'selected':''}>Inactif</option>
+        </select></div>
+        <button type="submit" class="w-full py-2.5 rounded-xl bg-asel text-white font-bold text-sm">Enregistrer</button>
+        </form>`, {size:'max-w-md'});
+}
+</script>
 <?php endif; ?>
 </div>
 
