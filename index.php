@@ -585,6 +585,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Point désactivé!'];
         auditLog('delete_point', 'point_reseau', $_POST['point_id']);
     }
+    elseif ($action === 'stock_set' && isAdmin()) {
+        $pid = intval($_POST['produit_id']);
+        $fid_s = intval($_POST['franchise_id']);
+        $qty = max(0, intval($_POST['quantite_new']));
+        $note = strParam('note', 100) ?: 'Correction manuelle';
+        // Get current qty for mouvements
+        $current = queryOne("SELECT quantite FROM stock WHERE franchise_id=? AND produit_id=?", [$fid_s, $pid]);
+        $old_qty = intval($current['quantite'] ?? 0);
+        $diff = $qty - $old_qty;
+        execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantite=?", [$fid_s, $pid, $qty, $qty]);
+        execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,note,utilisateur_id) VALUES (?,?,?,?,?,?)",
+            [$fid_s, $pid, 'correction', $diff, "$note (ancien: $old_qty → nouveau: $qty)", $user['id']]);
+        $_SESSION['flash'] = ['type'=>'success','msg'=>"Stock corrigé: $old_qty → $qty"];
+        auditLog('stock_set', 'stock', $pid, ['fid'=>$fid_s,'old'=>$old_qty,'new'=>$qty,'note'=>$note]);
+    }
     elseif ($action === 'dispatch_stock' && isAdminOrGest()) {
         // Dispatch from Stock Central to a franchise
         $cid = getCentralId();
@@ -2292,6 +2307,7 @@ $stock_profit = ($stock_kpi['val_ttc']??0) - ($stock_kpi['cout']??0);
                         <?php if($s['quantite'] <= 3): ?>
                         <a href="?page=entree&fid=<?=$s['franchise_id']?>" class="text-asel hover:text-asel-dark" title="Entrée stock"><i class="bi bi-plus-circle text-xs"></i></a>
                         <?php endif; ?>
+                        <button onclick="openStockCorrection(<?=$s['produit_id']?>,<?=$s['franchise_id']?>,<?=$s['quantite']?>,'<?=ejs($s['pnom'])?>')" class="text-gray-400 hover:text-purple-600" title="Corriger le stock"><i class="bi bi-pencil-square text-xs"></i></button>
                         <?php if($s['quantite'] <= 0): ?>
                         <form method="POST" class="inline" onsubmit="return confirm('Désactiver?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="toggle_produit"><input type="hidden" name="produit_id" value="<?=$s['produit_id']?>">
                         <button class="text-red-400 hover:text-red-700 text-xs"><i class="bi bi-eye-slash"></i></button></form>
@@ -2323,6 +2339,32 @@ function filterStock(){
         if(match) v++;
     });
     document.getElementById('stockCount').textContent = q ? v+'/'+rows.length : '';
+}
+
+function openStockCorrection(pid, fid, currentQty, nom) {
+    openModal(
+        modalHeader('bi-pencil-square','Correction de stock',nom) +
+        `<form method="POST" class="p-6 space-y-4">
+            <input type="hidden" name="_csrf" value="<?=$csrf?>">
+            <input type="hidden" name="action" value="stock_set">
+            <input type="hidden" name="produit_id" value="${pid}">
+            <input type="hidden" name="franchise_id" value="${fid}">
+            <div class="bg-gray-50 rounded-xl p-3 text-center mb-2">
+                <div class="text-xs text-gray-400">Stock actuel</div>
+                <div class="text-3xl font-black text-asel">${currentQty}</div>
+            </div>
+            ${modalField('Nouvelle quantité *', 'quantite_new', 'number', currentQty, '0')}
+            ${modalField('Raison', 'note', 'text', '', 'Correction inventaire, casse, vol...')}
+            <div class="flex gap-3">
+                <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 font-semibold text-sm">Annuler</button>
+                <button type="submit" class="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2">
+                    <i class="bi bi-check-circle"></i> Appliquer
+                </button>
+            </div>
+        </form>`,
+        {size: 'max-w-sm'}
+    );
+    setTimeout(() => document.querySelector('[name="quantite_new"]')?.select(), 200);
 }
 
 function filterStockLow(){
