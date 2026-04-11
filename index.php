@@ -1398,6 +1398,34 @@ if ($page === 'dashboard'):
 <?php endif; ?>
 
 <!-- Charts -->
+<?php if(isAdminOrGest()): ?>
+<!-- Today's franchise status -->
+<?php
+$franchise_status = query("SELECT f.id, f.nom,
+    COALESCE((SELECT SUM(prix_total) FROM ventes WHERE franchise_id=f.id AND date_vente=CURDATE()),0) as ca_today,
+    COALESCE((SELECT COUNT(*) FROM ventes WHERE franchise_id=f.id AND date_vente=CURDATE()),0) as nb_today,
+    (SELECT id FROM clotures WHERE franchise_id=f.id AND date_cloture=CURDATE() LIMIT 1) as cloture_id
+    FROM franchises f WHERE f.actif=1 AND (f.type_franchise IS NULL OR f.type_franchise='point_de_vente') ORDER BY f.nom");
+?>
+<?php if(count($franchise_status)>1): ?>
+<div class="grid grid-cols-<?=min(count($franchise_status),4)?> gap-3 mb-4">
+<?php foreach($franchise_status as $fs): ?>
+<div class="bg-white rounded-xl p-3 shadow-sm border-l-4 <?=$fs['cloture_id']?'border-green-500':'border-gray-200'?>">
+    <div class="flex items-center justify-between mb-1">
+        <span class="text-xs font-bold text-gray-600"><?=e(shortF($fs['nom']))?></span>
+        <?php if($fs['cloture_id']): ?>
+        <i class="bi bi-check-circle-fill text-green-500 text-sm"></i>
+        <?php else: ?>
+        <a href="?page=cloture&fid=<?=$fs['id']?>" class="text-[10px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded hover:bg-amber-200">Clôturer</a>
+        <?php endif; ?>
+    </div>
+    <div class="text-lg font-black <?=$fs['cloture_id']?'text-green-600':'text-asel-dark'?>"><?=number_format($fs['ca_today'],0)?> DT</div>
+    <div class="text-[10px] text-gray-400"><?=$fs['nb_today']?> ventes</div>
+</div>
+<?php endforeach; ?>
+</div>
+<?php endif; ?>
+<?php endif; ?>
 <div class="grid lg:grid-cols-2 gap-4 mb-6">
     <div class="bg-white rounded-xl shadow-sm p-4">
         <h3 class="font-semibold text-sm text-asel-dark mb-3"><i class="bi bi-graph-up text-asel"></i> Tendance des ventes (30j)</h3>
