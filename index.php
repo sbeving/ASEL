@@ -3924,6 +3924,33 @@ elseif ($page === 'clients'):
 
 <script>function filterClients(){const q=document.getElementById('clientSearch').value.toLowerCase();const rows=document.querySelectorAll('.client-row');let v=0;rows.forEach(r=>{const m=!q||r.dataset.search.includes(q);r.style.display=m?'':'none';const er=r.nextElementSibling;if(er&&er.id&&er.id.startsWith('ec')&&!m)er.style.display='none';if(m)v++;});document.getElementById('clientCount').textContent=q?v+'/'+rows.length:'';}
 
+function bulkWhatsAppReminder() {
+    const overdue = <?=json_encode(array_map(fn($e) => [
+        'nom' => $e['client_nom'].' '.($e['client_prenom']??''),
+        'tel' => $e['client_tel'],
+        'montant' => number_format($e['montant'],2),
+        'date' => date('d/m/Y', strtotime($e['date_echeance']))
+    ], array_values($en_retard)))?>;
+    
+    if(!overdue.length) { showToast('Aucun en retard', 'info'); return; }
+    
+    let rows = overdue.map((e, i) => 
+        `<div class="flex items-center gap-2 py-1.5 border-b text-sm">
+            <span class="flex-1 font-medium">${e.nom}</span>
+            <span class="text-red-600 font-bold">${e.montant} DT</span>
+            ${e.tel ? `<a href="https://wa.me/${e.tel.replace(/[^0-9]/g,'')}?text=${encodeURIComponent('Bonjour '+e.nom+', votre versement de '+e.montant+' DT était dû le '+e.date+'. Merci de régulariser — ASEL Mobile')}" target="_blank" class="bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-lg"><i class="bi bi-whatsapp"></i></a>` : '<span class="text-gray-300 text-xs">Sans tél.</span>'}
+        </div>`
+    ).join('');
+    
+    openModal(modalHeader('bi-whatsapp','Rappels en retard','Envoyer via WhatsApp') +
+        `<div class="p-5">${rows}
+        <p class="text-xs text-gray-400 mt-3">Cliquez sur le bouton vert pour ouvrir WhatsApp avec le message pré-rempli.</p>
+        <button onclick="closeModal()" class="w-full mt-4 py-2.5 rounded-xl bg-gray-200 font-semibold text-sm">Fermer</button>
+        </div>`,
+        {size: 'max-w-md'}
+    );
+}
+
 function openClientProfile(cid, nom) {
     openModal(modalHeader('bi-person-lines-fill', nom, 'Profil client & historique') +
         `<div class="p-5" id="clientProfileContent"><div class="text-center py-8 text-gray-400"><i class="bi bi-hourglass-split text-2xl animate-spin block mb-2"></i>Chargement...</div></div>`,
@@ -4171,6 +4198,11 @@ elseif ($page === 'factures'):
 ?>
 <div class="flex justify-between items-center mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-credit-card text-asel"></i> Échéances <span class="text-sm font-normal text-gray-400">(<?=count($echeances)?>)</span></h1>
+    <?php if(count($en_retard)): ?>
+    <button onclick="bulkWhatsAppReminder()" class="bg-green-600 text-white text-xs font-bold px-3 py-2 rounded-xl hover:bg-green-700 transition-colors flex items-center gap-1">
+        <i class="bi bi-whatsapp"></i> Rappel (<?=count($en_retard)?> en retard)
+    </button>
+    <?php endif; ?>
 </div>
 <!-- KPIs -->
 <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
