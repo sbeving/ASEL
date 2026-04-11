@@ -190,18 +190,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         auditLog('cloture_submit', 'franchise', $cfid, ['date'=>$_POST['date_cloture'], 'declare'=>$_POST['total_declare'], 'systeme'=>$sys['t']]);
     }
     elseif ($action === 'add_produit') {
-        execute("INSERT INTO produits (nom,categorie_id,prix_achat,prix_vente,reference,code_barre,marque,seuil_alerte) VALUES (?,?,?,?,?,?,?,?)",
-            [$_POST['nom'], $_POST['categorie_id'], $_POST['prix_achat'], $_POST['prix_vente'], $_POST['reference'] ?? '', $_POST['code_barre'] ?? '', $_POST['marque'] ?? '', $_POST['seuil'] ?? 3]);
+        $nom = trim($_POST['nom'] ?? '');
+        if (!$nom) { $_SESSION['flash']=['type'=>'danger','msg'=>'Nom requis!']; header("Location: index.php?page=produits"); exit; }
+        execute("INSERT INTO produits (nom,categorie_id,prix_achat,prix_vente,prix_achat_ht,prix_achat_ttc,prix_vente_ht,prix_vente_ttc,tva_rate,reference,code_barre,marque,seuil_alerte) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [$nom, intval($_POST['categorie_id']), floatval($_POST['prix_achat']), floatval($_POST['prix_vente']),
+             floatval($_POST['prix_achat_ht'] ?? $_POST['prix_achat']), floatval($_POST['prix_achat_ttc'] ?? $_POST['prix_achat']),
+             floatval($_POST['prix_vente_ht'] ?? $_POST['prix_vente']), floatval($_POST['prix_vente_ttc'] ?? $_POST['prix_vente']),
+             floatval($_POST['tva_rate'] ?? 19),
+             strParam('reference',50), strParam('code_barre',50), strParam('marque',50), intval($_POST['seuil'] ?? 3)]);
         $pid = db()->lastInsertId();
         foreach (query("SELECT id FROM franchises WHERE actif=1") as $f) execute("INSERT IGNORE INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,0)", [$f['id'], $pid]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Produit ajouté!'];
-        auditLog('add_produit', 'produit', $pid, ['nom'=>$_POST['nom'], 'prix_vente'=>$_POST['prix_vente']]);
+        auditLog('add_produit', 'produit', $pid, ['nom'=>$nom]);
     }
     elseif ($action === 'edit_produit') {
-        execute("UPDATE produits SET nom=?,categorie_id=?,prix_achat=?,prix_vente=?,reference=?,code_barre=?,marque=?,seuil_alerte=? WHERE id=?",
-            [$_POST['nom'], $_POST['categorie_id'], $_POST['prix_achat'], $_POST['prix_vente'], $_POST['reference'] ?? '', $_POST['code_barre'] ?? '', $_POST['marque'] ?? '', $_POST['seuil'] ?? 3, $_POST['produit_id']]);
+        $nom = trim($_POST['nom'] ?? '');
+        if (!$nom) { $_SESSION['flash']=['type'=>'danger','msg'=>'Nom requis!']; header("Location: index.php?page=produits"); exit; }
+        $tva = floatval($_POST['tva_rate'] ?? 19);
+        $pa_ht = floatval($_POST['prix_achat_ht'] ?? 0);
+        $pv_ht = floatval($_POST['prix_vente_ht'] ?? 0);
+        $pa_ttc = $pa_ht > 0 ? round($pa_ht * (1 + $tva/100), 2) : floatval($_POST['prix_achat']);
+        $pv_ttc = $pv_ht > 0 ? round($pv_ht * (1 + $tva/100), 2) : floatval($_POST['prix_vente']);
+        execute("UPDATE produits SET nom=?,categorie_id=?,prix_achat=?,prix_vente=?,prix_achat_ht=?,prix_achat_ttc=?,prix_vente_ht=?,prix_vente_ttc=?,tva_rate=?,reference=?,code_barre=?,marque=?,seuil_alerte=?,description=? WHERE id=?",
+            [$nom, intval($_POST['categorie_id']), $pa_ttc, $pv_ttc, $pa_ht, $pa_ttc, $pv_ht, $pv_ttc, $tva,
+             strParam('reference',50), strParam('code_barre',50), strParam('marque',50),
+             intval($_POST['seuil'] ?? 3), strParam('description',500), intval($_POST['produit_id'])]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Produit mis à jour!'];
-        auditLog('edit_produit', 'produit', $_POST['produit_id'], ['nom'=>$_POST['nom'], 'prix_vente'=>$_POST['prix_vente']]);
+        auditLog('edit_produit', 'produit', intval($_POST['produit_id']), ['nom'=>$nom, 'pv_ttc'=>$pv_ttc]);
     }
     elseif ($action === 'demande_produit') {
         $dfid = can('view_all_franchises') ? $_POST['franchise_id'] : currentFranchise();
@@ -919,6 +934,12 @@ if ($page === 'dashboard'):
     $profit_month = $vm['t'] - $vm['cout'];
     $margin_today = $vj['t'] > 0 ? round($profit_today / $vj['t'] * 100) : 0;
     $stock_profit_potential = $st['valeur'] - $st['cout'];
+    // Trésorerie today
+    try {
+        $tr_enc_today = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE type_mouvement='encaissement' AND date_mouvement=CURDATE()".($fid?" AND franchise_id=".intval($fid):""))['t'];
+        $tr_dec_today = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE type_mouvement='decaissement' AND date_mouvement=CURDATE()".($fid?" AND franchise_id=".intval($fid):""))['t'];
+        $tr_solde = $tr_enc_today - $tr_dec_today;
+    } catch(Exception $e) { $tr_enc_today = $tr_dec_today = $tr_solde = 0; }
 ?>
 
 <!-- Dashboard header with quick actions -->
@@ -1019,6 +1040,16 @@ if ($page === 'dashboard'):
                 <div class="text-xs text-gray-400">si tout vendu</div>
             </div>
             <div class="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center"><i class="bi bi-gem text-indigo-500 text-lg"></i></div>
+        </div>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-emerald-600 hover-lift">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Trésorerie (aujourd'hui)</div>
+                <div class="text-2xl font-black <?=$tr_solde>=0?'text-emerald-600':'text-red-600'?>"><?=number_format($tr_solde)?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+                <div class="text-xs text-gray-400">Enc: <?=number_format($tr_enc_today)?> · Déc: <?=number_format($tr_dec_today)?></div>
+            </div>
+            <div class="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center"><i class="bi bi-cash-stack text-emerald-600 text-lg"></i></div>
         </div>
     </div>
 </div>
@@ -2309,8 +2340,14 @@ elseif ($page === 'transferts'):
                     <td class="px-2 py-1.5 text-xs font-mono text-gray-500"><?=e($p['reference'])?:'-'?></td>
                     <td class="px-2 py-1.5 text-xs hidden sm:table-cell"><span class="inline-flex px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px]"><?=e($p['cat_nom'])?></span></td>
                     <td class="px-2 py-1.5 text-xs text-gray-500 hidden md:table-cell"><?=e($p['marque'])?></td>
-                    <td class="px-2 py-1.5 text-right text-xs text-gray-500 hidden md:table-cell"><?=number_format($p['prix_achat_ht'] ?? $p['prix_achat'],1)?></td>
-                    <td class="px-2 py-1.5 text-right font-semibold text-sm"><?=number_format($p['prix_vente_ttc'] ?? $p['prix_vente'],1)?></td>
+                    <td class="px-2 py-1.5 text-right text-xs text-gray-500 hidden md:table-cell">
+                        <div><?=number_format($p['prix_achat_ht'] ?? $p['prix_achat'],2)?></div>
+                        <div class="text-[9px] text-gray-300">TVA <?=number_format($p['tva_rate']??19,0)?>%</div>
+                    </td>
+                    <td class="px-2 py-1.5 text-right">
+                        <div class="font-bold text-sm"><?=number_format($p['prix_vente_ttc'] ?? $p['prix_vente'],2)?></div>
+                        <div class="text-[9px] text-gray-400 hidden sm:block">HT <?=number_format($p['prix_vente_ht']??$p['prix_vente'],2)?></div>
+                    </td>
                     <td class="px-2 py-1.5 text-center">
                         <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold <?=$m>=30?'bg-green-100 text-green-800':($m>=15?'bg-yellow-100 text-yellow-800':'bg-red-100 text-red-800')?>"><?=number_format($m,0)?>%</span>
                     </td>
@@ -2334,7 +2371,7 @@ elseif ($page === 'transferts'):
                     <td class="px-2 py-1.5">
                         <div class="flex gap-0.5">
                             <button onclick="viewProductDetails(<?=$p['id']?>,'<?=ejs($p['nom'])?>','<?=ejs($p['reference'])?>','<?=ejs($p['marque'])?>','<?=ejs($p['cat_nom'])?>',<?=$p['prix_achat']?>,<?=$p['prix_vente']?>,'<?=ejs($p['code_barre'])?>',<?=$p['seuil_alerte']?>)" class="text-gray-400 hover:text-asel" title="Détails"><i class="bi bi-eye text-sm"></i></button>
-                            <button onclick="openEditProduct(<?=$p['id']?>,'<?=ejs($p['nom'])?>',<?=$p['categorie_id']?>,'<?=ejs($p['marque'])?>','<?=ejs($p['reference'])?>','<?=ejs($p['code_barre'])?>',<?=$p['prix_achat']?>,<?=$p['prix_vente']?>,<?=$p['seuil_alerte']?>)" class="text-asel hover:text-asel-dark" title="Modifier"><i class="bi bi-pencil text-sm"></i></button>
+                            <button onclick="openEditProduct(<?=$p['id']?>,'<?=ejs($p['nom'])?>',<?=$p['categorie_id']?>,'<?=ejs($p['marque'])?>','<?=ejs($p['reference'])?>','<?=ejs($p['code_barre'])?>',<?=$p['prix_achat']?>,<?=$p['prix_vente']?>,<?=$p['seuil_alerte']?>,<?=floatval($p['prix_achat_ht']??0)?>,<?=floatval($p['prix_vente_ht']??0)?>,<?=floatval($p['tva_rate']??19)?>, '<?=ejs($p['description']??'')?>')" class="text-asel hover:text-asel-dark" title="Modifier"><i class="bi bi-pencil text-sm"></i></button>
                             <?php if(isAdmin()): ?>
                             <form method="POST" class="inline" onsubmit="return confirm('Désactiver?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="toggle_produit"><input type="hidden" name="produit_id" value="<?=$p['id']?>">
                             <button class="text-gray-300 hover:text-red-500" title="Désactiver"><i class="bi bi-eye-slash text-sm"></i></button></form>
@@ -4538,47 +4575,100 @@ function openAddCategory() {
 }
 
 // === EDIT PRODUCT MODAL (with barcode scanner) ===
-function openEditProduct(id, nom, catId, marque, ref, code, pa, pv, seuil) {
+function openEditProduct(id, nom, catId, marque, ref, code, pa, pv, seuil, pa_ht, pv_ht, tva_rate, description) {
+    pa_ht = pa_ht || parseFloat((pa / 1.19).toFixed(2));
+    pv_ht = pv_ht || parseFloat((pv / 1.19).toFixed(2));
+    tva_rate = tva_rate || 19;
+    description = description || '';
     const csrf = '<?=$csrf?>';
     const cats = <?=json_encode(array_map(fn($c) => ['value' => $c['id'], 'label' => $c['nom']], $categories))?>;
+    const fourns = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => $f['nom']], $fournisseurs))?>;
     cats.forEach(c => c.selected = (c.value == catId));
+    
     openModal(
         modalHeader('bi-pencil', 'Modifier le produit', nom) +
-        `<form method="POST" class="p-6 space-y-4">
+        `<form method="POST" class="p-5 space-y-3" id="editProdForm_${id}">
             <input type="hidden" name="_csrf" value="${csrf}">
             <input type="hidden" name="action" value="edit_produit">
             <input type="hidden" name="produit_id" value="${id}">
-            ${modalField('Nom *', 'nom', 'text', nom, '')}
+            ${modalField('Nom *', 'nom', 'text', nom, 'Nom du produit')}
             ${modalRow([
                 modalField('Catégorie', 'categorie_id', 'select', '', '', cats),
-                modalField('Marque', 'marque', 'text', marque, ''),
+                modalField('Marque', 'marque', 'text', marque, 'Marque'),
             ])}
             ${modalRow([
-                modalField('Référence', 'reference', 'text', ref, ''),
-            ])}
-            <div>
-                <label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Code-barres</label>
-                <div class="flex gap-2">
-                    <input type="text" name="code_barre" value="${code}" placeholder="Scan ou saisir" 
-                        class="flex-1 border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:border-asel" id="editBarcode_${id}">
-                    <button type="button" onclick="openScanner('editBarcode_${id}')" class="px-3 bg-asel text-white rounded-xl hover:bg-asel-dark transition-colors" title="Scanner">
-                        <i class="bi bi-upc-scan"></i>
+                modalField('Référence', 'reference', 'text', ref, 'REF-001'),
+                `<div><label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Code-barres</label>
+                <div class="flex gap-1">
+                    <input type="text" name="code_barre" value="${code}" placeholder="Scan..."
+                        class="flex-1 border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:border-asel outline-none" id="editBarcode_${id}">
+                    <button type="button" onclick="openScanner('editBarcode_${id}')" class="px-2.5 bg-asel/10 text-asel rounded-xl hover:bg-asel hover:text-white transition-colors" title="Scanner">
+                        <i class="bi bi-upc-scan text-sm"></i>
                     </button>
-                </div>
-            </div>
-            ${modalRow([
-                modalField('Prix achat (DT)', 'prix_achat', 'number', pa, ''),
-                modalField('Prix vente (DT)', 'prix_vente', 'number', pv, ''),
+                </div></div>`
             ])}
-            ${modalField('Seuil alerte', 'seuil', 'number', seuil, '')}
+            <!-- Prix avec HT/TVA/TTC -->
+            <div class="grid grid-cols-3 gap-2 bg-blue-50 rounded-xl p-3 border border-blue-200">
+                <div class="col-span-3 text-xs font-bold text-blue-700 mb-1"><i class="bi bi-calculator"></i> Prix d'achat</div>
+                <div><label class="text-[10px] font-bold text-gray-400">HT (DT)</label>
+                    <input type="number" name="prix_achat_ht" id="ep_pa_ht_${id}" value="${pa_ht}" step="0.01" min="0"
+                        class="w-full border-2 border-gray-200 rounded-lg px-2 py-2 text-sm focus:border-asel outline-none" oninput="epRecalc(${id})"></div>
+                <div><label class="text-[10px] font-bold text-gray-400">TVA %</label>
+                    <input type="number" name="tva_rate" id="ep_tva_${id}" value="${tva_rate}" step="0.01" min="0"
+                        class="w-full border-2 border-gray-200 rounded-lg px-2 py-2 text-sm focus:border-asel outline-none" oninput="epRecalc(${id})"></div>
+                <div><label class="text-[10px] font-bold text-gray-400">TTC (DT)</label>
+                    <input id="ep_pa_ttc_${id}" readonly class="w-full border-2 border-gray-100 bg-gray-50 rounded-lg px-2 py-2 text-sm font-bold text-blue-700"></div>
+            </div>
+            <div class="grid grid-cols-3 gap-2 bg-green-50 rounded-xl p-3 border border-green-200">
+                <div class="col-span-3 text-xs font-bold text-green-700 mb-1"><i class="bi bi-tag"></i> Prix de vente</div>
+                <div><label class="text-[10px] font-bold text-gray-400">HT (DT)</label>
+                    <input type="number" name="prix_vente_ht" id="ep_pv_ht_${id}" value="${pv_ht}" step="0.01" min="0"
+                        class="w-full border-2 border-gray-200 rounded-lg px-2 py-2 text-sm focus:border-asel outline-none" oninput="epRecalc(${id})"></div>
+                <div><label class="text-[10px] font-bold text-gray-400">Marge</label>
+                    <div id="ep_marge_${id}" class="w-full border-2 border-gray-100 bg-gray-50 rounded-lg px-2 py-2 text-sm font-bold text-center text-green-700 mt-0">—</div></div>
+                <div><label class="text-[10px] font-bold text-gray-400">TTC (DT)</label>
+                    <input id="ep_pv_ttc_${id}" readonly class="w-full border-2 border-gray-100 bg-gray-50 rounded-lg px-2 py-2 text-sm font-bold text-green-700"></div>
+            </div>
+            <!-- Hidden fields for compat -->
+            <input type="hidden" name="prix_achat" id="ep_pa_${id}" value="${pa}">
+            <input type="hidden" name="prix_vente" id="ep_pv_${id}" value="${pv}">
+            ${modalRow([
+                modalField('Seuil alerte', 'seuil', 'number', seuil, '3'),
+                modalField('Description', 'description', 'text', description, 'Optionnel'),
+            ])}
             <div class="flex gap-3 pt-2">
                 <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm">Annuler</button>
-                <button type="submit" class="flex-1 py-2.5 rounded-xl bg-asel hover:bg-asel-dark text-white font-semibold text-sm flex items-center justify-center gap-2">
+                <button type="submit" class="flex-1 py-2.5 rounded-xl bg-asel hover:bg-asel-dark text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors">
                     <i class="bi bi-check-circle"></i> Sauvegarder
                 </button>
             </div>
-        </form>`
+        </form>`,
+        {size: 'max-w-lg'}
     );
+    
+    // Init calculations
+    setTimeout(() => { epRecalc(id); }, 50);
+}
+
+function epRecalc(id) {
+    const pa_ht = parseFloat(document.getElementById('ep_pa_ht_'+id)?.value || 0);
+    const pv_ht = parseFloat(document.getElementById('ep_pv_ht_'+id)?.value || 0);
+    const tva = parseFloat(document.getElementById('ep_tva_'+id)?.value || 19);
+    const pa_ttc = (pa_ht * (1 + tva/100)).toFixed(2);
+    const pv_ttc = (pv_ht * (1 + tva/100)).toFixed(2);
+    const marge = pv_ht > 0 ? Math.round((pv_ht - pa_ht) / pv_ht * 100) : 0;
+    
+    const pa_ttc_el = document.getElementById('ep_pa_ttc_'+id);
+    const pv_ttc_el = document.getElementById('ep_pv_ttc_'+id);
+    const marge_el = document.getElementById('ep_marge_'+id);
+    const pa_el = document.getElementById('ep_pa_'+id);
+    const pv_el = document.getElementById('ep_pv_'+id);
+    
+    if(pa_ttc_el) pa_ttc_el.value = pa_ttc;
+    if(pv_ttc_el) pv_ttc_el.value = pv_ttc;
+    if(marge_el) { marge_el.textContent = marge + '%'; marge_el.className = 'w-full border-2 border-gray-100 bg-gray-50 rounded-lg px-2 py-2 text-sm font-bold text-center mt-0 ' + (marge >= 20 ? 'text-green-700' : marge >= 10 ? 'text-yellow-600' : 'text-red-600'); }
+    if(pa_el) pa_el.value = pa_ttc;
+    if(pv_el) pv_el.value = pv_ttc;
 }
 
 // === ADD USER MODAL ===
