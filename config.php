@@ -149,6 +149,40 @@ function init_db() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ");
     
+    // Audit logs table (always ensure it exists)
+    $pdo->exec("CREATE TABLE IF NOT EXISTS audit_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        utilisateur_id INT,
+        utilisateur_nom VARCHAR(100),
+        action VARCHAR(50) NOT NULL,
+        cible VARCHAR(50),
+        cible_id INT,
+        details TEXT,
+        ip_address VARCHAR(45),
+        user_agent VARCHAR(255),
+        franchise_id INT,
+        date_creation DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_date (date_creation),
+        INDEX idx_user (utilisateur_id),
+        INDEX idx_action (action)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    
+    // Notifications table
+    $pdo->exec("CREATE TABLE IF NOT EXISTS notifications (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        destinataire_id INT,
+        franchise_id INT,
+        role_cible VARCHAR(20),
+        type_notif ENUM('info','warning','danger','success') DEFAULT 'info',
+        titre VARCHAR(150) NOT NULL,
+        message TEXT,
+        lien VARCHAR(255),
+        lu TINYINT DEFAULT 0,
+        date_creation DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_dest (destinataire_id, lu),
+        INDEX idx_franchise (franchise_id, lu)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    
     // Migrate old role column if needed
     try { $pdo->exec("ALTER TABLE utilisateurs MODIFY COLUMN role ENUM('admin','franchise','gestionnaire','viewer') NOT NULL"); } catch(Exception $e) {}
 }

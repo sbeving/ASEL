@@ -3953,11 +3953,32 @@ function calcEcart(idx, sys, phys) {
     if ($filter_user) { $where[] = "utilisateur_id=?"; $params[] = $filter_user; }
     if ($filter_action) { $where[] = "action=?"; $params[] = $filter_action; }
     
-    $audit_logs = query("SELECT * FROM audit_logs WHERE " . implode(' AND ', $where) . " ORDER BY date_creation DESC LIMIT 200", $params);
-    $all_users_audit = query("SELECT DISTINCT utilisateur_id, utilisateur_nom FROM audit_logs ORDER BY utilisateur_nom");
-    $all_actions_audit = query("SELECT DISTINCT action FROM audit_logs ORDER BY action");
+    try {
+        $audit_logs = query("SELECT * FROM audit_logs WHERE " . implode(' AND ', $where) . " ORDER BY date_creation DESC LIMIT 200", $params);
+        $all_users_audit = query("SELECT DISTINCT utilisateur_id, utilisateur_nom FROM audit_logs ORDER BY utilisateur_nom");
+        $all_actions_audit = query("SELECT DISTINCT action FROM audit_logs ORDER BY action");
+        $audit_table_exists = true;
+    } catch(Exception $e) {
+        $audit_logs = []; $all_users_audit = []; $all_actions_audit = [];
+        $audit_table_exists = false;
+    }
 ?>
-<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-journal-text text-asel"></i> Journal d'audit</h1>
+<div class="flex justify-between items-center mb-4">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-journal-text text-asel"></i> Journal d'audit</h1>
+    <?php if($audit_table_exists): ?>
+    <span class="text-xs text-gray-400"><?=count($audit_logs)?> entrée(s)</span>
+    <?php endif; ?>
+</div>
+
+<?php if(!$audit_table_exists): ?>
+<div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+    <div class="flex items-center gap-3">
+        <i class="bi bi-exclamation-triangle text-amber-500 text-xl"></i>
+        <div><div class="font-bold text-amber-800">Table audit_logs non trouvée</div>
+        <div class="text-sm text-amber-700">Les logs d'audit sont enregistrés mais la table n'existe pas encore. <a href="setup.php" class="underline font-bold">Exécuter setup.php</a> pour la créer.</div></div>
+    </div>
+</div>
+<?php else: ?>
 
 <!-- Filters -->
 <form class="bg-white rounded-xl shadow-sm p-4 mb-4 flex flex-wrap gap-3 items-end">
@@ -4037,7 +4058,9 @@ function calcEcart(idx, sys, phys) {
         </tbody>
     </table></div>
 </div>
-<?php endif; ?>
+<?php endif; // audit_table_exists ?>
+<?php endif; // audit_log ?>
+
 
 <!-- FRANCHISE LOCATION EDITOR (admin only) -->
 <?php if ($page === 'franchise_locations' && isAdmin()):
