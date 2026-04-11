@@ -4495,7 +4495,11 @@ function getNewPointLocation() {
 <div class="p-4 lg:p-6 max-w-7xl mx-auto pb-20">
 <!-- ====================== FOURNISSEURS PAGE ====================== -->
 <?php if ($page === 'fournisseurs' && can('fournisseurs')): 
-    $all_fournisseurs = query("SELECT * FROM fournisseurs ORDER BY actif DESC, nom");
+    $all_fournisseurs = query("SELECT f.*,
+        (SELECT COUNT(*) FROM produits WHERE fournisseur_id=f.id AND actif=1) as nb_produits,
+        (SELECT COUNT(*) FROM bons_reception WHERE fournisseur_id=f.id) as nb_bons,
+        (SELECT COALESCE(SUM(total_ttc),0) FROM bons_reception WHERE fournisseur_id=f.id) as total_achats
+        FROM fournisseurs f ORDER BY f.actif DESC, f.nom");
 ?>
 <div class="flex justify-between items-center mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-truck text-asel"></i> Fournisseurs <span class="text-sm font-normal text-gray-400">(<?=count($all_fournisseurs)?>)</span></h1>
@@ -4503,16 +4507,27 @@ function getNewPointLocation() {
 </div>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <table class="w-full text-sm">
-        <thead><tr class="bg-asel-dark text-white text-xs uppercase"><th class="px-3 py-2 text-left">Nom</th><th class="px-3 py-2">Tél.</th><th class="px-3 py-2">Email</th><th class="px-3 py-2 hidden sm:table-cell">Adresse</th><th class="px-3 py-2">ICE</th><th class="px-3 py-2">Statut</th><th class="px-3 py-2">Act.</th></tr></thead>
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase"><th class="px-3 py-2 text-left">Nom</th><th class="px-3 py-2">Tél.</th><th class="px-3 py-2 hidden md:table-cell">Email</th><th class="px-3 py-2 hidden lg:table-cell">Adresse</th><th class="px-3 py-2 hidden sm:table-cell">ICE</th><th class="px-3 py-2 text-center">Produits</th><th class="px-3 py-2 text-center hidden sm:table-cell">Achats</th><th class="px-3 py-2">Statut</th><th class="px-3 py-2">Act.</th></tr></thead>
         <tbody class="divide-y">
         <?php foreach($all_fournisseurs as $f): ?>
-        <tr class="<?=$f['actif']?'':'bg-gray-50 opacity-60'?>">
-            <td class="px-3 py-2 font-semibold"><?=e($f['nom'])?></td>
-            <td class="px-3 py-2 text-center"><?=e($f['telephone'])?></td>
-            <td class="px-3 py-2 text-center"><?=e($f['email'])?></td>
-            <td class="px-3 py-2 text-center hidden sm:table-cell"><?=e($f['adresse'])?></td>
-            <td class="px-3 py-2 text-center text-xs font-mono"><?=e($f['ice'] ?? '')?></td>
-            <td class="px-3 py-2 text-center"><?=$f['actif']?'<span class="text-green-600 text-xs font-bold">Actif</span>':'<span class="text-red-500 text-xs">Inactif</span>'?></td>
+        <tr class="hover:bg-gray-50 <?=$f['actif']?'':'opacity-60'?>">
+            <td class="px-3 py-2">
+                <div class="font-semibold"><?=e($f['nom'])?></div>
+                <?php if($f['nb_bons']>0): ?><div class="text-[10px] text-gray-400"><?=$f['nb_bons']?> bon(s) réception</div><?php endif; ?>
+            </td>
+            <td class="px-3 py-2 text-center text-xs"><a href="tel:<?=e($f['telephone'])?>" class="text-asel"><?=e($f['telephone'])?></a></td>
+            <td class="px-3 py-2 text-center text-xs hidden md:table-cell"><?=e($f['email']??'')?></td>
+            <td class="px-3 py-2 text-center text-xs hidden lg:table-cell"><?=e(mb_substr($f['adresse']??'',0,25))?></td>
+            <td class="px-3 py-2 text-center text-xs font-mono hidden sm:table-cell"><?=e($f['ice'] ?? '')?></td>
+            <td class="px-3 py-2 text-center">
+                <?php if($f['nb_produits']>0): ?>
+                <span class="inline-flex items-center gap-1 bg-asel/10 text-asel text-xs font-bold px-2 py-0.5 rounded-full"><?=$f['nb_produits']?> 🏷️</span>
+                <?php else: ?><span class="text-gray-300 text-xs">—</span><?php endif; ?>
+            </td>
+            <td class="px-3 py-2 text-center hidden sm:table-cell">
+                <?php if($f['total_achats']>0): ?><span class="text-xs font-bold text-asel-dark"><?=number_format($f['total_achats'],2)?> DT</span><?php else: ?><span class="text-gray-300 text-xs">—</span><?php endif; ?>
+            </td>
+            <td class="px-3 py-2 text-center"><?=$f['actif']?'<span class="bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5 rounded-full">Actif</span>':'<span class="bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded-full">Inactif</span>'?></td>
             <td class="px-3 py-2 text-center"><button onclick="openEditFournisseur(this)" 
     data-id="<?=$f['id']?>" data-nom="<?=e($f['nom'])?>" data-tel="<?=e($f['telephone']??'')?>"
     data-email="<?=e($f['email']??'')?>" data-adresse="<?=e($f['adresse']??'')?>" 
