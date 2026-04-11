@@ -322,9 +322,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         auditLog('edit_asel_product', 'produit_asel', $_POST['produit_id'], ['nom'=>$_POST['nom']]);
     }
     elseif ($action === 'pay_echeance') {
-        execute("UPDATE echeances SET statut='payee',date_paiement=NOW(),mode_paiement='especes' WHERE id=?", [$_POST['echeance_id']]);
-        $_SESSION['flash'] = ['type'=>'success','msg'=>'Échéance encaissée!'];
-        auditLog('pay_echeance', 'echeance', $_POST['echeance_id']);
+        $eid = intval($_POST['echeance_id']);
+        $ech = queryOne("SELECT * FROM echeances WHERE id=?", [$eid]);
+        if($ech && $ech['statut'] !== 'payee') {
+            execute("UPDATE echeances SET statut='payee',date_paiement=NOW(),mode_paiement='especes' WHERE id=?", [$eid]);
+            // Auto-record in trésorerie
+            try {
+                execute("INSERT INTO tresorerie (franchise_id,type_mouvement,montant,motif,reference,utilisateur_id) VALUES (?,?,?,?,?,?)",
+                    [$ech['franchise_id'], 'encaissement', $ech['montant'], 
+                     'Lot échéance — ' . ($ech['note'] ?: 'Facture'), $ech['facture_id'] ? 'FAC-'.$ech['facture_id'] : '', $user['id']]);
+            } catch(Exception $e) { /* trésorerie table may not exist yet */ }
+            $_SESSION['flash'] = ['type'=>'success','msg'=>'✅ Échéance encaissée! '.number_format($ech['montant'],2).' DT enregistré.'];
+            auditLog('pay_echeance', 'echeance', $eid, ['montant'=>$ech['montant']]);
+        }
     }
     elseif ($action === 'create_echeance') {
         execute("INSERT INTO echeances (facture_id,franchise_id,client_id,montant,date_echeance,note,utilisateur_id) VALUES (?,?,?,?,?,?,?)",
@@ -4132,7 +4142,13 @@ function getNewPointLocation() {
 
     <div class="flex justify-between items-center mb-6">
         <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-building text-asel"></i> Stock Central (Entrepôt)</h1>
-        <a href="api.php?action=export_stock&fid=<?=$cid?>" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export</a>
+        <div class="flex gap-2">
+            <?php if(can('add_produit')): ?>
+            <button onclick="openQuickAddProduct('stock_central')" class="bg-green-500 hover:bg-green-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors flex items-center gap-1"><i class="bi bi-plus-circle"></i> Nouveau produit</button>
+            <?php endif; ?>
+            <a href="?page=entree&fid=<?=$cid?>" class="bg-white border-2 border-asel text-asel text-xs font-bold px-3 py-2 rounded-xl hover:bg-asel hover:text-white transition-colors flex items-center gap-1"><i class="bi bi-box-arrow-in-down"></i> Entrée stock</a>
+            <a href="api.php?action=export_stock&fid=<?=$cid?>" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-2 rounded-xl hover:border-asel hover:text-asel transition-colors"><i class="bi bi-download"></i> Export</a>
+        </div>
     </div>
     
     <!-- KPIs -->
