@@ -1083,21 +1083,45 @@ if ($page === 'dashboard'):
 
 <!-- Stock alerts table -->
 <?php if (count($alertes)): ?>
-<div class="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
+<div class="bg-white rounded-xl shadow-sm overflow-hidden mb-6 border-l-4 border-amber-500">
     <div class="bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-center justify-between">
-        <span class="flex items-center gap-2 text-amber-800 font-semibold text-sm"><i class="bi bi-exclamation-triangle-fill"></i> <?=count($alertes)?> produit(s) en stock bas</span>
-        <?php if (can('stock_central')): ?><a href="?page=stock_central" class="text-xs text-amber-600 hover:text-amber-800"><i class="bi bi-truck"></i> Dispatcher</a><?php endif; ?>
+        <span class="flex items-center gap-2 text-amber-800 font-semibold text-sm"><i class="bi bi-exclamation-triangle-fill"></i> <?=count($alertes)?> produit(s) en stock bas — Commandez maintenant</span>
+        <?php if (can('entree_stock')): ?>
+        <a href="?page=entree<?=$fid?"&fid=$fid":""?>" class="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"><i class="bi bi-box-arrow-in-down"></i> Entrée stock</a>
+        <?php endif; ?>
     </div>
     <div class="overflow-x-auto">
         <table class="w-full text-sm">
-            <thead class="bg-gray-50 sticky-thead"><tr class="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider"><th class="px-4 py-2">Franchise</th><th class="px-4 py-2">Produit</th><th class="px-4 py-2 text-center">Qté</th><th class="px-4 py-2 text-center">Seuil</th></tr></thead>
+            <thead class="bg-gray-50 sticky-thead"><tr class="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th class="px-4 py-2">Franchise</th>
+                <th class="px-4 py-2">Produit</th>
+                <th class="px-4 py-2 text-center">Stock</th>
+                <th class="px-4 py-2 text-center">Seuil</th>
+                <?php if(can('entree_stock')): ?><th class="px-4 py-2 text-center">Action</th><?php endif; ?>
+            </tr></thead>
             <tbody class="divide-y divide-gray-100">
             <?php foreach ($alertes as $a): ?>
                 <tr class="<?=$a['quantite']<=0?'bg-red-50':'hover:bg-amber-50/30'?>">
-                    <td class="px-4 py-2 text-xs"><?=shortF($a['fnom'])?></td>
-                    <td class="px-4 py-2 font-medium"><?=htmlspecialchars($a['pnom'])?> <span class="text-xs text-gray-400"><?=$a['marque']?></span></td>
-                    <td class="px-4 py-2 text-center"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold <?=$a['quantite']<=0?'bg-red-100 text-red-800':'bg-amber-100 text-amber-800'?>"><?=$a['quantite']?></span></td>
-                    <td class="px-4 py-2 text-center text-gray-400"><?=$a['seuil_alerte']?></td>
+                    <td class="px-4 py-2 text-xs text-gray-500"><?=shortF($a['fnom'])?></td>
+                    <td class="px-4 py-2">
+                        <div class="font-medium"><?=e($a['pnom'])?></div>
+                        <div class="text-xs text-gray-400"><?=e($a['marque'])?></div>
+                    </td>
+                    <td class="px-4 py-2 text-center">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold <?=$a['quantite']<=0?'bg-red-100 text-red-800':'bg-amber-100 text-amber-800'?>">
+                            <?=$a['quantite']<=0?'⚠️ ÉPUISÉ':$a['quantite']?>
+                        </span>
+                    </td>
+                    <td class="px-4 py-2 text-center text-xs text-gray-400"><?=$a['seuil_alerte']?></td>
+                    <?php if(can('entree_stock')): ?>
+                    <td class="px-4 py-2 text-center">
+                        <a href="?page=entree&fid=<?=$a['franchise_id']?>" 
+                           class="inline-flex items-center gap-1 bg-asel/10 hover:bg-asel text-asel hover:text-white text-xs font-bold px-2.5 py-1.5 rounded-lg transition-colors"
+                           title="Faire une entrée de stock">
+                            <i class="bi bi-plus-circle"></i> Réappro.
+                        </a>
+                    </td>
+                    <?php endif; ?>
                 </tr>
             <?php endforeach; ?>
             </tbody>
@@ -1626,16 +1650,31 @@ $recent_entrees = query("SELECT m.*,p.nom as pnom,p.reference FROM mouvements m 
     
     <!-- Search & add product -->
     <div class="bg-asel-light/30 rounded-xl p-3 mb-4 border border-asel/10">
-        <label class="text-xs font-bold text-gray-500 mb-2 block"><i class="bi bi-search"></i> Rechercher et ajouter un produit</label>
+        <label class="text-xs font-bold text-gray-500 mb-2 block"><i class="bi bi-upc-scan"></i> Scanner ou rechercher — code-barres, référence, nom, modèle, marque</label>
         <div class="flex gap-2">
             <div class="relative flex-1">
-                <input type="text" id="entreeSearch" placeholder="Tapez nom, référence ou scannez le code-barres..." 
-                    class="w-full border-2 border-asel/30 rounded-xl px-3 py-2.5 text-sm focus:border-asel outline-none bg-white"
-                    oninput="searchEntreeProducts(this.value)" autocomplete="off">
-                <div id="entreeSearchResults" class="absolute top-full left-0 right-0 bg-white border-2 border-asel/30 rounded-xl mt-1 shadow-xl z-50 max-h-60 overflow-y-auto hidden"></div>
+                <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none"></i>
+                <input type="text" id="entreeSearch" placeholder="Tapez n'importe quoi ou scannez le code-barres (↑↓ naviguer, Entrée ajouter)..." 
+                    class="w-full pl-9 pr-4 border-2 border-asel/30 rounded-xl py-2.5 text-sm focus:border-asel outline-none bg-white"
+                    oninput="searchEntreeProducts(this.value)" 
+                    onkeydown="handleEntreeKey(event)"
+                    autocomplete="off" spellcheck="false">
+                <div id="entreeSearchResults" class="absolute top-full left-0 right-0 bg-white border-2 border-asel/30 rounded-xl mt-1 shadow-2xl z-50 max-h-72 overflow-y-auto hidden"></div>
             </div>
-            <input type="number" id="entreeQty" value="1" min="1" class="w-16 border-2 border-gray-200 rounded-xl px-2 text-center text-sm font-bold" title="Quantité">
-            <input type="number" id="entreePrixHT" step="0.01" placeholder="P.A. HT" class="w-24 border-2 border-gray-200 rounded-xl px-2 text-xs" title="Prix d'achat HT">
+            <div class="flex gap-1">
+                <input type="number" id="entreeQty" value="1" min="1" class="w-16 border-2 border-gray-200 rounded-xl px-2 text-center text-sm font-bold" title="Quantité" placeholder="Qté">
+                <input type="number" id="entreePrixHT" step="0.01" placeholder="P.A. HT" class="w-24 border-2 border-gray-200 rounded-xl px-2 text-xs" title="Prix d'achat HT">
+                <button type="button" onclick="addEntreeLineFromSearch()" class="bg-green-500 hover:bg-green-600 text-white px-3 rounded-xl text-sm font-bold transition-colors" title="Ajouter (ou appuyer Entrée)">
+                    <i class="bi bi-plus-lg"></i>
+                </button>
+            </div>
+        </div>
+        <div id="entreeSelectedProduct" class="mt-2 hidden">
+            <div class="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-xs">
+                <i class="bi bi-check-circle-fill text-green-500"></i>
+                <span id="entreeSelectedName" class="font-semibold"></span>
+                <span id="entreeSelectedInfo" class="text-gray-400"></span>
+            </div>
         </div>
     </div>
     
@@ -1742,31 +1781,198 @@ $recent_entrees = query("SELECT m.*,p.nom as pnom,p.reference FROM mouvements m 
 const entreeProds = <?=json_encode(array_map(fn($p)=>[
     'id'=>$p['id'],'nom'=>$p['nom'],'ref'=>$p['reference']??'','cat'=>$p['cat_nom'],
     'marque'=>$p['marque']??'','pa'=>floatval($p['prix_achat_ht']??$p['prix_achat']),
-    'tva'=>floatval($p['tva_rate']??19),'code_barre'=>$p['code_barre']??''
+    'pv'=>floatval($p['prix_vente_ttc']??$p['prix_vente']),
+    'tva'=>floatval($p['tva_rate']??19),'code_barre'=>$p['code_barre']??'',
+    'desc'=>$p['description']??'',
+    // Searchable composite string
+    'search'=>strtolower($p['nom'].' '.$p['reference'].' '.($p['marque']??'').' '.($p['code_barre']??'').' '.$p['cat_nom'].' '.($p['description']??''))
 ], $produits))?>;
 
 let entreeLines = [];
+let selectedProd = null;
+let searchIdx = -1;
+
+function normalizeSearch(s) {
+    return s.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s]/g, ' ').trim();
+}
+
+function scoreMatch(prod, q) {
+    const ql = normalizeSearch(q);
+    const words = ql.split(/\s+/).filter(Boolean);
+    
+    // Exact barcode match = highest priority
+    if(prod.code_barre && prod.code_barre.toLowerCase() === q.toLowerCase()) return 1000;
+    
+    // Exact ref match
+    if(prod.ref && prod.ref.toLowerCase() === ql) return 900;
+    
+    let score = 0;
+    const name = normalizeSearch(prod.nom);
+    const ref = (prod.ref||'').toLowerCase();
+    const marque = normalizeSearch(prod.marque||'');
+    const cat = normalizeSearch(prod.cat||'');
+    const search = normalizeSearch(prod.search||'');
+    
+    for(const w of words) {
+        if(name.startsWith(w)) score += 50;
+        else if(name.includes(w)) score += 30;
+        if(ref.startsWith(w)) score += 40;
+        else if(ref.includes(w)) score += 20;
+        if(marque.startsWith(w)) score += 25;
+        else if(marque.includes(w)) score += 15;
+        if(cat.includes(w)) score += 10;
+        if(search.includes(w)) score += 5;
+    }
+    
+    // Bonus: all words matched
+    if(words.every(w => search.includes(w))) score += 20;
+    
+    return score;
+}
 
 function searchEntreeProducts(q) {
     const res = document.getElementById('entreeSearchResults');
-    if(!q || q.length < 1) { res.classList.add('hidden'); return; }
-    const ql = q.toLowerCase();
-    const matches = entreeProds.filter(p =>
-        p.nom.toLowerCase().includes(ql) || p.ref.toLowerCase().includes(ql) ||
-        p.marque.toLowerCase().includes(ql) || p.code_barre === q
-    ).slice(0, 8);
+    selectedProd = null;
+    searchIdx = -1;
+    document.getElementById('entreeSelectedProduct').classList.add('hidden');
     
-    if(!matches.length) { res.innerHTML = '<div class="px-4 py-3 text-gray-400 text-sm">Aucun résultat</div>'; res.classList.remove('hidden'); return; }
-    res.innerHTML = matches.map(p => 
-        `<div class="px-4 py-2.5 hover:bg-asel-light cursor-pointer border-b last:border-0 flex items-center gap-3" onclick="addEntreeLine(${p.id},'${p.nom.replace(/'/g,"\\'")}','${p.ref}','${p.cat}',${p.pa},${p.tva})">
-            <div class="flex-1">
-                <div class="font-semibold text-sm">${p.nom}</div>
-                <div class="text-xs text-gray-400">${p.ref} · ${p.cat}${p.marque?' · '+p.marque:''}</div>
+    if(!q || q.trim().length < 1) { res.classList.add('hidden'); return; }
+    
+    // Score and sort
+    const scored = entreeProds
+        .map(p => ({p, score: scoreMatch(p, q)}))
+        .filter(x => x.score > 0)
+        .sort((a,b) => b.score - a.score)
+        .slice(0, 12);
+    
+    if(!scored.length) {
+        res.innerHTML = `<div class="px-4 py-3 text-gray-400 text-sm text-center"><i class="bi bi-search text-lg block mb-1 opacity-30"></i>Aucun résultat pour "${q}"</div>`;
+        res.classList.remove('hidden');
+        return;
+    }
+    
+    res.innerHTML = scored.map(({p,score}, i) => {
+        const ql = q.toLowerCase();
+        // Highlight matching text
+        let displayName = p.nom;
+        // Color code based on score
+        const badge = p.code_barre && p.code_barre.toLowerCase() === ql ? 
+            `<span class="bg-green-100 text-green-700 text-[9px] px-1 py-0.5 rounded font-bold ml-1">SCAN</span>` : 
+            p.ref && p.ref.toLowerCase() === ql ?
+            `<span class="bg-blue-100 text-blue-700 text-[9px] px-1 py-0.5 rounded font-bold ml-1">REF</span>` : '';
+        
+        return `<div class="entree-result px-4 py-2.5 hover:bg-asel-light cursor-pointer border-b last:border-0 flex items-center gap-3 transition-colors" 
+            data-idx="${i}"
+            onclick="selectEntreeProd(${JSON.stringify({id:p.id,nom:p.nom,ref:p.ref,cat:p.cat,marque:p.marque,pa:p.pa,pv:p.pv,tva:p.tva,code_barre:p.code_barre}).replace(/'/g,"\\'")})"
+            onmouseenter="searchIdx=${i};highlightResult()">
+            <div class="flex-1 min-w-0">
+                <div class="font-semibold text-sm truncate">${displayName}${badge}</div>
+                <div class="text-xs text-gray-400 flex gap-2 flex-wrap">
+                    ${p.ref?`<span class="font-mono">${p.ref}</span>`:''}
+                    ${p.marque?`<span>${p.marque}</span>`:''}
+                    <span class="text-gray-300">·</span>
+                    <span>${p.cat}</span>
+                    ${p.code_barre?`<span class="font-mono text-[10px] text-gray-300">${p.code_barre}</span>`:''}
+                </div>
             </div>
-            <span class="text-xs font-bold text-asel">${p.pa.toFixed(2)} DT HT</span>
-        </div>`
-    ).join('');
+            <div class="text-right flex-shrink-0">
+                <div class="font-bold text-sm text-asel">${p.pv.toFixed(2)} DT</div>
+                <div class="text-[10px] text-gray-400">PA: ${p.pa.toFixed(2)}</div>
+            </div>
+        </div>`;
+    }).join('');
+    
     res.classList.remove('hidden');
+    
+    // Auto-select first result
+    if(scored.length === 1 || (scored[0].score >= 900)) {
+        selectEntreeProd(scored[0].p);
+    }
+}
+
+function highlightResult() {
+    document.querySelectorAll('.entree-result').forEach((el, i) => {
+        el.classList.toggle('bg-asel-light', i === searchIdx);
+        el.classList.toggle('bg-white', i !== searchIdx);
+    });
+}
+
+function handleEntreeKey(e) {
+    const results = document.querySelectorAll('.entree-result');
+    if(e.key === 'ArrowDown') {
+        e.preventDefault();
+        searchIdx = Math.min(searchIdx + 1, results.length - 1);
+        highlightResult();
+        results[searchIdx]?.scrollIntoView({block:'nearest'});
+    } else if(e.key === 'ArrowUp') {
+        e.preventDefault();
+        searchIdx = Math.max(searchIdx - 1, 0);
+        highlightResult();
+        results[searchIdx]?.scrollIntoView({block:'nearest'});
+    } else if(e.key === 'Enter') {
+        e.preventDefault();
+        if(searchIdx >= 0 && results[searchIdx]) {
+            results[searchIdx].click();
+        } else if(selectedProd) {
+            addEntreeLineFromSearch();
+        } else if(e.target.value.trim()) {
+            // Try barcode scan - exact match priority
+            const exact = entreeProds.find(p => 
+                p.code_barre === e.target.value.trim() || 
+                p.ref === e.target.value.trim()
+            );
+            if(exact) {
+                selectEntreeProd(exact);
+                addEntreeLineFromSearch();
+            }
+        }
+    } else if(e.key === 'Escape') {
+        document.getElementById('entreeSearchResults').classList.add('hidden');
+        searchIdx = -1;
+    } else if(e.key === 'Tab' && selectedProd) {
+        e.preventDefault();
+        document.getElementById('entreeQty').focus();
+        document.getElementById('entreeSearchResults').classList.add('hidden');
+    }
+}
+
+function selectEntreeProd(prod) {
+    selectedProd = typeof prod === 'string' ? JSON.parse(prod) : prod;
+    
+    // Update selected display
+    const nameEl = document.getElementById('entreeSelectedName');
+    const infoEl = document.getElementById('entreeSelectedInfo');
+    const selectedEl = document.getElementById('entreeSelectedProduct');
+    
+    if(nameEl) nameEl.textContent = selectedProd.nom;
+    if(infoEl) infoEl.textContent = [selectedProd.ref, selectedProd.marque, selectedProd.cat].filter(Boolean).join(' · ');
+    if(selectedEl) selectedEl.classList.remove('hidden');
+    
+    // Update price field
+    const priceEl = document.getElementById('entreePrixHT');
+    if(priceEl && selectedProd.pa) priceEl.value = selectedProd.pa;
+    
+    // Close dropdown, focus qty
+    document.getElementById('entreeSearchResults').classList.add('hidden');
+    document.getElementById('entreeSearch').value = selectedProd.nom;
+    
+    // Focus qty for quick quantity entry
+    setTimeout(() => document.getElementById('entreeQty').select(), 50);
+}
+
+function addEntreeLineFromSearch() {
+    if(!selectedProd) return;
+    addEntreeLine(selectedProd.id, selectedProd.nom, selectedProd.ref, selectedProd.cat, selectedProd.pa, selectedProd.tva);
+    
+    // Reset search for next product
+    document.getElementById('entreeSearch').value = '';
+    document.getElementById('entreeQty').value = 1;
+    document.getElementById('entreePrixHT').value = '';
+    document.getElementById('entreeSelectedProduct').classList.add('hidden');
+    selectedProd = null;
+    document.getElementById('entreeSearch').focus();
 }
 
 function addEntreeLine(id, nom, ref, cat, pa, tva) {
@@ -1774,13 +1980,9 @@ function addEntreeLine(id, nom, ref, cat, pa, tva) {
     const prix = parseFloat(document.getElementById('entreePrixHT').value) || pa;
     
     const existing = entreeLines.find(l => l.id === id);
-    if(existing) { existing.qty += qty; }
-    else { entreeLines.push({id, nom, ref, cat, qty, prix_ht: prix, tva_rate: tva}); }
+    if(existing) { existing.qty += qty; renderEntreeLines(); return; }
     
-    document.getElementById('entreeSearch').value = '';
-    document.getElementById('entreeSearchResults').classList.add('hidden');
-    document.getElementById('entreeQty').value = 1;
-    document.getElementById('entreePrixHT').value = '';
+    entreeLines.push({id, nom, ref, cat, qty, prix_ht: prix, tva_rate: tva});
     renderEntreeLines();
 }
 
