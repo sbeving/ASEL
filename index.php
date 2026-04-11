@@ -690,7 +690,23 @@ $csrf = csrfToken();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ASEL Mobile — Gestion de Stock & Point de Vente</title>
+    <title>ASEL Mobile — <?=htmlspecialchars(match($page) {
+        'dashboard' => 'Tableau de bord',
+        'pos' => 'Point de vente',
+        'stock' => 'Stock',
+        'entree' => 'Entrée stock',
+        'rapports' => 'Rapports',
+        'produits' => 'Produits',
+        'ventes' => 'Ventes',
+        'clients' => 'Clients',
+        'factures' => 'Factures',
+        'echeances' => 'Échéances',
+        'bons_reception' => 'Bons de réception',
+        'tresorerie' => 'Trésorerie',
+        'fournisseurs' => 'Fournisseurs',
+        'stock_central' => 'Stock Central',
+        default => 'Gestion de Stock'
+    })?></title>
     <meta name="description" content="ASEL Mobile - Système de gestion de stock, point de vente et facturation pour franchises de téléphonie mobile en Tunisie">
     <meta name="author" content="ASEL Mobile">
     <meta name="robots" content="noindex, nofollow">
@@ -945,6 +961,8 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
         'audit_log'=>'Journal d\'audit','users'=>'Utilisateurs','mon_compte'=>'Mon compte',
         'stock_central'=>'Stock Central','gestion_services'=>'Gérer services','gestion_asel'=>'Offres ASEL',
         'notifications'=>'Notifications',
+        'fournisseurs'=>'Fournisseurs','bons_reception'=>'Bons de réception','tresorerie'=>'Trésorerie',
+        'familles_categories'=>'Familles & Catégories',
     ];
     if ($page !== 'dashboard'):
     ?>
@@ -5653,10 +5671,15 @@ function showShortcuts() {
         `<div class="p-6">
             <div class="space-y-2 text-sm">
                 <div class="font-bold text-gray-600 text-xs uppercase tracking-wider mb-2">Point de vente</div>
-                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Focus scanner</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">F2</kbd></div>
-                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Ouvrir caméra</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">F4</kbd></div>
+                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Focus scanner barcode</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">F2</kbd></div>
+                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Ouvrir caméra QR</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">F4</kbd></div>
                 <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Valider vente</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">F8</kbd></div>
                 <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Vider panier</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">Esc</kbd></div>
+                <div class="font-bold text-gray-600 text-xs uppercase tracking-wider mt-4 mb-2">Entrée de stock</div>
+                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Rechercher produit</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">Tapez…</kbd></div>
+                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Naviguer résultats</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">↑ ↓</kbd></div>
+                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Ajouter / sélectionner</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">Entrée</kbd></div>
+                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Aller à la quantité</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">Tab</kbd></div>
                 <div class="font-bold text-gray-600 text-xs uppercase tracking-wider mt-4 mb-2">Global</div>
                 <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Recherche produits</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">/</kbd></div>
                 <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Fermer modal / menu</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">Esc</kbd></div>
