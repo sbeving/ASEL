@@ -4966,36 +4966,6 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
 </div>
 <?php endif; ?>
 </div>
-</main>
-
-<!-- Footer -->
-<footer class="lg:ml-64 bg-white border-t py-3 px-6 text-center text-xs text-gray-400">
-    <span>&copy; <?=date('Y')?> ASEL Mobile</span> &middot; 
-    <a href="map.php" class="text-asel hover:underline"><i class="bi bi-map"></i> Carte</a> &middot; 
-    <button onclick="showShortcuts()" class="text-gray-400 hover:text-asel">Raccourcis <kbd class="bg-gray-100 px-1 rounded text-[10px]">?</kbd></button> &middot;
-    <span>v15.3</span>
-    <span>v14.0</span>
-</footer>
-
-<?php if (can('pos')): ?>
-<!-- Mobile FAB -->
-<div class="lg:hidden fixed bottom-6 right-6 z-40 flex flex-col gap-2 items-end" id="fabMenu">
-    <div class="hidden flex-col gap-2 items-end mb-2" id="fabActions">
-        <a href="?page=pos" class="bg-asel text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-cart3"></i> Vente</a>
-        <button onclick="openQuickStockEntry('','');closeFab()" class="bg-emerald-500 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-box-arrow-in-down"></i> Entrée</button>
-        <button onclick="openBarcodeLookup();closeFab()" class="bg-purple-500 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-upc-scan"></i> Scanner</button>
-    </div>
-    <button onclick="toggleFab()" class="bg-asel hover:bg-asel-dark text-white shadow-xl w-14 h-14 rounded-full flex items-center justify-center transition-transform" id="fabBtn">
-        <i class="bi bi-plus-lg text-2xl" id="fabIcon"></i>
-    </button>
-</div>
-<script>
-function toggleFab(){const a=document.getElementById('fabActions');const i=document.getElementById('fabIcon');a.classList.toggle('hidden');a.classList.toggle('flex');i.style.transform=a.classList.contains('hidden')?'':'rotate(45deg)';}
-function closeFab(){document.getElementById('fabActions').classList.add('hidden');document.getElementById('fabActions').classList.remove('flex');document.getElementById('fabIcon').style.transform='';}
-</script>
-<?php endif; ?>
-
-
 
 <!-- ====================== POINTAGE PAGE ====================== -->
 <?php if ($page === 'pointage' && can('pointage')):
@@ -5240,6 +5210,36 @@ try {
 </div>
 <?php endif; ?>
 <?php endif; ?>
+</main>
+
+<!-- Footer -->
+<footer class="lg:ml-64 bg-white border-t py-3 px-6 text-center text-xs text-gray-400">
+    <span>&copy; <?=date('Y')?> ASEL Mobile</span> &middot; 
+    <a href="map.php" class="text-asel hover:underline"><i class="bi bi-map"></i> Carte</a> &middot; 
+    <button onclick="showShortcuts()" class="text-gray-400 hover:text-asel">Raccourcis <kbd class="bg-gray-100 px-1 rounded text-[10px]">?</kbd></button> &middot;
+    <span>v15.3</span>
+    <span>v14.0</span>
+</footer>
+
+<?php if (can('pos')): ?>
+<!-- Mobile FAB -->
+<div class="lg:hidden fixed bottom-6 right-6 z-40 flex flex-col gap-2 items-end" id="fabMenu">
+    <div class="hidden flex-col gap-2 items-end mb-2" id="fabActions">
+        <a href="?page=pos" class="bg-asel text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-cart3"></i> Vente</a>
+        <button onclick="openQuickStockEntry('','');closeFab()" class="bg-emerald-500 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-box-arrow-in-down"></i> Entrée</button>
+        <button onclick="openBarcodeLookup();closeFab()" class="bg-purple-500 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold flex items-center gap-2"><i class="bi bi-upc-scan"></i> Scanner</button>
+    </div>
+    <button onclick="toggleFab()" class="bg-asel hover:bg-asel-dark text-white shadow-xl w-14 h-14 rounded-full flex items-center justify-center transition-transform" id="fabBtn">
+        <i class="bi bi-plus-lg text-2xl" id="fabIcon"></i>
+    </button>
+</div>
+<script>
+function toggleFab(){const a=document.getElementById('fabActions');const i=document.getElementById('fabIcon');a.classList.toggle('hidden');a.classList.toggle('flex');i.style.transform=a.classList.contains('hidden')?'':'rotate(45deg)';}
+function closeFab(){document.getElementById('fabActions').classList.add('hidden');document.getElementById('fabActions').classList.remove('flex');document.getElementById('fabIcon').style.transform='';}
+</script>
+<?php endif; ?>
+
+
 <?php endif; ?>
 
 <script>
