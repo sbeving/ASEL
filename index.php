@@ -627,6 +627,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         auditLog('pointage', 'pointage', null, ['type'=>$type, 'lat'=>$lat, 'lng'=>$lng]);
         $page = 'pointage';
     }
+    // === BULK PRICE ADJUSTMENT ===
+    elseif ($action === 'bulk_price_adjust' && isAdmin()) {
+        $pct = floatval($_POST['pct_change'] ?? 0);
+        $type = $_POST['price_type'] ?? 'vente'; // 'vente' or 'achat' or 'both'
+        $cat_id = intval($_POST['cat_id'] ?? 0);
+        $direction = $_POST['direction'] ?? 'increase'; // increase / decrease
+        
+        if ($pct <= 0 || $pct > 100) {
+            $_SESSION['flash'] = ['type'=>'danger','msg'=>'Pourcentage invalide (1-100%)'];
+            header("Location: index.php?page=produits"); exit;
+        }
+        
+        $multiplier = $direction === 'increase' ? (1 + $pct/100) : (1 - $pct/100);
+        $where = $cat_id ? "WHERE categorie_id=$cat_id" : "WHERE 1=1";
+        
+        $updated = 0;
+        if ($type === 'vente' || $type === 'both') {
+            $result = db()->exec("UPDATE produits SET prix_vente=ROUND(prix_vente*$multiplier,2), prix_vente_ttc=ROUND(prix_vente_ttc*$multiplier,2), prix_vente_ht=ROUND(prix_vente_ht*$multiplier,2) $where AND actif=1");
+            $updated += $result;
+        }
+        if ($type === 'achat' || $type === 'both') {
+            db()->exec("UPDATE produits SET prix_achat=ROUND(prix_achat*$multiplier,2), prix_achat_ttc=ROUND(prix_achat_ttc*$multiplier,2), prix_achat_ht=ROUND(prix_achat_ht*$multiplier,2) $where AND actif=1");
+        }
+        
+        $sign = $direction === 'increase' ? '+' : '-';
+        $_SESSION['flash'] = ['type'=>'success','msg'=>"✅ Prix ".($type==='vente'?'de vente':($type==='achat'?"d'achat":''))." ajustés: $sign$pct% sur ".($cat_id?'la catégorie sélectionnée':'tous les produits')];
+        auditLog('bulk_price_adjust', 'produits', null, ['pct'=>$pct,'direction'=>$direction,'type'=>$type,'cat'=>$cat_id]);
+        header("Location: index.php?page=produits"); exit;
+    }
     // === PRODUCT CSV IMPORT ===
     elseif ($action === 'import_produits' && isAdmin()) {
         if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error']) {
@@ -3385,12 +3414,15 @@ function submitQuickCloture(ca, art) {
     $stock_franchises = getRetailFranchises();
     $central_id = getCentralId();
 ?>
-<div class="flex justify-between items-center mb-4">
+<div class="flex flex-wrap justify-between items-center gap-2 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-tags text-asel"></i> Produits <span class="text-sm font-normal text-gray-400">(<?=$total_produits?>)</span></h1>
-    <a href="api.php?action=export_produits" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export CSV</a>
-    <?php if(isAdmin()): ?>
-    <button onclick="openImportModal()" class="bg-white border-2 border-green-500 text-green-600 font-semibold px-4 py-2 rounded-xl text-sm hover:bg-green-500 hover:text-white transition-colors"><i class="bi bi-upload"></i> Import CSV</button>
-    <?php endif; ?>
+    <div class="flex gap-2 flex-wrap">
+        <a href="api.php?action=export_produits" class="bg-white border-2 border-asel text-asel font-semibold px-3 py-1.5 rounded-xl text-xs hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export</a>
+        <?php if(isAdmin()): ?>
+        <button onclick="openImportModal()" class="bg-white border-2 border-green-500 text-green-600 font-semibold px-3 py-1.5 rounded-xl text-xs hover:bg-green-500 hover:text-white transition-colors"><i class="bi bi-upload"></i> Import</button>
+        <button onclick="openBulkPriceModal()" class="bg-white border-2 border-purple-500 text-purple-600 font-semibold px-3 py-1.5 rounded-xl text-xs hover:bg-purple-500 hover:text-white transition-colors"><i class="bi bi-percent"></i> Ajuster prix</button>
+        <?php endif; ?>
+    </div>
 </div>
 
 <!-- Instant search + server filters -->
@@ -6690,6 +6722,48 @@ function openAddAselProduct() {
 }
 
 // === SMART BARCODE SCAN & LOOKUP ===
+function openBulkPriceModal() {
+    const csrf = '<?=$csrf?>';
+    const cats = <?=json_encode(array_map(fn($c) => ['value'=>$c['id'],'label'=>$c['nom']], $categories))?>;
+    cats.unshift({value:0, label:'— Tous les produits —'});
+    openModal(
+        modalHeader('bi-percent','Ajustement global des prix','Modifier les prix en %') +
+        `<form method="POST" class="p-6 space-y-4">
+            <input type="hidden" name="_csrf" value="${csrf}">
+            <input type="hidden" name="action" value="bulk_price_adjust">
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+                ⚠️ Cette action modifie les prix en base de données. Non réversible sans Export/Import.
+            </div>
+            ${modalField('Catégorie','cat_id','select','','',cats)}
+            ${modalRow([
+                modalField('Type de prix','price_type','select','','vente',[
+                    {value:'vente',label:'Prix de vente'},
+                    {value:'achat',label:"Prix d'achat"},
+                    {value:'both',label:'Les deux'},
+                ]),
+                modalField('Direction','direction','select','','increase',[
+                    {value:'increase',label:'Augmenter ↑'},
+                    {value:'decrease',label:'Diminuer ↓'},
+                ])
+            ])}
+            <div>
+                <label class="text-xs font-bold text-gray-500 uppercase block mb-1">Pourcentage *</label>
+                <div class="flex gap-2 items-center">
+                    <input type="number" name="pct_change" min="0.1" max="100" step="0.1" value="5" required class="flex-1 border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+                    <span class="text-lg font-black text-purple-600">%</span>
+                </div>
+                <div class="flex gap-2 mt-2">
+                    ${[2,5,10,15,20].map(v=>`<button type="button" onclick="this.form.pct_change.value=${v}" class="text-xs bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold px-2 py-1 rounded-lg">${v}%</button>`).join('')}
+                </div>
+            </div>
+            <button type="submit" class="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors">
+                <i class="bi bi-percent"></i> Appliquer l'ajustement
+            </button>
+        </form>`,
+        {size: 'max-w-md'}
+    );
+}
+
 function openImportModal() {
     openModal(
         modalHeader('bi-upload', 'Import produits CSV', 'Importer depuis un fichier Excel/CSV') +
