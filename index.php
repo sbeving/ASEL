@@ -1600,7 +1600,8 @@ elseif ($page === 'pos'):
                 </div>
                 <!-- Montant reçu -->
                 <div id="montantRecuDiv" class="mb-2 flex gap-2 items-center">
-                    <input type="number" id="montantRecu" step="0.5" class="flex-1 border-2 border-gray-200 rounded-lg px-3 py-1.5 text-xs" placeholder="Montant reçu" oninput="calcMonnaie()">
+                    <input type="number" id="montantRecu" step="0.5" class="flex-1 border-2 border-gray-200 rounded-lg px-3 py-1.5 text-xs" placeholder="Montant reçu (F6=exact)" oninput="calcMonnaie()">
+                    <button type="button" onclick="const t=parseFloat(document.getElementById('cartTotal').textContent)||0;document.getElementById('montantRecu').value=t.toFixed(2);calcMonnaie()" class="text-[10px] bg-gray-100 hover:bg-asel hover:text-white text-gray-600 px-2 py-1.5 rounded-lg transition-colors font-bold whitespace-nowrap" title="Montant exact (F6)">Exact</button>
                     <span class="text-xs font-bold text-green-600" id="monnaieDisplay"></span>
                 </div>
                 <!-- Echeance / Paiement par lots -->
@@ -1878,7 +1879,22 @@ function calcEcheances(){
             <span class="text-amber-700">${prixLot.toFixed(2)} DT${majoriation > 0.1 ? ` <span class="text-orange-500 font-normal">(+${majoriation.toFixed(1)}% vs panier)</span>` : ''}</span>
         </div>`;
 }
-function calcMonnaie(){const recu=parseFloat(document.getElementById('montantRecu').value)||0;const total=parseFloat(document.getElementById('cartTotal').textContent)||0;const monnaie=recu-total;document.getElementById('monnaieDisplay').textContent=monnaie>0?'Monnaie: '+monnaie.toFixed(1)+' DT':'';}
+function calcMonnaie(){
+    const recu = parseFloat(document.getElementById('montantRecu').value) || 0;
+    const total = parseFloat(document.getElementById('cartTotal').textContent) || 0;
+    const monnaie = recu - total;
+    const el = document.getElementById('monnaieDisplay');
+    if(monnaie > 0.01) {
+        el.textContent = '↩️ Monnaie: ' + monnaie.toFixed(2) + ' DT';
+        el.className = 'text-xs font-bold text-green-600';
+    } else if(monnaie < -0.01) {
+        el.textContent = '⚠️ Insuffisant: ' + Math.abs(monnaie).toFixed(2) + ' DT';
+        el.className = 'text-xs font-bold text-red-600';
+    } else {
+        el.textContent = recu > 0 ? '✅ Exact' : '';
+        el.className = 'text-xs font-bold text-green-600';
+    }
+}
 function prepareSubmit(){
     const mp = document.getElementById('modePaiement').value;
     document.getElementById('formMontantRecu').value = document.getElementById('montantRecu').value || '0';
@@ -1897,6 +1913,14 @@ document.addEventListener('keydown',e=>{
     const bi=document.getElementById('barcodeInput');
     if(e.key==='F2'){e.preventDefault();if(bi)bi.focus();return;}
     if(e.key==='F8'){e.preventDefault();const btn=document.getElementById('btnVente');if(btn&&!btn.disabled){prepareSubmit();document.getElementById('saleForm').submit();}return;}
+    if(e.key==='F6'){
+        // F6 = set montant reçu to exact cart total
+        e.preventDefault();
+        const total=parseFloat(document.getElementById('cartTotal').textContent)||0;
+        const mr=document.getElementById('montantRecu');
+        if(mr){mr.value=total.toFixed(2);calcMonnaie();}
+        return;
+    }
     if(e.key==='Escape'){e.preventDefault();if(cart.length)clearCart();return;}
     if(e.key==='F4'){e.preventDefault();toggleCamera();return;}
     // Auto-focus barcode input when typing numbers/letters
@@ -6378,6 +6402,7 @@ function showShortcuts() {
                 <div class="font-bold text-gray-600 text-xs uppercase tracking-wider mb-2">Point de vente</div>
                 <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Focus scanner barcode</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">F2</kbd></div>
                 <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Ouvrir caméra QR</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">F4</kbd></div>
+                <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Montant exact (règle)</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">F6</kbd></div>
                 <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Valider vente</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">F8</kbd></div>
                 <div class="flex justify-between py-1.5 border-b border-gray-100"><span class="text-gray-600">Vider panier</span><kbd class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono">Esc</kbd></div>
                 <div class="font-bold text-gray-600 text-xs uppercase tracking-wider mt-4 mb-2">Entrée de stock</div>
