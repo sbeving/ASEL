@@ -1378,11 +1378,15 @@ elseif ($page === 'pos'):
             <input type="text" id="searchProd" class="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl shadow-sm focus:border-asel focus:ring-2 focus:ring-asel/20 outline-none text-sm" placeholder="Rechercher (nom, marque, réf.)..." oninput="filterProducts()">
         </div>
         
-        <!-- Category pills -->
-        <div class="flex gap-2 flex-wrap">
-            <button class="px-3 py-1.5 rounded-full text-xs font-semibold bg-asel text-white" onclick="filterCat('')" id="cat-all">Tous</button>
-            <?php $cats_used = array_unique(array_column($stock, 'cnom')); sort($cats_used); foreach ($cats_used as $cat): ?>
-                <button class="px-3 py-1.5 rounded-full text-xs font-semibold bg-white text-gray-600 border hover:bg-asel hover:text-white transition-colors" onclick="filterCat('<?=$cat?>')" data-cat="<?=$cat?>"><?=$cat?></button>
+        <!-- Category pills with count -->
+        <div class="flex gap-1.5 flex-wrap">
+            <?php
+            $cat_counts = array_count_values(array_column($stock, 'cnom'));
+            $total_pos_items = count($stock);
+            ?>
+            <button class="px-3 py-1.5 rounded-full text-xs font-semibold bg-asel text-white flex items-center gap-1" onclick="filterCat('')" id="cat-all">Tous <span class="bg-white/20 px-1.5 rounded-full text-[10px]"><?=$total_pos_items?></span></button>
+            <?php $cats_used = array_unique(array_column($stock, 'cnom')); sort($cats_used); foreach ($cats_used as $cat): $cnt = $cat_counts[$cat] ?? 0; ?>
+                <button class="px-3 py-1.5 rounded-full text-xs font-semibold bg-white text-gray-600 border hover:bg-asel hover:text-white transition-colors flex items-center gap-1" onclick="filterCat('<?=ejs($cat)?>')" data-cat="<?=e($cat)?>"><?=e($cat)?> <span class="bg-gray-100 px-1.5 rounded-full text-[10px]"><?=$cnt?></span></button>
             <?php endforeach; ?>
         </div>
         
@@ -1902,10 +1906,15 @@ elseif ($page === 'stock'):
                     <td class="px-3 py-2 text-right"><?=number_format($s['prix_vente'],1)?></td>
                     <td class="px-3 py-2 text-right font-medium hidden sm:table-cell"><?=number_format($v,0)?></td>
                     <?php if(isAdmin()):?><td class="px-3 py-2">
+                        <div class="flex gap-1">
+                        <?php if($s['quantite'] <= 3): ?>
+                        <a href="?page=entree&fid=<?=$s['franchise_id']?>" class="text-asel hover:text-asel-dark" title="Entrée stock"><i class="bi bi-plus-circle text-xs"></i></a>
+                        <?php endif; ?>
                         <?php if($s['quantite'] <= 0): ?>
                         <form method="POST" class="inline" onsubmit="return confirm('Désactiver?')"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="toggle_produit"><input type="hidden" name="produit_id" value="<?=$s['produit_id']?>">
                         <button class="text-red-400 hover:text-red-700 text-xs"><i class="bi bi-eye-slash"></i></button></form>
                         <?php endif; ?>
+                        </div>
                     </td><?php endif;?>
                 </tr>
             <?php endforeach; ?></tbody>
@@ -2434,7 +2443,7 @@ elseif ($page === 'demandes'):
 // =====================================================
 elseif ($page === 'ventes'):
     $d1=$_GET['d1']??date('Y-m-01');$d2=$_GET['d2']??date('Y-m-d');
-    $ventes=query("SELECT v.*,p.nom as pnom,p.prix_achat,p.prix_achat_ht,f.nom as fnom,u.nom_complet as vendeur FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN franchises f ON v.franchise_id=f.id LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id WHERE v.date_vente BETWEEN ? AND ? ".($fid?"AND v.franchise_id=".intval($fid):"")." ORDER BY v.date_creation DESC LIMIT 200",[$d1,$d2]);
+    $ventes=query("SELECT v.*,p.nom as pnom,p.prix_achat,p.prix_achat_ht,f.nom as fnom,u.nom_complet as vendeur,fa.numero as facture_num FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN franchises f ON v.franchise_id=f.id LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id LEFT JOIN factures fa ON v.facture_id=fa.id WHERE v.date_vente BETWEEN ? AND ? ".($fid?"AND v.franchise_id=".intval($fid):"")." ORDER BY v.date_creation DESC LIMIT 200",[$d1,$d2]);
     $tca=array_sum(array_column($ventes,'prix_total'));
     $tart=array_sum(array_column($ventes,'quantite'));
     $tcout=array_sum(array_map(fn($v)=>$v['prix_achat']*$v['quantite'], $ventes));
@@ -2491,8 +2500,20 @@ elseif ($page === 'ventes'):
     <input type="text" id="ventesSearch" class="w-full pl-10 pr-4 py-2 border-2 border-gray-200 rounded-xl text-sm focus:border-asel" placeholder="Rechercher produit, franchise, vendeur..." oninput="filterVentes()">
 </div>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm" id="ventesTable">
-    <thead class="sticky-thead"><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Date</th><th class="px-3 py-3 text-left">Franchise</th><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3 text-center">Qté</th><th class="px-3 py-3 text-right">Total</th><th class="px-3 py-3 text-left hidden sm:table-cell">Vendeur</th></tr></thead>
-    <tbody class="divide-y divide-gray-100"><?php foreach($ventes as $v):?><tr class="hover:bg-gray-50 vente-row" data-search="<?=e(strtolower($v['pnom'].' '.shortF($v['fnom']).' '.($v['vendeur']??'')))?>"><td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m H:i',strtotime($v['date_creation']))?></td><td class="px-3 py-2 text-xs"><?=shortF($v['fnom'])?></td><td class="px-3 py-2"><?=htmlspecialchars($v['pnom'])?></td><td class="px-3 py-2 text-center"><?=$v['quantite']?></td><td class="px-3 py-2 text-right font-bold"><?=number_format($v['prix_total'],1)?></td><td class="px-3 py-2 text-xs text-gray-400 hidden sm:table-cell"><?=$v['vendeur']?></td></tr><?php endforeach;?></tbody>
+    <thead class="sticky-thead"><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Date</th><th class="px-3 py-3 text-left">Franchise</th><th class="px-3 py-3 text-left">Produit</th><th class="px-3 py-3 text-center">Qté</th><th class="px-3 py-3 text-right">Total</th><th class="px-3 py-3 text-left hidden sm:table-cell">Vendeur</th><th class="px-3 py-3 text-center">🧾</th></tr></thead>
+    <tbody class="divide-y divide-gray-100"><?php foreach($ventes as $v):?><tr class="hover:bg-gray-50 vente-row" data-search="<?=e(strtolower($v['pnom'].' '.shortF($v['fnom']).' '.($v['vendeur']??'').' '.($v['facture_num']??'')))?>">
+        <td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m H:i',strtotime($v['date_creation']))?></td>
+        <td class="px-3 py-2 text-xs"><?=shortF($v['fnom'])?></td>
+        <td class="px-3 py-2 font-medium"><?=e($v['pnom'])?></td>
+        <td class="px-3 py-2 text-center"><?=$v['quantite']?></td>
+        <td class="px-3 py-2 text-right font-bold"><?=number_format($v['prix_total'],2)?></td>
+        <td class="px-3 py-2 text-xs text-gray-400 hidden sm:table-cell"><?=e($v['vendeur']??'')?></td>
+        <td class="px-3 py-2 text-center">
+            <?php if($v['facture_id']): ?>
+            <a href="receipt.php?id=<?=$v['facture_id']?>" target="_blank" class="text-gray-400 hover:text-asel" title="Ticket <?=e($v['facture_num']??'')?>"><i class="bi bi-receipt text-sm"></i></a>
+            <?php endif; ?>
+        </td>
+    </tr><?php endforeach;?></tbody>
 </table></div></div>
 <script>function filterVentes(){
     const q = document.getElementById('ventesSearch').value;
