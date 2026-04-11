@@ -641,12 +641,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             [strParam('nom',150), intval($_POST['categorie_id']), $scid, $pa_ttc, $pv_ttc, $pa_ht, $pa_ttc, $pv_ht, $pv_ttc, $tva_rate,
              strParam('reference',50), strParam('code_barre',50), strParam('marque',50), intval($_POST['fournisseur_id']) ?: null, strParam('description',500), intval($_POST['seuil_alerte'] ?? 3)]);
         $new_pid = db()->lastInsertId();
-        // If initial stock for central
+        // Create zero-stock entry for all active franchises
+        foreach (query("SELECT id FROM franchises WHERE actif=1") as $f) {
+            execute("INSERT IGNORE INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,0)", [$f['id'], $new_pid]);
+        }
+        // If initial stock specified
         if (!empty($_POST['stock_initial']) && intval($_POST['stock_initial']) > 0) {
             $init_fid = can('view_all_franchises') ? (intval($_POST['init_franchise_id']) ?: getCentralId()) : currentFranchise();
-            execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantite=quantite+VALUES(quantite)", [$init_fid, $new_pid, intval($_POST['stock_initial'])]);
+            execute("UPDATE stock SET quantite=quantite+? WHERE franchise_id=? AND produit_id=?",
+                [intval($_POST['stock_initial']), $init_fid, $new_pid]);
         }
-        $_SESSION['flash'] = ['type'=>'success','msg'=>'Produit créé!'];
+        $_SESSION['flash'] = ['type'=>'success','msg'=>'Produit créé avec succès!'];
         auditLog('add_produit', 'produit', $new_pid, ['nom'=>strParam('nom',150)]);
         $page = $_POST['return_page'] ?? 'produits';
     }
