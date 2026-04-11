@@ -1628,7 +1628,7 @@ elseif ($page === 'pos'):
                 </div>
                 <!-- Client -->
                 <div class="flex gap-1 mb-2">
-                    <select id="clientSelect" class="ts-select flex-1 text-sm" data-placeholder="Rechercher un client..." onchange="document.getElementById('formClientId').value=this.value;toggleEcheance()">
+                    <select id="clientSelect" class="ts-select flex-1 text-sm" data-placeholder="Rechercher un client..." onchange="document.getElementById('formClientId').value=this.value;toggleEcheance();loadClientInfo(this.value)">
                         <option value="" data-type="passager">Client passager</option>
                         <?php $pos_clients=query("SELECT * FROM clients WHERE actif=1 ORDER BY type_client,nom"); foreach($pos_clients as $pc): $ico=match($pc['type_client']){'boutique'=>'🏪','entreprise'=>'🏢',default=>'👤'}; ?>
                         <option value="<?=$pc['id']?>" data-type="<?=$pc['type_client']?>"><?=$ico?> <?=htmlspecialchars($pc['nom'].' '.($pc['prenom']??''))?></option>
@@ -1636,6 +1636,8 @@ elseif ($page === 'pos'):
                     </select>
                     <button type="button" onclick="openQuickAddClient()" class="px-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg text-sm" title="Nouveau client"><i class="bi bi-person-plus"></i></button>
                 </div>
+                <!-- Client info badge -->
+                <div id="clientInfoBadge" class="hidden mb-2"></div>
                 <!-- Type + Paiement -->
                 <div class="grid grid-cols-2 gap-2 mb-2">
                     <select id="typeFacture" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-xs" onchange="document.getElementById('formTypeFacture').value=this.value">
@@ -1862,6 +1864,30 @@ function filterProducts(){
     });
 }
 function filterCat(cat){document.querySelectorAll('#prodGrid > div').forEach(el=>{el.style.display=(!cat||el.dataset.cat===cat)?'':'none'});document.querySelectorAll('[data-cat]').forEach(b=>{b.className='px-3 py-1.5 rounded-full text-xs font-semibold bg-white text-gray-600 border hover:bg-asel hover:text-white transition-colors'});if(cat){const btn=document.querySelector(`[data-cat="${cat}"]`);if(btn)btn.className='px-3 py-1.5 rounded-full text-xs font-semibold bg-asel text-white';document.getElementById('cat-all').className='px-3 py-1.5 rounded-full text-xs font-semibold bg-white text-gray-600 border'}else{document.getElementById('cat-all').className='px-3 py-1.5 rounded-full text-xs font-semibold bg-asel text-white'}}
+function loadClientInfo(cid) {
+    const badge = document.getElementById('clientInfoBadge');
+    if(!badge) return;
+    if(!cid) { badge.classList.add('hidden'); badge.innerHTML = ''; return; }
+    
+    fetch('api.php?action=client_profile&id=' + cid)
+        .then(r => r.json())
+        .then(d => {
+            if(!d.client) { badge.classList.add('hidden'); return; }
+            const c = d.client;
+            const du = d.echeances_pending?.reduce((s,e)=>s+parseFloat(e.montant),0) || 0;
+            const achats = parseFloat(d.total_achats || 0);
+            
+            badge.innerHTML = `<div class="flex items-center gap-2 text-xs bg-gray-50 border rounded-xl px-3 py-2">
+                <span class="font-bold text-asel-dark">${c.nom} ${c.prenom||''}</span>
+                ${c.telephone ? `<a href="tel:${c.telephone}" class="text-asel ml-1"><i class="bi bi-telephone"></i> ${c.telephone}</a>` : ''}
+                ${achats > 0 ? `<span class="text-gray-400 ml-auto">Total: <b class="text-asel">${achats.toFixed(0)} DT</b></span>` : ''}
+                ${du > 0 ? `<span class="ml-1 bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded">⚠️ Doit: ${du.toFixed(2)} DT</span>` : ''}
+            </div>`;
+            badge.classList.remove('hidden');
+        })
+        .catch(() => badge.classList.add('hidden'));
+}
+
 function toggleEcheance(){
     const mp = document.getElementById('modePaiement').value;
     const mr = document.getElementById('montantRecuDiv');
