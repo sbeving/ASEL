@@ -1574,6 +1574,8 @@ function renderCart(){
     document.getElementById('cartItems').value=JSON.stringify(cart);
     document.getElementById('btnVente').disabled=false;
     calcMonnaie();
+    // Update lot payment preview if active
+    if(document.getElementById('modePaiement')?.value === 'echeance') calcEcheances();
 }
 function filterProducts(){
     const q = document.getElementById('searchProd').value;
@@ -1937,7 +1939,9 @@ $recent_entrees = query("SELECT m.*,p.nom as pnom,p.reference FROM mouvements m 
         
         <div class="mt-4 bg-asel-light/50 rounded-xl p-3 flex justify-between items-center">
             <div class="text-sm"><span class="text-gray-500">Total HT:</span> <span class="font-bold text-asel-dark" id="entreeTotalHT">0.00</span> DT &nbsp; <span class="text-gray-400 text-xs" id="entreeTotalTTC"></span></div>
-            <button type="submit" id="entreSubmit" disabled class="bg-asel disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold px-6 py-2.5 rounded-xl text-sm transition-colors">
+            <button type="submit" id="entreSubmit" disabled 
+                onclick="if(!this.disabled){this.disabled=true;this.innerHTML='<i class=\'bi bi-hourglass-split\'></i> Enregistrement...'}"
+                class="bg-asel disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold px-6 py-2.5 rounded-xl text-sm transition-colors flex items-center gap-2">
                 <i class="bi bi-check-circle"></i> Valider l'entrée
             </button>
         </div>
@@ -2829,14 +2833,31 @@ elseif ($page === 'transferts'):
 // Instant client-side search
 function instantFilter() {
     const q = document.getElementById('instantSearch').value.toLowerCase().trim();
+    const qNorm = q.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     const rows = document.querySelectorAll('#productsTable .prod-row');
     let visible = 0;
     rows.forEach(row => {
-        const match = !q || row.dataset.search.includes(q);
+        const s = (row.dataset.search||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+        const match = !q || s.includes(qNorm);
         row.style.display = match ? '' : 'none';
         if (match) visible++;
     });
-    document.getElementById('instantCount').textContent = q ? visible + '/' + rows.length : '';
+    const countEl = document.getElementById('instantCount');
+    if(countEl) countEl.textContent = q ? visible + '/' + rows.length : '';
+    
+    // Show/hide empty state
+    let emptyRow = document.getElementById('prodEmptyRow');
+    if(q && visible === 0) {
+        if(!emptyRow) {
+            emptyRow = document.createElement('tr');
+            emptyRow.id = 'prodEmptyRow';
+            emptyRow.innerHTML = `<td colspan="20" class="px-4 py-10 text-center text-gray-400"><i class="bi bi-search text-2xl block mb-2 opacity-30"></i>Aucun produit pour "${q}"</td>`;
+            document.querySelector('#productsTable tbody').appendChild(emptyRow);
+        }
+        emptyRow.style.display = '';
+    } else if(emptyRow) {
+        emptyRow.style.display = 'none';
+    }
 }
 
 // Column sorting
