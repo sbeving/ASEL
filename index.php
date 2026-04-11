@@ -1596,7 +1596,7 @@ elseif ($page === 'pos'):
     </div>
 </div>
 <?php return; endif;
-    $stock = query("SELECT s.*,p.nom as pnom,p.prix_vente,p.reference,p.code_barre,p.marque,p.seuil_alerte,c.nom as cnom FROM stock s JOIN produits p ON s.produit_id=p.id JOIN categories c ON p.categorie_id=c.id WHERE s.franchise_id=? AND s.quantite>0 AND p.actif=1 ORDER BY c.nom,p.nom", [$pos_fid]);
+    $stock = query("SELECT s.*,p.nom as pnom,p.prix_vente,p.reference,p.code_barre,p.marque,p.seuil_alerte,p.description,c.nom as cnom FROM stock s JOIN produits p ON s.produit_id=p.id JOIN categories c ON p.categorie_id=c.id WHERE s.franchise_id=? AND s.quantite>0 AND p.actif=1 ORDER BY c.nom,p.nom", [$pos_fid]);
 ?>
 
 <h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-cart3 text-asel"></i> Point de vente</h1>
@@ -1673,6 +1673,7 @@ elseif ($page === 'pos'):
             <div class="bg-white rounded-lg p-3 flex items-center justify-between cursor-pointer hover:bg-asel-light/50 hover:border-asel border <?=$is_zero?'border-red-200 bg-red-50/30':($is_low?'border-amber-200 bg-amber-50/20':'border-transparent')?> transition-all <?=$is_zero?'opacity-60':''?>"
                  data-search="<?=e(strtolower($s['pnom'].' '.$s['reference'].' '.$s['code_barre'].' '.$s['marque'].' '.$s['cnom']))?>"
                  data-cat="<?=e($s['cnom'])?>" data-barcode="<?=e($s['code_barre'])?>"
+                 title="<?=e($s['pnom'])?><?=$s['description']?' — '.mb_substr($s['description'],0,80):'?'?>"
                  onclick="addToCart(<?=$s['produit_id']?>,'<?=ejs($s['pnom'])?>',<?=$s['prix_vente']?>,<?=$s['quantite']?>,<?=$s['seuil_alerte']?>)">
                 <div class="flex-1 min-w-0">
                     <div class="font-semibold text-sm text-asel-dark truncate"><?=e($s['pnom'])?></div>
@@ -3393,6 +3394,8 @@ function submitQuickCloture(ca, art) {
         'prix_desc' => 'p.prix_vente DESC',
         'marge' => '((p.prix_vente-p.prix_achat)/GREATEST(p.prix_vente,0.01)*100) DESC',
         'marge_asc' => '((p.prix_vente-p.prix_achat)/GREATEST(p.prix_vente,0.01)*100) ASC',
+        'slow' => 'ventes_30j ASC, p.nom ASC',
+        'hot' => 'ventes_30j DESC, p.nom ASC',
         'ref' => 'p.reference ASC',
         'marque' => 'p.marque ASC, p.nom ASC',
         default => 'c.nom ASC, p.nom ASC',
@@ -3464,6 +3467,8 @@ function submitQuickCloture(ca, art) {
                     <option value="prix_desc" <?=$pf_sort==='prix_desc'?'selected':''?>>Prix ↓</option>
                     <option value="marge" <?=$pf_sort==='marge'?'selected':''?>>Marge ↓</option>
                     <option value="marge_asc" <?=$pf_sort==='marge_asc'?'selected':''?>>Marge ↑ (faible)</option>
+                    <option value="slow" <?=$pf_sort==='slow'?'selected':''?>>🐌 Invendus (30j)</option>
+                    <option value="hot" <?=$pf_sort==='hot'?'selected':''?>>🔥 Meilleures ventes (30j)</option>
                 </select>
             </div>
             <button class="bg-asel text-white px-3 py-1.5 rounded-lg text-sm font-semibold"><i class="bi bi-funnel"></i> Appliquer</button>
