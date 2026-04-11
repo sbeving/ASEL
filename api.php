@@ -320,6 +320,44 @@ case 'export_tresorerie':
     }
     exit;
 
+case 'export_pointage':
+    if (!can('view_all_franchises')) { http_response_code(403); exit; }
+    $mois = $_GET['mois'] ?? date('Y-m');
+    $fid_p = $_GET['fid'] ?? null;
+    $where = "DATE_FORMAT(p.heure,'%Y-%m')=?";
+    $params = [$mois];
+    if ($fid_p) { $where .= " AND p.franchise_id=?"; $params[] = intval($fid_p); }
+    
+    try {
+        $rows = query("SELECT p.heure, u.nom_complet, u.role, f.nom as franchise,
+            p.type_pointage, p.latitude, p.longitude, p.adresse, p.note
+            FROM pointages p JOIN utilisateurs u ON p.utilisateur_id=u.id
+            LEFT JOIN franchises f ON p.franchise_id=f.id
+            WHERE $where ORDER BY p.heure ASC", $params);
+    } catch(Exception $e) { $rows = []; }
+    
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="pointage_'.$mois.'.csv"');
+    echo "\xEF\xBB\xBF"; // UTF-8 BOM
+    echo "Date,Heure,Employé,Rôle,Franchise,Type,Latitude,Longitude,Adresse,Note\n";
+    foreach($rows as $r) {
+        $dt = date('d/m/Y', strtotime($r['heure']));
+        $hr = date('H:i', strtotime($r['heure']));
+        $type_fr = match($r['type_pointage']) { 'entree'=>'Entrée','sortie'=>'Sortie','pause_debut'=>'Pause','pause_fin'=>'Retour pause', default=>$r['type_pointage'] };
+        echo implode(',', [
+            $dt, $hr,
+            '"'.str_replace('"','""',$r['nom_complet']).'"',
+            $r['role'],
+            '"'.str_replace('"','""',str_replace(['ASEL Mobile — ','ASEL Mobile - '],'',$r['franchise']??'')).'"',
+            $type_fr,
+            $r['latitude'] ?? '',
+            $r['longitude'] ?? '',
+            '"'.str_replace('"','""',$r['adresse']??'').'"',
+            '"'.str_replace('"','""',$r['note']??'').'"',
+        ])."\n";
+    }
+    exit;
+
 default:
     echo json_encode(['error' => 'Unknown action']);
 }

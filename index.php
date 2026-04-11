@@ -595,6 +595,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         auditLog('pointage', 'pointage', null, ['type'=>$type, 'lat'=>$lat, 'lng'=>$lng]);
         $page = 'pointage';
     }
+    // === PRODUCT CSV IMPORT ===
+    elseif ($action === 'import_produits' && isAdmin()) {
+        if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error']) {
+            $_SESSION['flash'] = ['type'=>'danger','msg'=>'Fichier CSV requis!'];
+            header("Location: index.php?page=produits"); exit;
+        }
+        $file = fopen($_FILES['csv_file']['tmp_name'], 'r');
+        $skip = !empty($_POST['skip_header']);
+        $update = !empty($_POST['update_existing']);
+        $imported = 0; $updated = 0; $errors = [];
+        $first = fgets($file); $sep = substr_count($first, ';') > substr_count($first, ',') ? ';' : ','; rewind($file);
+        $line_num = 0;
+        while (($row = fgetcsv($file, 1000, $sep)) !== false) {
+            $line_num++;
+            if ($skip && $line_num === 1) continue;
+            if (count($row) < 2 || !trim($row[0])) continue;
+            $nom = trim($row[0]); $cat_id = intval($row[1] ?? 0);
+            $pa_ht = floatval($row[2] ?? 0); $pv_ht = floatval($row[3] ?? 0);
+            $tva = floatval($row[4] ?? 19); $ref = trim($row[5] ?? '');
+            $code_barre = trim($row[6] ?? ''); $marque = trim($row[7] ?? '');
+            $seuil = intval($row[8] ?? 3);
+            if ($cat_id <= 0) {
+                $cr = queryOne("SELECT id FROM categories WHERE nom=?", [$row[1]]);
+                $cat_id = $cr ? $cr['id'] : (query("SELECT id FROM categories LIMIT 1")[0]['id'] ?? 1);
+            }
+            $pa_ttc = round($pa_ht*(1+$tva/100),2); $pv_ttc = round($pv_ht*(1+$tva/100),2);
+            try {
+                if ($update && $ref && ($ex = queryOne("SELECT id FROM produits WHERE reference=?",[$ref]))) {
+                    execute("UPDATE produits SET nom=?,categorie_id=?,prix_achat=?,prix_vente=?,prix_achat_ht=?,prix_achat_ttc=?,prix_vente_ht=?,prix_vente_ttc=?,tva_rate=?,code_barre=?,marque=?,seuil_alerte=? WHERE id=?",
+                        [$nom,$cat_id,$pa_ttc,$pv_ttc,$pa_ht,$pa_ttc,$pv_ht,$pv_ttc,$tva,$code_barre,$marque,$seuil,$ex['id']]);
+                    $updated++;
+                } else {
+                    execute("INSERT INTO produits (nom,categorie_id,prix_achat,prix_vente,prix_achat_ht,prix_achat_ttc,prix_vente_ht,prix_vente_ttc,tva_rate,reference,code_barre,marque,seuil_alerte) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        [$nom,$cat_id,$pa_ttc,$pv_ttc,$pa_ht,$pa_ttc,$pv_ht,$pv_ttc,$tva,$ref,$code_barre,$marque,$seuil]);
+                    $pid = db()->lastInsertId();
+                    foreach(query("SELECT id FROM franchises WHERE actif=1") as $f) execute("INSERT IGNORE INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,0)",[$f['id'],$pid]);
+                    $imported++;
+                }
+            } catch(Exception $e) { $errors[] = "L.$line_num: ".$e->getMessage(); }
+        }
+        fclose($file);
+        $msg = "✅ <b>$imported</b> créé(s)".($updated?" · <b>$updated</b> mis à jour":"").($errors?" · ⚠️ ".count($errors)." erreur(s)":"");
+        $_SESSION['flash'] = ['type'=>$errors?'warning':'success','msg'=>$msg];
+        auditLog('import_produits', 'produits', null, ['imported'=>$imported,'updated'=>$updated]);
+        header("Location: index.php?page=produits"); exit;
+    }
     elseif ($action === 'add_fournisseur' && can('add_fournisseur')) {
         execute("INSERT INTO fournisseurs (nom,telephone,email,adresse,ice) VALUES (?,?,?,?,?)",
             [strParam('nom'), strParam('telephone',50), strParam('email',100), strParam('adresse'), strParam('ice',50)]);
@@ -2863,7 +2909,10 @@ elseif ($page === 'transferts'):
 ?>
 <div class="flex justify-between items-center mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-tags text-asel"></i> Produits <span class="text-sm font-normal text-gray-400">(<?=$total_produits?>)</span></h1>
-    <a href="api.php?action=export_produits" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export</a>
+    <a href="api.php?action=export_produits" class="bg-white border-2 border-asel text-asel font-semibold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export CSV</a>
+    <?php if(isAdmin()): ?>
+    <button onclick="openImportModal()" class="bg-white border-2 border-green-500 text-green-600 font-semibold px-4 py-2 rounded-xl text-sm hover:bg-green-500 hover:text-white transition-colors"><i class="bi bi-upload"></i> Import CSV</button>
+    <?php endif; ?>
 </div>
 
 <!-- Instant search + server filters -->
@@ -5101,11 +5150,14 @@ try {
 <div class="bg-white rounded-xl shadow-sm overflow-hidden mt-4">
     <div class="px-4 py-3 border-b flex items-center justify-between">
         <h3 class="font-semibold text-sm flex items-center gap-2"><i class="bi bi-calendar-month text-asel"></i> Récap mensuel</h3>
+        <div class="flex gap-2 items-center">
+            <a href="api.php?action=export_pointage&mois=<?=e($pt_mois)?>" class="text-xs text-gray-400 hover:text-asel"><i class="bi bi-download"></i> CSV</a>
         <form class="flex gap-2 items-center">
             <input type="hidden" name="page" value="pointage">
             <input type="month" name="mois" value="<?=e($pt_mois)?>" class="border-2 border-gray-200 rounded-lg px-2 py-1 text-sm">
             <button class="bg-asel text-white px-3 py-1 rounded-lg text-sm font-bold"><i class="bi bi-funnel"></i></button>
         </form>
+        </div>
     </div>
     <table class="w-full text-sm">
         <thead><tr class="bg-gray-50 text-xs uppercase font-semibold text-gray-500"><th class="px-4 py-2 text-left">Employé</th><th class="px-4 py-2 text-center">Jours</th><th class="px-4 py-2 text-center">Entrées</th><th class="px-4 py-2 text-center">Sorties</th></tr></thead>
@@ -5921,6 +5973,39 @@ function openAddAselProduct() {
 }
 
 // === SMART BARCODE SCAN & LOOKUP ===
+function openImportModal() {
+    openModal(
+        modalHeader('bi-upload', 'Import produits CSV', 'Importer depuis un fichier Excel/CSV') +
+        `<div class="p-6 space-y-4">
+            <div class="bg-blue-50 rounded-xl p-3 text-xs text-blue-700">
+                <div class="font-bold mb-1">Format CSV attendu (séparateur: virgule ou point-virgule):</div>
+                <code class="text-[10px]">nom;categorie_id;prix_achat_ht;prix_vente_ht;tva_rate;reference;code_barre;marque;seuil_alerte</code>
+                <div class="mt-2"><a href="api.php?action=export_produits" class="underline">Télécharger le template</a> — ou importer un export existant</div>
+            </div>
+            <form method="POST" enctype="multipart/form-data" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').innerHTML='<i class=\'bi bi-hourglass-split\'></i> Import...'">
+                <input type="hidden" name="_csrf" value="<?=$csrf?>">
+                <input type="hidden" name="action" value="import_produits">
+                <div>
+                    <label class="text-xs font-bold text-gray-500 block mb-1">Fichier CSV</label>
+                    <input type="file" name="csv_file" accept=".csv,.txt" required class="w-full border-2 border-gray-200 rounded-xl px-3 py-2 text-sm">
+                </div>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" name="skip_header" id="skipH" value="1" checked>
+                    <label for="skipH" class="text-xs text-gray-600">Ignorer la 1ère ligne (en-tête)</label>
+                </div>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" name="update_existing" id="updateE" value="1">
+                    <label for="updateE" class="text-xs text-gray-600">Mettre à jour les produits existants (par référence)</label>
+                </div>
+                <button type="submit" class="w-full py-2.5 rounded-xl bg-green-500 hover:bg-green-600 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2">
+                    <i class="bi bi-upload"></i> Importer
+                </button>
+            </form>
+        </div>`,
+        {size: 'max-w-lg'}
+    );
+}
+
 function openBarcodeLookup() {
     openModal(
         modalHeader('bi-upc-scan', 'Scanner & Rechercher', 'Scannez un code-barres pour vérifier le produit') +
