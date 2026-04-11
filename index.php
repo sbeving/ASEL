@@ -92,6 +92,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Stock ajouté!'];
         auditLog('entree_stock', 'produit', $_POST['produit_id'], ['quantite'=>$_POST['quantite'], 'franchise'=>$efid]);
     }
+    elseif ($action === 'entree_multi_stock' && can('entree_stock')) {
+        $efid = can('view_all_franchises') ? intval($_POST['franchise_id']) : currentFranchise();
+        $lignes = json_decode($_POST['lignes'], true) ?: [];
+        $note_base = strParam('note');
+        $ref_bl = strParam('reference_bl', 100);
+        $fourn_id = intval($_POST['fournisseur_id']) ?: null;
+        $create_bon = !empty($_POST['create_bon']);
+        
+        if (empty($lignes)) {
+            $_SESSION['flash'] = ['type'=>'danger','msg'=>'Aucune ligne à enregistrer!'];
+            header("Location: index.php?page=entree&fid=$efid"); exit;
+        }
+        
+        $total_ht = 0; $total_tva = 0; $total_ttc = 0;
+        foreach ($lignes as $l) {
+            $lht = floatval($l['prix_ht']) * intval($l['qty']);
+            $ltva = $lht * floatval($l['tva_rate'] ?? 19) / 100;
+            $total_ht += $lht; $total_tva += $ltva; $total_ttc += $lht + $ltva;
+        }
+        
+        $bon_id = null;
+        if ($create_bon) {
+            $count = queryOne("SELECT COUNT(*)+1 as n FROM bons_reception WHERE DATE(date_creation)=CURDATE()")['n'];
+            $numero = 'BR-' . date('Ymd') . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
+            execute("INSERT INTO bons_reception (numero,franchise_id,fournisseur_id,total_ht,tva,total_ttc,statut,note,utilisateur_id) VALUES (?,?,?,?,?,?,'valide',?,?)",
+                [$numero, $efid, $fourn_id, round($total_ht,2), round($total_tva,2), round($total_ttc,2), $note_base ?: ($ref_bl ? "BL: $ref_bl" : null), $user['id']]);
+            $bon_id = db()->lastInsertId();
+        }
+        
+        foreach ($lignes as $l) {
+            $pid = intval($l['id']);
+            $qty = intval($l['qty']);
+            $prix_ht = floatval($l['prix_ht']);
+            $tva_r = floatval($l['tva_rate'] ?? 19);
+            $prix_ttc = round($prix_ht * (1 + $tva_r/100), 2);
+            $note = $note_base ?: ($ref_bl ? "BL: $ref_bl" : '');
+            
+            execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,prix_unitaire,note,utilisateur_id) VALUES (?,?,'entree',?,?,?,?)",
+                [$efid, $pid, $qty, $prix_ht, $note, $user['id']]);
+            execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantite=quantite+VALUES(quantite)",
+                [$efid, $pid, $qty]);
+            // Update product purchase price
+            if ($prix_ht > 0)
+                execute("UPDATE produits SET prix_achat_ht=?, prix_achat_ttc=?, prix_achat=? WHERE id=?",
+                    [$prix_ht, $prix_ttc, $prix_ttc, $pid]);
+            
+            if ($bon_id)
+                execute("INSERT INTO bon_reception_lignes (bon_id,produit_id,quantite,prix_unitaire_ht,tva_rate,prix_unitaire_ttc,total_ht,total_ttc) VALUES (?,?,?,?,?,?,?,?)",
+                    [$bon_id, $pid, $qty, $prix_ht, $tva_r, $prix_ttc, round($prix_ht*$qty,2), round($prix_ttc*$qty,2)]);
+        }
+        
+        $msg = count($lignes) . ' produit(s) mis à jour';
+        if ($bon_id) $msg .= " — Bon de réception <b>$numero</b> créé";
+        $_SESSION['flash'] = ['type'=>'success','msg'=>$msg];
+        auditLog('entree_multi_stock', 'franchise', $efid, ['lignes'=>count($lignes),'total_ttc'=>$total_ttc,'bon_id'=>$bon_id]);
+        header("Location: index.php?page=entree&fid=$efid"); exit;
+    }
     elseif ($action === 'transfert') {
         // Prevent transfer to same franchise
         if ($_POST['source'] == $_POST['dest']) {
@@ -1505,32 +1562,262 @@ function filterStock(){const q=document.getElementById('stockSearch').value.toLo
 elseif ($page === 'entree'):
     $e_fid = $fid ?: currentFranchise();
     if (!$e_fid && can('view_all_franchises')): ?>
-<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-box-arrow-in-down text-asel"></i> Entrée de stock</h1>
-<div class="bg-white rounded-xl shadow-sm p-8 max-w-md mx-auto text-center">
-    <i class="bi bi-shop text-5xl text-asel/30"></i>
-    <h3 class="font-bold text-asel-dark mt-4 mb-2">Choisissez une franchise</h3>
-    <div class="space-y-2 mt-4"><?php foreach ($franchises as $f): ?>
-        <a href="?page=entree&fid=<?=$f['id']?>" class="block bg-asel hover:bg-asel-dark text-white font-semibold py-3 rounded-xl transition-all"><?=shortF($f['nom'])?></a>
-    <?php endforeach; ?></div>
+<h1 class="text-2xl font-bold text-asel-dark mb-4 flex items-center gap-2"><i class="bi bi-box-arrow-in-down text-asel"></i> Entrée de stock</h1>
+<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    <?php foreach ($allFranchises as $f): $sc=queryOne("SELECT SUM(quantite) as t FROM stock WHERE franchise_id=?",[$f['id']]); ?>
+    <a href="?page=entree&fid=<?=$f['id']?>" class="bg-white border-2 border-transparent hover:border-asel rounded-xl p-5 shadow-sm transition-all group">
+        <div class="flex items-center gap-3 mb-3">
+            <div class="w-10 h-10 bg-asel/10 rounded-xl flex items-center justify-center group-hover:bg-asel transition-colors"><i class="bi bi-shop text-asel group-hover:text-white"></i></div>
+            <div><div class="font-bold text-asel-dark"><?=shortF($f['nom'])?></div><div class="text-xs text-gray-400"><?=number_format($sc['t']??0)?> articles en stock</div></div>
+        </div>
+        <div class="flex justify-end"><span class="text-xs font-bold text-asel group-hover:text-asel-dark">Gérer →</span></div>
+    </a>
+    <?php endforeach; ?>
 </div>
 <?php return; endif;
+
+$franchise_info = queryOne("SELECT * FROM franchises WHERE id=?", [$e_fid]);
+$recent_entrees = query("SELECT m.*,p.nom as pnom,p.reference FROM mouvements m JOIN produits p ON m.produit_id=p.id WHERE m.franchise_id=? AND m.type_mouvement='entree' ORDER BY m.date_mouvement DESC LIMIT 10", [$e_fid]);
 ?>
-<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-box-arrow-in-down text-asel"></i> Entrée de stock</h1>
-<div class="form-card max-w-lg">
-    <h3><i class="bi bi-box-arrow-in-down text-asel"></i> Nouvelle entrée de stock</h3>
-    <form method="POST" class="space-y-4">
-        <input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="entree_stock">
-        <?php if (can('view_all_franchises')): ?>
-        <div><label class="form-label">Franchise</label><select name="franchise_id" class="form-input"><?php foreach ($franchises as $f): ?><option value="<?=$f['id']?>" <?=$e_fid==$f['id']?'selected':''?>><?=shortF($f['nom'])?></option><?php endforeach; ?></select></div>
-        <?php else: ?><input type="hidden" name="franchise_id" value="<?=$e_fid?>"><?php endif; ?>
-        <div><label class="form-label">Produit</label><select name="produit_id" class="ts-select w-full" data-placeholder="Rechercher un produit..."><?php foreach ($produits as $p): ?><option value="<?=$p['id']?>"><?=e($p['nom'])?> (<?=e($p['cat_nom'])?>)</option><?php endforeach; ?></select></div>
-        <div class="form-row form-row-2">
-            <div><label class="form-label">Quantité</label><input type="number" name="quantite" min="1" value="1" required class="form-input text-center text-lg font-bold"></div>
-            <div><label class="form-label">Note / BL</label><input type="text" name="note" class="form-input" placeholder="N° bon de livraison, fournisseur..."></div>
+<div class="flex items-center gap-3 mb-4">
+    <a href="?page=entree" class="text-gray-400 hover:text-asel"><i class="bi bi-arrow-left text-lg"></i></a>
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-box-arrow-in-down text-asel"></i> Entrée stock — <?=e(shortF($franchise_info['nom']??''))?></h1>
+</div>
+
+<div class="grid lg:grid-cols-5 gap-4">
+<!-- LEFT: Multi-product entry form -->
+<div class="lg:col-span-3">
+<div class="bg-white rounded-xl shadow-sm p-4 border-2 border-asel/20">
+    <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-plus-circle text-asel"></i> Nouvelle entrée multi-produits</h3>
+        <span class="text-xs bg-asel/10 text-asel font-bold px-2 py-1 rounded-lg" id="entreeCount">0 produit(s)</span>
+    </div>
+    
+    <!-- Search & add product -->
+    <div class="bg-asel-light/30 rounded-xl p-3 mb-4 border border-asel/10">
+        <label class="text-xs font-bold text-gray-500 mb-2 block"><i class="bi bi-search"></i> Rechercher et ajouter un produit</label>
+        <div class="flex gap-2">
+            <div class="relative flex-1">
+                <input type="text" id="entreeSearch" placeholder="Tapez nom, référence ou scannez le code-barres..." 
+                    class="w-full border-2 border-asel/30 rounded-xl px-3 py-2.5 text-sm focus:border-asel outline-none bg-white"
+                    oninput="searchEntreeProducts(this.value)" autocomplete="off">
+                <div id="entreeSearchResults" class="absolute top-full left-0 right-0 bg-white border-2 border-asel/30 rounded-xl mt-1 shadow-xl z-50 max-h-60 overflow-y-auto hidden"></div>
+            </div>
+            <input type="number" id="entreeQty" value="1" min="1" class="w-16 border-2 border-gray-200 rounded-xl px-2 text-center text-sm font-bold" title="Quantité">
+            <input type="number" id="entreePrixHT" step="0.01" placeholder="P.A. HT" class="w-24 border-2 border-gray-200 rounded-xl px-2 text-xs" title="Prix d'achat HT">
         </div>
-        <button type="submit" class="btn-submit"><i class="bi bi-check-circle"></i> Enregistrer l'entrée</button>
+    </div>
+    
+    <!-- Lignes en attente -->
+    <div id="entreeLines" class="space-y-2 mb-4 min-h-16">
+        <div id="entreePlaceholder" class="flex items-center justify-center py-8 text-gray-400 text-sm">
+            <div class="text-center"><i class="bi bi-box-arrow-in-down text-3xl opacity-30 mb-2 block"></i>Recherchez des produits pour les ajouter</div>
+        </div>
+    </div>
+    
+    <!-- Options et validation -->
+    <form id="entreeForm" method="POST">
+        <input type="hidden" name="_csrf" value="<?=$csrf?>">
+        <input type="hidden" name="action" value="entree_multi_stock">
+        <input type="hidden" name="franchise_id" value="<?=$e_fid?>">
+        <input type="hidden" name="lignes" id="entreeLignesInput" value="[]">
+        
+        <div class="border-t pt-3 space-y-3">
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-xs font-bold text-gray-500">Fournisseur</label>
+                    <select name="fournisseur_id" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2 text-sm">
+                        <option value="">— Aucun —</option>
+                        <?php foreach($fournisseurs as $f): ?>
+                        <option value="<?=$f['id']?>"><?=e($f['nom'])?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-gray-500">Référence / N° BL</label>
+                    <input name="reference_bl" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2 text-sm" placeholder="BL-2024-001">
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <input type="checkbox" name="create_bon" id="createBon" value="1" checked class="rounded">
+                <label for="createBon" class="text-xs text-gray-600">Créer un bon de réception automatiquement</label>
+            </div>
+            <div>
+                <label class="text-xs font-bold text-gray-500">Note</label>
+                <input name="note" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2 text-sm" placeholder="Note optionnelle">
+            </div>
+        </div>
+        
+        <div class="mt-4 bg-asel-light/50 rounded-xl p-3 flex justify-between items-center">
+            <div class="text-sm"><span class="text-gray-500">Total HT:</span> <span class="font-bold text-asel-dark" id="entreeTotalHT">0.00</span> DT &nbsp; <span class="text-gray-400 text-xs" id="entreeTotalTTC"></span></div>
+            <button type="submit" id="entreSubmit" disabled class="bg-asel disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold px-6 py-2.5 rounded-xl text-sm transition-colors">
+                <i class="bi bi-check-circle"></i> Valider l'entrée
+            </button>
+        </div>
     </form>
 </div>
+</div>
+
+<!-- RIGHT: Recent entries -->
+<div class="lg:col-span-2">
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div class="px-4 py-3 border-b flex items-center gap-2">
+            <i class="bi bi-clock-history text-gray-400"></i>
+            <span class="font-semibold text-sm">Dernières entrées</span>
+        </div>
+        <?php if($recent_entrees): ?>
+        <div class="divide-y">
+        <?php foreach($recent_entrees as $e): ?>
+        <div class="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
+            <div>
+                <div class="font-medium text-sm"><?=e($e['pnom'])?></div>
+                <div class="text-xs text-gray-400"><?=date('d/m H:i',strtotime($e['date_mouvement']))?> <?=$e['note']?"— ".e(mb_substr($e['note'],0,25)):''?></div>
+            </div>
+            <span class="font-bold text-green-600 text-sm">+<?=$e['quantite']?></span>
+        </div>
+        <?php endforeach; ?>
+        </div>
+        <?php else: ?>
+        <div class="px-4 py-8 text-center text-gray-400 text-sm"><i class="bi bi-inbox text-2xl block mb-2 opacity-30"></i>Aucune entrée récente</div>
+        <?php endif; ?>
+    </div>
+    
+    <!-- Quick stock check -->
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden mt-4">
+        <div class="px-4 py-3 border-b flex items-center gap-2">
+            <i class="bi bi-exclamation-triangle text-amber-500"></i>
+            <span class="font-semibold text-sm">Stock bas</span>
+        </div>
+        <?php
+        $stock_bas = query("SELECT s.*,p.nom as pnom,p.seuil_alerte FROM stock s JOIN produits p ON s.produit_id=p.id WHERE s.franchise_id=? AND s.quantite<=p.seuil_alerte AND p.actif=1 ORDER BY s.quantite LIMIT 8", [$e_fid]);
+        ?>
+        <?php if($stock_bas): ?>
+        <div class="divide-y">
+        <?php foreach($stock_bas as $s): ?>
+        <div class="px-4 py-2.5 flex items-center justify-between hover:bg-amber-50">
+            <span class="text-sm"><?=e($s['pnom'])?></span>
+            <span class="font-bold text-xs <?=$s['quantite']<=0?'text-red-600':'text-amber-600'?>"><?=$s['quantite']?></span>
+        </div>
+        <?php endforeach; ?>
+        </div>
+        <?php else: ?>
+        <div class="px-4 py-6 text-center text-gray-400 text-sm"><i class="bi bi-check-circle text-green-400 text-xl block mb-1"></i>Tout le stock est OK</div>
+        <?php endif; ?>
+    </div>
+</div>
+</div>
+
+<script>
+const entreeProds = <?=json_encode(array_map(fn($p)=>[
+    'id'=>$p['id'],'nom'=>$p['nom'],'ref'=>$p['reference']??'','cat'=>$p['cat_nom'],
+    'marque'=>$p['marque']??'','pa'=>floatval($p['prix_achat_ht']??$p['prix_achat']),
+    'tva'=>floatval($p['tva_rate']??19),'code_barre'=>$p['code_barre']??''
+], $produits))?>;
+
+let entreeLines = [];
+
+function searchEntreeProducts(q) {
+    const res = document.getElementById('entreeSearchResults');
+    if(!q || q.length < 1) { res.classList.add('hidden'); return; }
+    const ql = q.toLowerCase();
+    const matches = entreeProds.filter(p =>
+        p.nom.toLowerCase().includes(ql) || p.ref.toLowerCase().includes(ql) ||
+        p.marque.toLowerCase().includes(ql) || p.code_barre === q
+    ).slice(0, 8);
+    
+    if(!matches.length) { res.innerHTML = '<div class="px-4 py-3 text-gray-400 text-sm">Aucun résultat</div>'; res.classList.remove('hidden'); return; }
+    res.innerHTML = matches.map(p => 
+        `<div class="px-4 py-2.5 hover:bg-asel-light cursor-pointer border-b last:border-0 flex items-center gap-3" onclick="addEntreeLine(${p.id},'${p.nom.replace(/'/g,"\\'")}','${p.ref}','${p.cat}',${p.pa},${p.tva})">
+            <div class="flex-1">
+                <div class="font-semibold text-sm">${p.nom}</div>
+                <div class="text-xs text-gray-400">${p.ref} · ${p.cat}${p.marque?' · '+p.marque:''}</div>
+            </div>
+            <span class="text-xs font-bold text-asel">${p.pa.toFixed(2)} DT HT</span>
+        </div>`
+    ).join('');
+    res.classList.remove('hidden');
+}
+
+function addEntreeLine(id, nom, ref, cat, pa, tva) {
+    const qty = parseInt(document.getElementById('entreeQty').value) || 1;
+    const prix = parseFloat(document.getElementById('entreePrixHT').value) || pa;
+    
+    const existing = entreeLines.find(l => l.id === id);
+    if(existing) { existing.qty += qty; }
+    else { entreeLines.push({id, nom, ref, cat, qty, prix_ht: prix, tva_rate: tva}); }
+    
+    document.getElementById('entreeSearch').value = '';
+    document.getElementById('entreeSearchResults').classList.add('hidden');
+    document.getElementById('entreeQty').value = 1;
+    document.getElementById('entreePrixHT').value = '';
+    renderEntreeLines();
+}
+
+function removeEntreeLine(i) { entreeLines.splice(i, 1); renderEntreeLines(); }
+function updateEntreeLine(i, field, val) {
+    if(field === 'qty') entreeLines[i].qty = Math.max(1, parseInt(val)||1);
+    if(field === 'prix') entreeLines[i].prix_ht = Math.max(0, parseFloat(val)||0);
+    renderEntreeLines();
+}
+
+function renderEntreeLines() {
+    const container = document.getElementById('entreeLines');
+    const placeholder = document.getElementById('entreePlaceholder');
+    document.getElementById('entreeCount').textContent = entreeLines.length + ' produit(s)';
+    
+    if(!entreeLines.length) {
+        placeholder.style.display = 'flex';
+        document.getElementById('entreSubmit').disabled = true;
+        document.getElementById('entreeTotalHT').textContent = '0.00';
+        document.getElementById('entreeTotalTTC').textContent = '';
+        document.getElementById('entreeLignesInput').value = '[]';
+        return;
+    }
+    
+    placeholder.style.display = 'none';
+    document.getElementById('entreSubmit').disabled = false;
+    
+    let totalHT = 0, totalTTC = 0;
+    const rows = entreeLines.map((l,i) => {
+        const lht = l.qty * l.prix_ht;
+        const lttc = lht * (1 + l.tva_rate/100);
+        totalHT += lht; totalTTC += lttc;
+        return `<div class="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+            <div class="flex-1 min-w-0">
+                <div class="font-semibold text-sm truncate">${l.nom}</div>
+                <div class="text-xs text-gray-400">${l.ref} · TVA ${l.tva_rate}%</div>
+            </div>
+            <input type="number" value="${l.qty}" min="1" class="w-14 border-2 border-gray-200 rounded-lg px-1 py-1 text-center text-sm font-bold"
+                onchange="updateEntreeLine(${i},'qty',this.value)">
+            <input type="number" value="${l.prix_ht.toFixed(2)}" step="0.01" class="w-20 border-2 border-gray-200 rounded-lg px-1 py-1 text-right text-sm"
+                onchange="updateEntreeLine(${i},'prix',this.value)">
+            <span class="text-xs text-gray-400 w-6">HT</span>
+            <span class="font-bold text-sm text-asel-dark w-20 text-right">${lttc.toFixed(2)} TTC</span>
+            <button type="button" onclick="removeEntreeLine(${i})" class="text-red-400 hover:text-red-600 ml-1"><i class="bi bi-x-lg text-xs"></i></button>
+        </div>`;
+    }).join('');
+    
+    container.innerHTML = rows;
+    document.getElementById('entreeTotalHT').textContent = totalHT.toFixed(2);
+    document.getElementById('entreeTotalTTC').textContent = '(' + totalTTC.toFixed(2) + ' DT TTC)';
+    document.getElementById('entreeLignesInput').value = JSON.stringify(entreeLines);
+}
+
+// Close search results on outside click
+document.addEventListener('click', e => {
+    if(!e.target.closest('#entreeSearch') && !e.target.closest('#entreeSearchResults'))
+        document.getElementById('entreeSearchResults')?.classList.add('hidden');
+});
+
+// Barcode scan support
+document.getElementById('entreeSearch').addEventListener('keydown', e => {
+    if(e.key === 'Enter') {
+        const q = e.target.value.trim();
+        const exact = entreeProds.find(p => p.code_barre === q || p.ref === q);
+        if(exact) { addEntreeLine(exact.id, exact.nom, exact.ref, exact.cat, exact.pa, exact.tva); e.preventDefault(); }
+    }
+});
+</script>
 
 <?php
 // =====================================================
@@ -1717,33 +2004,59 @@ elseif ($page === 'transferts'):
 </div>
 
 <?php elseif ($page === 'cloture'): $cl_fid=$fid?:(currentFranchise()?:($franchises[0]['id']??1));
-    // Get today's system totals for comparison
     $sys = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COALESCE(SUM(quantite),0) as a FROM ventes WHERE franchise_id=? AND date_vente=CURDATE()", [$cl_fid]);
     $recent_clotures = query("SELECT cl.*,f.nom as fnom,u.nom_complet as par FROM clotures cl JOIN franchises f ON cl.franchise_id=f.id LEFT JOIN utilisateurs u ON cl.utilisateur_id=u.id WHERE cl.franchise_id=? ORDER BY cl.date_cloture DESC LIMIT 10", [$cl_fid]);
+    // Trésorerie today
+    $tr_today_enc = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE franchise_id=? AND type_mouvement='encaissement' AND date_mouvement=CURDATE()", [$cl_fid])['t'];
+    $tr_today_dec = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE franchise_id=? AND type_mouvement='decaissement' AND date_mouvement=CURDATE()", [$cl_fid])['t'];
+    $tr_solde = $tr_today_enc - $tr_today_dec;
+    $ecart_tresorerie = $tr_today_enc - $sys['t'];
+    // Already closed today?
+    $already_closed = queryOne("SELECT id FROM clotures WHERE franchise_id=? AND date_cloture=CURDATE()", [$cl_fid]);
 ?>
-<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-calendar-check text-asel"></i> Clôture journalière</h1>
-<!-- Today's system stats -->
-<div class="grid grid-cols-2 gap-3 mb-4">
-    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-asel">
-        <div class="text-[10px] text-gray-400 uppercase font-bold">Ventes système (aujourd'hui)</div>
-        <div class="text-xl font-black text-asel-dark"><?=number_format($sys['t'],2)?> <span class="text-sm text-gray-400">DT</span></div>
+<h1 class="text-2xl font-bold text-asel-dark mb-4 flex items-center gap-2"><i class="bi bi-calendar-check text-asel"></i> Clôture journalière</h1>
+<!-- Today's overview -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+    <div class="bg-asel/10 border-2 border-asel/20 rounded-xl p-4">
+        <div class="text-[10px] text-asel font-bold uppercase">Ventes système</div>
+        <div class="text-xl font-black text-asel-dark"><?=number_format($sys['t'],2)?> <span class="text-xs text-gray-400">DT</span></div>
+        <div class="text-xs text-gray-400"><?=number_format($sys['a'])?> articles</div>
     </div>
-    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-emerald-500">
-        <div class="text-[10px] text-gray-400 uppercase font-bold">Articles système</div>
-        <div class="text-xl font-black text-asel-dark"><?=number_format($sys['a'])?></div>
+    <div class="bg-green-50 border-2 border-green-200 rounded-xl p-4">
+        <div class="text-[10px] text-green-600 font-bold uppercase">Encaissements</div>
+        <div class="text-xl font-black text-green-700"><?=number_format($tr_today_enc,2)?> <span class="text-xs text-gray-400">DT</span></div>
+        <div class="text-xs text-gray-400">Mouvements trésorerie</div>
+    </div>
+    <div class="bg-red-50 border-2 border-red-200 rounded-xl p-4">
+        <div class="text-[10px] text-red-600 font-bold uppercase">Décaissements</div>
+        <div class="text-xl font-black text-red-700"><?=number_format($tr_today_dec,2)?> <span class="text-xs text-gray-400">DT</span></div>
+    </div>
+    <div class="<?=abs($ecart_tresorerie)<1?'bg-green-50 border-green-200':'bg-red-50 border-red-200'?> border-2 rounded-xl p-4">
+        <div class="text-[10px] font-bold uppercase <?=abs($ecart_tresorerie)<1?'text-green-600':'text-red-600'?>">Écart (Enc. - Ventes)</div>
+        <div class="text-xl font-black <?=abs($ecart_tresorerie)<1?'text-green-700':'text-red-700'?>"><?=$ecart_tresorerie>0?'+':''?><?=number_format($ecart_tresorerie,2)?> DT</div>
+        <?php if(abs($ecart_tresorerie)>=1): ?><div class="text-xs text-red-600 font-bold">⚠️ Vérifier la caisse</div><?php endif; ?>
     </div>
 </div>
+<?php if($already_closed): ?>
+<div class="bg-green-50 border-2 border-green-300 rounded-xl p-4 mb-4 flex items-center gap-3">
+    <i class="bi bi-check-circle-fill text-green-500 text-2xl"></i>
+    <div><div class="font-bold text-green-700">Clôture du jour déjà soumise</div><div class="text-xs text-green-600">Vous pouvez soumettre une nouvelle clôture pour une autre date.</div></div>
+</div>
+<?php endif; ?>
 <div class="grid lg:grid-cols-2 gap-6">
 <div class="form-card">
     <h3><i class="bi bi-calendar-check text-asel"></i> Soumettre la clôture</h3>
     <form method="POST" class="space-y-3"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="cloture_submit"><input type="hidden" name="franchise_id" value="<?=$cl_fid?>">
         <div><label class="form-label">Date</label><input type="date" name="date_cloture" value="<?=date('Y-m-d')?>" class="form-input"></div>
         <div class="form-row form-row-2">
-            <div><label class="form-label">Total ventes déclaré (DT)</label><input name="total_declare" type="number" step="0.01" class="form-input text-center text-lg font-bold" required placeholder="0.00"></div>
-            <div><label class="form-label">Nb articles déclaré</label><input name="articles_declare" type="number" class="form-input text-center text-lg font-bold" required placeholder="0"></div>
+            <div><label class="form-label">Total caisse déclaré (DT)</label><input name="total_declare" type="number" step="0.01" class="form-input text-center text-lg font-bold" required placeholder="0.00" value="<?=number_format($sys['t'],2)?>"></div>
+            <div><label class="form-label">Nb articles déclaré</label><input name="articles_declare" type="number" class="form-input text-center text-lg font-bold" required placeholder="0" value="<?=$sys['a']?>"></div>
+        </div>
+        <div class="bg-blue-50 rounded-xl p-3 text-xs text-blue-700">
+            <b>ℹ️ Système:</b> <?=number_format($sys['t'],2)?> DT · <?=$sys['a']?> articles
         </div>
         <div><label class="form-label">Commentaire</label><textarea name="commentaire" class="form-input" rows="2" placeholder="Notes sur la journée, anomalies..."></textarea></div>
-        <button type="submit" class="btn-submit"><i class="bi bi-calendar-check"></i> Soumettre</button>
+        <button type="submit" class="btn-submit"><i class="bi bi-calendar-check"></i> Soumettre la clôture</button>
     </form>
 </div>
 <?php if ($recent_clotures): ?>
@@ -1765,17 +2078,27 @@ elseif ($page === 'transferts'):
 
 <?php elseif ($page === 'rapports' && can('rapports')):
     $d1=$_GET['d1']??date('Y-m-01');$d2=$_GET['d2']??date('Y-m-d');
+    $r_fid = $fid ?: null;
+    $r_fwhere = $r_fid ? "AND v.franchise_id=".intval($r_fid) : "";
+    
     $by_f=query("SELECT f.nom,f.id,COALESCE(SUM(v.prix_total),0) as ca,COALESCE(SUM(v.quantite),0) as art,COUNT(DISTINCT v.id) as tx FROM franchises f LEFT JOIN ventes v ON f.id=v.franchise_id AND v.date_vente BETWEEN ? AND ? WHERE f.actif=1 AND (f.type_franchise IS NULL OR f.type_franchise='point_de_vente') GROUP BY f.id,f.nom ORDER BY ca DESC",[$d1,$d2]);
-    $top=query("SELECT p.nom,p.marque,p.reference,p.prix_achat,SUM(v.quantite) as qty,SUM(v.prix_total) as ca,SUM(v.quantite*p.prix_achat) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente BETWEEN ? AND ? GROUP BY p.id ORDER BY ca DESC LIMIT 15",[$d1,$d2]);
+    $top=query("SELECT p.nom,p.marque,p.reference,p.prix_achat,p.prix_achat_ht,p.tva_rate,SUM(v.quantite) as qty,SUM(v.prix_total) as ca,SUM(v.quantite*p.prix_achat) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente BETWEEN ? AND ? $r_fwhere GROUP BY p.id ORDER BY ca DESC LIMIT 15",[$d1,$d2]);
     $total_ca = array_sum(array_column($by_f, 'ca'));
     $total_art = array_sum(array_column($by_f, 'art'));
     $total_tx = array_sum(array_column($by_f, 'tx'));
-    // Category breakdown with profit
-    $by_cat=query("SELECT c.nom,SUM(v.prix_total) as ca,SUM(v.quantite) as qty,SUM(v.quantite*p.prix_achat) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN categories c ON p.categorie_id=c.id WHERE v.date_vente BETWEEN ? AND ? GROUP BY c.nom ORDER BY ca DESC",[$d1,$d2]);
-    // Total cost for profit
-    $total_cout = queryOne("SELECT COALESCE(SUM(v.quantite*p.prix_achat),0) as c FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente BETWEEN ? AND ? ".($fid?"AND v.franchise_id=".intval($fid):""), [$d1,$d2])['c'];
+    $by_cat=query("SELECT c.nom,SUM(v.prix_total) as ca,SUM(v.quantite) as qty,SUM(v.quantite*p.prix_achat) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN categories c ON p.categorie_id=c.id WHERE v.date_vente BETWEEN ? AND ? $r_fwhere GROUP BY c.nom ORDER BY ca DESC",[$d1,$d2]);
+    $total_cout = queryOne("SELECT COALESCE(SUM(v.quantite*p.prix_achat),0) as c FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente BETWEEN ? AND ? $r_fwhere", [$d1,$d2])['c'];
     $total_profit = $total_ca - $total_cout;
     $total_margin = $total_ca > 0 ? round($total_profit / $total_ca * 100) : 0;
+    // Financial breakdown HT/TVA/TTC
+    $tva_rate_moy = 19; // default
+    $total_ca_ht = round($total_ca / (1 + $tva_rate_moy/100), 2);
+    $total_tva = $total_ca - $total_ca_ht;
+    // Tresorerie for period
+    $tr_enc = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE type_mouvement='encaissement' AND date_mouvement BETWEEN ? AND ?",$r_fid ? [$d1,$d2,[$r_fid]] : [$d1,$d2])['t'];
+    $tr_dec = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE type_mouvement='decaissement' AND date_mouvement BETWEEN ? AND ?", [$d1,$d2])['t'];
+    // Daily sales for sparkline
+    $daily = query("SELECT date_vente as d, SUM(prix_total) as ca FROM ventes WHERE date_vente BETWEEN ? AND ? $r_fwhere GROUP BY date_vente ORDER BY date_vente", [$d1,$d2]);
 ?>
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-graph-up text-asel"></i> Rapports</h1>
@@ -1802,26 +2125,45 @@ elseif ($page === 'transferts'):
     </form>
 </div>
 <!-- Global KPIs -->
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-asel">
-        <div class="text-[10px] text-gray-400 uppercase font-bold">CA Total</div>
-        <div class="text-2xl font-black text-asel-dark"><?=number_format($total_ca)?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+    <div class="bg-gradient-to-br from-asel to-asel-dark rounded-xl p-4 shadow-sm text-white">
+        <div class="text-[10px] text-white/70 uppercase font-bold">CA TTC</div>
+        <div class="text-2xl font-black"><?=number_format($total_ca)?> <span class="text-sm font-normal opacity-70">DT</span></div>
+        <div class="text-xs text-white/60 mt-1">HT: <?=number_format($total_ca_ht)?> · TVA: <?=number_format($total_tva)?></div>
     </div>
     <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-green-500">
         <div class="text-[10px] text-gray-400 uppercase font-bold">Bénéfice net</div>
         <div class="text-2xl font-black <?=$total_profit>=0?'text-green-600':'text-red-600'?>"><?=number_format($total_profit)?> <span class="text-sm font-normal text-gray-400">DT</span></div>
-        <div class="text-xs text-gray-400">Marge: <?=$total_margin?>%</div>
+        <div class="text-xs text-gray-400">Marge: <b><?=$total_margin?>%</b> · Coût: <?=number_format($total_cout)?></div>
     </div>
     <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-emerald-500">
-        <div class="text-[10px] text-gray-400 uppercase font-bold">Articles vendus</div>
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Articles / Transactions</div>
         <div class="text-2xl font-black text-asel-dark"><?=number_format($total_art)?></div>
+        <div class="text-xs text-gray-400"><?=$total_tx?> ventes · moy <?=$total_tx?number_format($total_ca/$total_tx,1):'0'?> DT</div>
     </div>
     <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-purple-500">
-        <div class="text-[10px] text-gray-400 uppercase font-bold">Transactions</div>
-        <div class="text-2xl font-black text-asel-dark"><?=$total_tx?></div>
-        <?php if ($total_tx): ?><div class="text-xs text-gray-400">Panier moy: <?=number_format($total_ca/$total_tx,1)?> DT</div><?php endif; ?>
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Trésorerie période</div>
+        <div class="text-xl font-black <?=($tr_enc-$tr_dec)>=0?'text-green-600':'text-red-600'?>"><?=number_format($tr_enc-$tr_dec,0)?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+        <div class="text-xs text-gray-400">Enc: <?=number_format($tr_enc,0)?> · Déc: <?=number_format($tr_dec,0)?></div>
     </div>
 </div>
+<?php if(count($daily) > 1): ?>
+<div class="bg-white rounded-xl shadow-sm p-4 mb-4">
+    <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-asel-dark text-sm"><i class="bi bi-bar-chart text-asel"></i> CA journalier</h3>
+        <span class="text-xs text-gray-400"><?=count($daily)?> jours</span>
+    </div>
+    <div class="flex items-end gap-0.5 h-20">
+    <?php $max_daily = max(array_column($daily,'ca')); foreach($daily as $drow): $h = $max_daily > 0 ? max(4, round($drow['ca']/$max_daily*80)) : 4; ?>
+        <div class="flex-1 bg-asel/80 rounded-t hover:bg-asel transition-colors cursor-default" style="height:<?=$h?>px" title="<?=date('d/m',strtotime($drow['d']))?> : <?=number_format($drow['ca'])?> DT"></div>
+    <?php endforeach; ?>
+    </div>
+    <div class="flex justify-between text-[9px] text-gray-400 mt-1">
+        <span><?=date('d/m',strtotime($daily[0]['d']))?></span>
+        <span><?=date('d/m',strtotime($daily[count($daily)-1]['d']))?></span>
+    </div>
+</div>
+<?php endif; ?>
 <!-- Per franchise -->
 <div class="grid sm:grid-cols-2 gap-3 mb-6"><?php foreach($by_f as $f): $pct = $total_ca > 0 ? round($f['ca']/$total_ca*100) : 0; ?><div class="bg-white rounded-xl p-4 shadow-sm hover-lift">
     <div class="flex items-center justify-between mb-2">
