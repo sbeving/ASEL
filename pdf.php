@@ -23,6 +23,12 @@ if ($type === 'facture' && $id) {
     
     $lignes = query("SELECT * FROM facture_lignes WHERE facture_id=?", [$id]);
     
+    // Compute HT/TVA if not stored (backward compat with pre-v14 factures)
+    if (!$f['total_ht'] || $f['total_ht'] == 0) {
+        $f['total_ht'] = round($f['total_ttc'] / 1.19, 2);
+        $f['tva'] = $f['total_ttc'] - $f['total_ht'];
+    }
+    
     $title = strtoupper($f['type_facture']) . ' N° ' . $f['numero'];
     
     ?>

@@ -1354,10 +1354,10 @@ elseif ($page === 'pos'):
             <div id="cartBody" class="p-4 min-h-[200px] max-h-[40vh] overflow-y-auto">
                 <p class="text-center text-gray-300 py-8 text-sm">🛒 Scannez ou cliquez</p>
             </div>
-            <div class="p-4 border-t bg-gray-50">
-                <div class="flex justify-between items-center mb-3">
-                    <span class="font-bold text-lg text-asel-dark">TOTAL</span>
-                    <span class="text-2xl font-black text-asel" id="cartTotal">0 DT</span>
+            <div class="p-4 border-t bg-asel-dark/5">
+                <div class="flex justify-between items-center mb-3 bg-asel-dark rounded-xl px-4 py-3">
+                    <span class="font-bold text-lg text-white">TOTAL</span>
+                    <span class="text-3xl font-black text-white" id="cartTotal">0.00 DT</span>
                 </div>
                 <!-- Client -->
                 <div class="flex gap-1 mb-2">
