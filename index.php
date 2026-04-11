@@ -2874,6 +2874,8 @@ elseif ($page === 'ventes'):
     $tcout=array_sum(array_map(fn($v)=>$v['prix_achat']*$v['quantite'], $ventes));
     $tprofit=$tca-$tcout;
     $tmarge=$tca>0?round($tprofit/$tca*100):0;
+    $tca_ht = round($tca/1.19, 2);
+    $ttva = $tca - $tca_ht;
 ?>
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-receipt text-asel"></i> Historique des ventes</h1>
@@ -2899,8 +2901,8 @@ elseif ($page === 'ventes'):
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
     <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-asel">
         <div class="text-[10px] text-gray-400 uppercase font-bold">Chiffre d'affaires</div>
-        <div class="text-xl font-black text-asel-dark"><?=number_format($tca,2)?> <span class="text-xs font-normal text-gray-400">DT</span></div>
-        <div class="text-xs text-gray-400"><?=count($ventes)?> ventes · <?=number_format($tart)?> articles</div>
+        <div class="text-xl font-black text-asel-dark"><?=number_format($tca,2)?> <span class="text-xs font-normal text-gray-400">DT TTC</span></div>
+        <div class="text-xs text-gray-400"><?=count($ventes)?> ventes · <?=number_format($tart)?> articles · HT: <?=number_format($tca_ht,2)?> DT</div>
     </div>
     <?php if(isAdminOrGest()): ?>
     <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-green-500">
