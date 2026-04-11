@@ -573,7 +573,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         auditLog('dispatch_stock', 'produit', $pid, ['qte'=>$qty, 'dest'=>$dest_fid, 'dest_nom'=>$fname]);
         $page = 'stock_central';
     }
-    // === FOURNISSEUR CRUD ===
+    // === POINTAGE ===
+    elseif ($action === 'add_pointage' && can('add_pointage')) {
+        $lat = $_POST['latitude'] ? floatval($_POST['latitude']) : null;
+        $lng = $_POST['longitude'] ? floatval($_POST['longitude']) : null;
+        $type = in_array($_POST['type_pointage'], ['entree','sortie','pause_debut','pause_fin']) ? $_POST['type_pointage'] : 'entree';
+        $franchise_id_p = can('view_all_franchises') ? (intval($_POST['franchise_id']) ?: currentFranchise()) : currentFranchise();
+        
+        execute("INSERT INTO pointages (utilisateur_id,franchise_id,type_pointage,latitude,longitude,adresse,note,device_info) VALUES (?,?,?,?,?,?,?,?)",
+            [$user['id'], $franchise_id_p, $type, $lat, $lng, strParam('adresse',300), strParam('note'), strParam('device_info',100)]);
+        
+        $msg = match($type) {
+            'entree' => '✅ Entrée enregistrée à ' . date('H:i'),
+            'sortie' => '👋 Sortie enregistrée à ' . date('H:i'),
+            'pause_debut' => '☕ Pause commencée à ' . date('H:i'),
+            'pause_fin' => '✅ Retour de pause à ' . date('H:i'),
+        };
+        if($lat && $lng) $msg .= " — 📍 Localisé";
+        
+        $_SESSION['flash'] = ['type'=>'success','msg'=>$msg];
+        auditLog('pointage', 'pointage', null, ['type'=>$type, 'lat'=>$lat, 'lng'=>$lng]);
+        $page = 'pointage';
+    }
     elseif ($action === 'add_fournisseur' && can('add_fournisseur')) {
         execute("INSERT INTO fournisseurs (nom,telephone,email,adresse,ice) VALUES (?,?,?,?,?)",
             [strParam('nom'), strParam('telephone',50), strParam('email',100), strParam('adresse'), strParam('ice',50)]);
@@ -886,6 +907,7 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
             ['fournisseurs', 'bi-truck', 'Fournisseurs'],
             ['bons_reception', 'bi-receipt', 'Bons de réception'],
             ['tresorerie', 'bi-cash-stack', 'Trésorerie'],
+            ['pointage', 'bi-clock-history', 'Pointage employés'],
             ['gestion_services', 'bi-gear', 'Gérer services'],
             ['gestion_asel', 'bi-sim', 'Gérer offres ASEL'],
             ['franchises_mgmt', 'bi-shop', 'Franchises'],
@@ -963,6 +985,7 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
         'notifications'=>'Notifications',
         'fournisseurs'=>'Fournisseurs','bons_reception'=>'Bons de réception','tresorerie'=>'Trésorerie',
         'familles_categories'=>'Familles & Catégories',
+        'pointage'=>'Pointage employés',
     ];
     if ($page !== 'dashboard'):
     ?>
@@ -4843,7 +4866,259 @@ function closeFab(){document.getElementById('fabActions').classList.add('hidden'
 </script>
 <?php endif; ?>
 
-<div id="scannerModal" class="fixed inset-0 z-[9999] bg-black/70 items-center justify-center p-4" style="display:none">
+
+
+<!-- ====================== POINTAGE PAGE ====================== -->
+<?php if ($page === 'pointage' && can('pointage')):
+    $pt_fid = $fid ?: currentFranchise();
+    $today = date('Y-m-d');
+    $pt_date = $_GET['date'] ?? $today;
+    $pt_user_filter = intval($_GET['uid'] ?? 0);
+    
+    // Last pointage for current user today
+    $mon_dernier = queryOne("SELECT * FROM pointages WHERE utilisateur_id=? AND DATE(heure)=CURDATE() ORDER BY heure DESC LIMIT 1", [$user['id']]);
+    $mon_prochain = match($mon_dernier['type_pointage'] ?? '') {
+        'entree', 'pause_fin' => 'sortie',
+        'sortie' => 'entree',
+        'pause_debut' => 'pause_fin',
+        default => 'entree',
+    };
+    
+    // All pointages for the day (admin view)
+    $pt_where = "DATE(p.heure)=?";
+    $pt_params = [$pt_date];
+    if($pt_fid && can('view_all_franchises')) { $pt_where .= " AND p.franchise_id=?"; $pt_params[] = $pt_fid; }
+    elseif(!can('view_all_franchises')) { $pt_where .= " AND p.utilisateur_id=?"; $pt_params[] = $user['id']; }
+    if($pt_user_filter) { $pt_where .= " AND p.utilisateur_id=?"; $pt_params[] = $pt_user_filter; }
+    
+    try {
+        $pointages_list = query("SELECT p.*,u.nom_complet,u.role,f.nom as fnom FROM pointages p JOIN utilisateurs u ON p.utilisateur_id=u.id LEFT JOIN franchises f ON p.franchise_id=f.id WHERE $pt_where ORDER BY p.heure ASC", $pt_params);
+    } catch(Exception $e) { $pointages_list = []; }
+    
+    // Compute hours worked per employee today
+    $heures_par_employe = [];
+    foreach ($pointages_list as $pt) {
+        $uid = $pt['utilisateur_id'];
+        if (!isset($heures_par_employe[$uid])) {
+            $heures_par_employe[$uid] = ['nom'=>$pt['nom_complet'],'entrees'=>[],'sorties'=>[],'total_min'=>0];
+        }
+        if ($pt['type_pointage'] === 'entree') $heures_par_employe[$uid]['entrees'][] = strtotime($pt['heure']);
+        if ($pt['type_pointage'] === 'sortie') $heures_par_employe[$uid]['sorties'][] = strtotime($pt['heure']);
+    }
+    foreach ($heures_par_employe as $uid => &$emp) {
+        $pairs = min(count($emp['entrees']), count($emp['sorties']));
+        for ($i = 0; $i < $pairs; $i++) {
+            $emp['total_min'] += round(($emp['sorties'][$i] - $emp['entrees'][$i]) / 60);
+        }
+    }
+    
+    // Get employees for filter (admin only)
+    $employees_list = can('view_all_franchises') ? query("SELECT id, nom_complet FROM utilisateurs WHERE actif=1 AND role!='admin' ORDER BY nom_complet") : [];
+?>
+<div class="flex justify-between items-center mb-4">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-clock-history text-asel"></i> Pointage employés</h1>
+    <div class="text-sm text-gray-400"><?=date('d/m/Y H:i')?></div>
+</div>
+
+<!-- MY PUNCH CARD -->
+<div class="bg-gradient-to-r from-asel to-asel-dark rounded-2xl p-5 mb-5 text-white shadow-lg">
+    <div class="flex justify-between items-start mb-4">
+        <div>
+            <div class="text-xs text-white/60 font-bold uppercase">Mon pointage</div>
+            <div class="text-xl font-black mt-0.5"><?=e($user['nom_complet'])?></div>
+            <div class="text-sm text-white/70 mt-1">
+                <?php if($mon_dernier): ?>
+                Dernier: <b><?=match($mon_dernier['type_pointage']){'entree'=>'Entrée','sortie'=>'Sortie','pause_debut'=>'Pause','pause_fin'=>'Retour pause',default=>$mon_dernier['type_pointage']}?></b> à <?=date('H:i', strtotime($mon_dernier['heure']))?>
+                <?php else: ?>
+                Pas encore pointé aujourd'hui
+                <?php endif; ?>
+            </div>
+        </div>
+        <div class="text-right">
+            <div class="text-3xl font-black" id="currentTime"><?=date('H:i')?></div>
+            <div class="text-xs text-white/60"><?=date('D d M')?></div>
+        </div>
+    </div>
+    
+    <!-- Punch buttons -->
+    <form method="POST" id="pointageForm">
+        <input type="hidden" name="_csrf" value="<?=$csrf?>">
+        <input type="hidden" name="action" value="add_pointage">
+        <input type="hidden" name="type_pointage" id="punchType" value="<?=$mon_prochain?>">
+        <input type="hidden" name="latitude" id="punchLat" value="">
+        <input type="hidden" name="longitude" id="punchLng" value="">
+        <input type="hidden" name="adresse" id="punchAddr" value="">
+        <input type="hidden" name="device_info" value="<?=e($_SERVER['HTTP_USER_AGENT'] ?? '')?>">
+        <?php if($pt_fid): ?><input type="hidden" name="franchise_id" value="<?=$pt_fid?>"><?php endif; ?>
+        
+        <div class="flex gap-3 flex-wrap">
+            <button type="button" onclick="doPunch('entree')" class="flex-1 py-3 rounded-xl font-bold text-sm transition-all <?=$mon_prochain==='entree'?'bg-green-400 text-white shadow-lg scale-105':'bg-white/20 text-white/80 hover:bg-white/30'?>">
+                <i class="bi bi-box-arrow-in-right text-xl block mb-0.5"></i>
+                Entrée
+            </button>
+            <button type="button" onclick="doPunch('pause_debut')" class="flex-1 py-3 rounded-xl font-bold text-sm transition-all <?=$mon_prochain==='pause_debut'?'bg-yellow-400 text-yellow-900 shadow-lg scale-105':'bg-white/20 text-white/80 hover:bg-white/30'?>">
+                <i class="bi bi-cup-hot text-xl block mb-0.5"></i>
+                Pause
+            </button>
+            <button type="button" onclick="doPunch('pause_fin')" class="flex-1 py-3 rounded-xl font-bold text-sm transition-all <?=$mon_prochain==='pause_fin'?'bg-blue-400 text-white shadow-lg scale-105':'bg-white/20 text-white/80 hover:bg-white/30'?>">
+                <i class="bi bi-play-circle text-xl block mb-0.5"></i>
+                Retour
+            </button>
+            <button type="button" onclick="doPunch('sortie')" class="flex-1 py-3 rounded-xl font-bold text-sm transition-all <?=$mon_prochain==='sortie'?'bg-red-400 text-white shadow-lg scale-105':'bg-white/20 text-white/80 hover:bg-white/30'?>">
+                <i class="bi bi-box-arrow-right text-xl block mb-0.5"></i>
+                Sortie
+            </button>
+        </div>
+        
+        <div id="locationStatus" class="mt-3 text-xs text-white/60 text-center">
+            <i class="bi bi-geo-alt-fill"></i> <span id="locationText">Localisation non activée</span>
+        </div>
+    </form>
+</div>
+
+<!-- ADMIN: Today's pointages + hours summary -->
+<?php if(can('view_all_franchises') || count($heures_par_employe) > 1): ?>
+<div class="mb-4">
+    <form class="flex gap-2 items-center flex-wrap mb-3">
+        <input type="hidden" name="page" value="pointage">
+        <input type="date" name="date" value="<?=e($pt_date)?>" class="border-2 border-gray-200 rounded-xl px-3 py-1.5 text-sm">
+        <?php if($employees_list): ?>
+        <select name="uid" class="border-2 border-gray-200 rounded-xl px-3 py-1.5 text-sm">
+            <option value="">Tous les employés</option>
+            <?php foreach($employees_list as $emp): ?>
+            <option value="<?=$emp['id']?>" <?=$pt_user_filter==$emp['id']?'selected':''?>><?=e($emp['nom_complet'])?></option>
+            <?php endforeach; ?>
+        </select>
+        <?php endif; ?>
+        <button class="bg-asel text-white px-4 py-1.5 rounded-xl text-sm font-bold"><i class="bi bi-funnel"></i></button>
+    </form>
+    
+    <!-- Hours summary cards -->
+    <?php if($heures_par_employe): ?>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+        <?php foreach($heures_par_employe as $uid => $emp): 
+            $h = floor($emp['total_min'] / 60);
+            $m = $emp['total_min'] % 60;
+        ?>
+        <div class="bg-white rounded-xl p-4 shadow-sm">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-asel/10 rounded-xl flex items-center justify-center font-black text-asel text-sm">
+                    <?=mb_strtoupper(mb_substr($emp['nom'],0,2))?>
+                </div>
+                <div>
+                    <div class="font-semibold text-sm"><?=e($emp['nom'])?></div>
+                    <div class="text-xs text-gray-400"><?=count($emp['entrees'])?> pointage(s)</div>
+                </div>
+                <div class="ml-auto text-right">
+                    <div class="font-black text-lg <?=$emp['total_min']>=480?'text-green-600':($emp['total_min']>0?'text-asel':'text-gray-300')?>"><?=$h?>h<?=$m>0?"$m":'00'?></div>
+                    <div class="text-[10px] text-gray-400">travaillées</div>
+                </div>
+            </div>
+        </div>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+</div>
+
+<!-- Timeline of pointages -->
+<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <div class="px-4 py-3 border-b font-semibold text-sm flex items-center gap-2">
+        <i class="bi bi-list-ul text-asel"></i> 
+        Pointages du <?=date('d/m/Y', strtotime($pt_date))?>
+        <span class="ml-auto text-xs text-gray-400"><?=count($pointages_list)?> enregistrements</span>
+    </div>
+    <?php if($pointages_list): ?>
+    <div class="divide-y">
+        <?php foreach($pointages_list as $pt): 
+            $type_cfg = match($pt['type_pointage']) {
+                'entree' => ['color'=>'bg-green-100 text-green-700', 'icon'=>'bi-box-arrow-in-right', 'label'=>'Entrée'],
+                'sortie' => ['color'=>'bg-red-100 text-red-700', 'icon'=>'bi-box-arrow-right', 'label'=>'Sortie'],
+                'pause_debut' => ['color'=>'bg-yellow-100 text-yellow-700', 'icon'=>'bi-cup-hot', 'label'=>'Pause'],
+                'pause_fin' => ['color'=>'bg-blue-100 text-blue-700', 'icon'=>'bi-play-circle', 'label'=>'Retour pause'],
+                default => ['color'=>'bg-gray-100 text-gray-700', 'icon'=>'bi-clock', 'label'=>$pt['type_pointage']],
+            };
+        ?>
+        <div class="flex items-center gap-4 px-4 py-3 hover:bg-gray-50">
+            <div class="text-lg font-black text-asel-dark w-12 text-center"><?=date('H:i', strtotime($pt['heure']))?></div>
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold <?=$type_cfg['color']?>">
+                <i class="bi <?=$type_cfg['icon']?>"></i> <?=$type_cfg['label']?>
+            </span>
+            <div class="flex-1 min-w-0">
+                <div class="font-semibold text-sm"><?=e($pt['nom_complet'])?></div>
+                <?php if($pt['adresse']): ?>
+                <div class="text-xs text-gray-400 flex items-center gap-1 truncate">
+                    <i class="bi bi-geo-alt text-asel"></i>
+                    <?=e(mb_substr($pt['adresse'],0,60))?>
+                    <?php if($pt['latitude']): ?>
+                    <a href="https://maps.google.com?q=<?=$pt['latitude']?>,<?=$pt['longitude']?>" target="_blank" class="text-asel hover:underline ml-1">[Carte]</a>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+                <?php if($pt['note']): ?><div class="text-xs text-gray-400"><?=e($pt['note'])?></div><?php endif; ?>
+            </div>
+            <div class="text-xs text-gray-400 shrink-0"><?=e(shortF($pt['fnom']??''))?></div>
+        </div>
+        <?php endforeach; ?>
+    </div>
+    <?php else: ?>
+    <div class="px-4 py-10 text-center text-gray-400">
+        <i class="bi bi-clock text-3xl block mb-2 opacity-30"></i>
+        Aucun pointage ce jour
+    </div>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
+
+<script>
+// Real-time clock
+setInterval(() => {
+    const now = new Date();
+    const el = document.getElementById('currentTime');
+    if(el) el.textContent = now.toLocaleTimeString('fr-TN', {hour:'2-digit', minute:'2-digit'});
+}, 1000);
+
+// Geolocation + punch
+function doPunch(type) {
+    document.getElementById('punchType').value = type;
+    document.getElementById('locationText').textContent = 'Récupération de la localisation...';
+    
+    if(navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                document.getElementById('punchLat').value = pos.coords.latitude.toFixed(7);
+                document.getElementById('punchLng').value = pos.coords.longitude.toFixed(7);
+                document.getElementById('locationText').textContent = `📍 ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)} (±${Math.round(pos.coords.accuracy)}m)`;
+                
+                // Reverse geocode via free API
+                fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`)
+                    .then(r => r.json())
+                    .then(d => {
+                        const addr = d.display_name || `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
+                        document.getElementById('punchAddr').value = addr.substring(0, 299);
+                        document.getElementById('locationText').textContent = '📍 ' + addr.substring(0, 60) + '...';
+                        submitPunch();
+                    })
+                    .catch(() => submitPunch());
+            },
+            (err) => {
+                document.getElementById('locationText').textContent = '⚠️ Localisation non disponible — pointage sans GPS';
+                submitPunch();
+            },
+            {timeout: 8000, maximumAge: 30000, enableHighAccuracy: true}
+        );
+    } else {
+        document.getElementById('locationText').textContent = '⚠️ GPS non supporté';
+        submitPunch();
+    }
+}
+
+function submitPunch() {
+    const btn = event?.target?.closest('button');
+    if(btn) { btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Enregistrement...'; btn.disabled = true; }
+    document.getElementById('pointageForm').submit();
+}
+</script>
+<?php endif; ?>
     <div class="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
         <div class="bg-asel-dark text-white px-4 py-3 flex justify-between items-center">
             <span class="font-bold text-sm"><i class="bi bi-upc-scan"></i> Scanner code-barres</span>

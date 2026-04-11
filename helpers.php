@@ -30,6 +30,7 @@ define('PERMISSIONS', [
         'clients', 'services', 'recharges', 'factures',
         'gestion_services', 'gestion_asel', 'echeances', 'inventaire',
         'notifications', 'mon_compte', 'stock_central',
+        'pointage', 'pointage_admin',
         // Actions
         'vente', 'entree_stock', 'entree_multi_stock', 'transfert', 'transfert_valider',
         'retour', 'cloture_submit', 'add_produit', 'edit_produit',
@@ -43,6 +44,7 @@ define('PERMISSIONS', [
         'dispatch_stock', 'manage_central',
         'add_franchise', 'edit_franchise', 'delete_franchise',
         'points_reseau', 'add_point', 'edit_point', 'delete_point',
+        'add_pointage', 'validate_pointage',
         'fournisseurs', 'add_fournisseur', 'edit_fournisseur',
         'bons_reception', 'create_bon_reception', 'valider_bon_reception',
         'tresorerie', 'add_tresorerie', 'cloture_mensuelle',
@@ -69,6 +71,7 @@ define('PERMISSIONS', [
         'manage_products',
         // Scope
         'view_all_franchises',
+        'pointage', 'pointage_admin', 'add_pointage',
     ],
     'franchise' => [
         'dashboard', 'pos', 'stock', 'entree', 'demandes',
@@ -81,11 +84,12 @@ define('PERMISSIONS', [
         'vente_recharge', 'create_facture', 'pay_echeance', 'create_echeance',
         'submit_inventaire', 'validate_cloture', 'validate_inventaire',
         'create_echeances_lot',
+        'pointage', 'add_pointage',
         // NOTE: franchise CANNOT: add_produit, edit_produit, add_category, manage_products, 
         // fournisseurs, bons_reception, tresorerie, produits page, rapports, users
     ],
     'viewer' => [
-        'dashboard', 'stock', 'ventes', 'mon_compte', 'notifications',
+        'dashboard', 'stock', 'ventes', 'mon_compte', 'notifications', 'pointage',
     ],
 ]);
 
