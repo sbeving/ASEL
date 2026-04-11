@@ -1,6 +1,9 @@
 <?php
 require_once 'helpers.php';
 requireLogin();
+// Production: suppress PHP notices/warnings to avoid page breakage
+error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED & ~E_STRICT);
+@ini_set('display_errors', 0);
 $page = $_GET['page'] ?? 'dashboard';
 $user = currentUser();
 $fid = scopedFranchiseId();
@@ -12,17 +15,33 @@ requirePermission($page);
 
 // === Handle POST ===
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    try {
     verifyCsrf();
     $action = $_POST['action'] ?? '';
     requirePermission($action);
     
     if ($action === 'vente') {
         $items = json_decode($_POST['items'], true);
-        $vfid = can('view_all_franchises') ? $_POST['franchise_id'] : currentFranchise();
-        $client_id = $_POST['client_id'] ?: null;
+        if (empty($items)) {
+            $_SESSION['flash'] = ['type'=>'danger','msg'=>'Panier vide!'];
+            header("Location: index.php?page=pos"); exit;
+        }
+        $vfid = can('view_all_franchises') ? intval($_POST['franchise_id']) : currentFranchise();
+        $client_id = intval($_POST['client_id']) ?: null;
         $type_facture = $_POST['type_facture'] ?? 'ticket';
         $mode_paiement = $_POST['mode_paiement'] ?? 'especes';
         $montant_recu = floatval($_POST['montant_recu'] ?? 0);
+        
+        // === PRE-CHECK STOCK BEFORE ANY INSERT (prevent partial sales) ===
+        foreach ($items as $item) {
+            $pid = intval($item['id']);
+            $qty = intval($item['qty']);
+            $sc = queryOne("SELECT quantite FROM stock WHERE franchise_id=? AND produit_id=?", [$vfid, $pid]);
+            if (!$sc || $sc['quantite'] < $qty) {
+                $_SESSION['flash'] = ['type'=>'danger','msg'=>'❌ Stock insuffisant: <b>'.e($item['nom']).'</b> (dispo: '.($sc['quantite']??0).')'];
+                header("Location: index.php?page=pos&fid=$vfid"); exit;
+            }
+        }
         
         // Calculate totals
         $sous_total = 0; $remise_totale = 0;
@@ -30,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $sous_total += $item['qty'] * $item['prix'];
             $remise_totale += floatval($item['remise'] ?? 0);
         }
-        $total_ttc = $sous_total - $remise_totale;
+        $total_ttc = max(0, $sous_total - $remise_totale);
         $monnaie = max(0, $montant_recu - $total_ttc);
         
         // Generate facture number
@@ -38,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $count = queryOne("SELECT COUNT(*)+1 as n FROM factures WHERE DATE(date_facture)=CURDATE() AND type_facture=?", [$type_facture])['n'];
         $numero = $prefix . '-' . date('Ymd') . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
         
-        // Create facture
+        // Create facture (stock pre-checked above, safe to insert)
         execute("INSERT INTO factures (numero,franchise_id,client_id,type_facture,sous_total,remise_totale,total_ht,tva,total_ttc,mode_paiement,montant_recu,monnaie,utilisateur_id) VALUES (?,?,?,?,?,?,?,0,?,?,?,?,?)",
             [$numero, $vfid, $client_id, $type_facture, $sous_total, $remise_totale, $total_ttc, $total_ttc, $mode_paiement, $montant_recu, round($monnaie,2), $user['id']]);
         $facture_id = db()->lastInsertId();
@@ -51,12 +70,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             execute("INSERT INTO facture_lignes (facture_id,type_ligne,produit_id,designation,quantite,prix_unitaire,remise,total) VALUES (?,?,?,?,?,?,?,?)",
                 [$facture_id, 'produit', $item['id'], $item['nom'], $item['qty'], $item['prix'], $remise_dt, $total]);
-            // Check stock before selling
-            $stock_check = queryOne("SELECT quantite FROM stock WHERE franchise_id=? AND produit_id=?", [$vfid, $item['id']]);
-            if (!$stock_check || $stock_check['quantite'] < $item['qty']) {
-                $_SESSION['flash'] = ['type'=>'danger','msg'=>'Stock insuffisant pour ' . $item['nom'] . '!'];
-                header("Location: index.php?page=pos&fid=$vfid"); exit;
-            }
             execute("INSERT INTO ventes (franchise_id,produit_id,quantite,prix_unitaire,prix_total,remise,utilisateur_id,client_id,facture_id,mode_paiement,montant_recu,monnaie) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 [$vfid, $item['id'], $item['qty'], $item['prix'], $total, $remise_dt, $user['id'], $client_id, $facture_id, $mode_paiement, $montant_recu, $monnaie]);
             execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,prix_unitaire,utilisateur_id) VALUES (?,?,'vente',?,?,?)",
@@ -621,6 +634,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     header("Location: index.php?page=$page" . ($fid ? "&fid=$fid" : "")); exit;
+    } catch (Exception $e) {
+        error_log("ASEL POST error [$action]: " . $e->getMessage());
+        $_SESSION['flash'] = ['type'=>'danger','msg'=>'Erreur: ' . htmlspecialchars($e->getMessage())];
+        header("Location: index.php?page=" . ($_GET['page'] ?? 'dashboard')); exit;
+    }
 }
 
 // === Load data ===
@@ -768,7 +786,7 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
     <!-- Logo -->
     <div class="px-6 py-5 border-b border-white/10">
         <div class="text-2xl font-black tracking-wider"><span class="bg-gradient-to-r from-red-400 via-yellow-300 via-green-400 to-blue-400 bg-clip-text text-transparent">A</span>SEL MOBILE</div>
-        <div class="text-[10px] text-white/30 mt-0.5">Gestion de Stock v12</div>
+        <div class="text-[10px] text-white/30 mt-0.5">Gestion de Stock v15.3</div>
     </div>
     
     <!-- User -->
@@ -1442,37 +1460,47 @@ function renderCart(){
     const b=document.getElementById('cartBody');
     document.getElementById('cartCount').textContent=cart.reduce((s,c)=>s+c.qty,0);
     if(!cart.length){
-        b.innerHTML='<div class="empty-state py-8"><i class="bi bi-cart3"></i><p class="mt-2 text-sm">Scannez ou cliquez pour ajouter</p></div>';
-        document.getElementById('cartTotal').textContent='0 DT';
+        b.innerHTML='<div class="py-10 text-center text-gray-300"><i class="bi bi-cart3 text-4xl block mb-2 opacity-50"></i><p class="text-sm">Panier vide</p><p class="text-xs mt-1">Scannez ou cliquez sur un produit</p></div>';
+        document.getElementById('cartTotal').textContent='0.00 DT';
         document.getElementById('btnVente').disabled=true;
         return;
     }
-    let h='<div class="space-y-2">',t=0;
+    let h='<div class="space-y-2">',t=0, totalRemise=0;
     cart.forEach((c,i)=>{
         const lineTotal=Math.max(0,c.qty*c.prix-c.remise);
         t+=lineTotal;
-        h+=`<div class="flex items-center gap-2 pb-2 border-b border-gray-100 group">
+        if(c.remise>0) totalRemise+=c.remise;
+        h+=`<div class="flex items-start gap-2 pb-2 border-b border-gray-100 group">
             <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium truncate">${c.nom}</div>
-                <div class="text-xs text-gray-400">${c.prix.toFixed(1)} DT × ${c.qty}</div>
+                <div class="text-sm font-semibold truncate leading-tight">${c.nom}</div>
+                <div class="text-xs text-gray-400 mt-0.5">${c.prix.toFixed(2)} DT × ${c.qty} = <b class="text-gray-600">${(c.prix*c.qty).toFixed(2)}</b></div>
             </div>
-            <div class="flex items-center gap-1 bg-gray-50 rounded-lg px-1">
-                <button onclick="updateQty(${i},${c.qty-1})" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-500 text-lg font-bold" ${c.qty<=1?'disabled':''}>&minus;</button>
-                <input type="number" value="${c.qty}" min="1" max="${c.maxQty}" class="w-10 text-center text-sm font-bold border-0 bg-transparent focus:ring-0" onchange="updateQty(${i},this.value)">
-                <button onclick="updateQty(${i},${c.qty+1})" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-green-500 text-lg font-bold" ${c.qty>=c.maxQty?'disabled':''}>&plus;</button>
+            <div class="flex items-center bg-gray-50 rounded-lg border">
+                <button onclick="updateQty(${i},${c.qty-1})" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-500 font-bold text-lg leading-none" ${c.qty<=1?'':''}>&minus;</button>
+                <span class="w-8 text-center text-sm font-bold">${c.qty}</span>
+                <button onclick="updateQty(${i},${c.qty+1})" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-green-500 font-bold text-lg leading-none" ${c.qty>=c.maxQty?'disabled style="opacity:0.3"':''}>+</button>
             </div>
-            <div class="flex items-center gap-1">
-                <input type="number" value="${c.remise}" min="0" step="0.5" class="w-14 text-center text-xs border rounded-lg py-1 ${c.remise>0?'border-orange-300 bg-orange-50':'border-gray-200'}" onchange="updateRemise(${i},this.value)" placeholder="Remise" title="Remise en DT">
+            <div class="flex flex-col items-end gap-1">
+                <div class="text-sm font-bold text-asel-dark">${lineTotal.toFixed(2)}</div>
+                <input type="number" value="${c.remise>0?c.remise:''}" min="0" step="0.5" class="w-14 text-center text-xs border rounded py-0.5 ${c.remise>0?'border-orange-300 text-orange-600':'border-gray-200 text-gray-400'}" onchange="updateRemise(${i},this.value)" placeholder="Remise" title="Remise DT">
             </div>
-            <div class="text-sm font-bold w-16 text-right">${lineTotal.toFixed(1)}</div>
-            <button class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1" onclick="removeFromCart(${i})" title="Retirer"><i class="bi bi-trash text-sm"></i></button>
+            <button class="text-gray-200 hover:text-red-500 transition-colors p-0.5 mt-1 opacity-0 group-hover:opacity-100" onclick="removeFromCart(${i})" title="Retirer"><i class="bi bi-x-lg text-xs"></i></button>
         </div>`;
     });
-    h+='</div>';
+    
+    // Totals summary
+    const sousTotal = cart.reduce((s,c)=>s+c.qty*c.prix,0);
+    h += `</div>
+    <div class="border-t border-gray-200 mt-3 pt-3 space-y-1">
+        <div class="flex justify-between text-xs text-gray-500"><span>Sous-total</span><span>${sousTotal.toFixed(2)} DT</span></div>
+        ${totalRemise > 0 ? `<div class="flex justify-between text-xs text-orange-600"><span>Remise</span><span>-${totalRemise.toFixed(2)} DT</span></div>` : ''}
+    </div>`;
+    
     b.innerHTML=h;
-    document.getElementById('cartTotal').textContent=t.toFixed(1)+' DT';
+    document.getElementById('cartTotal').textContent=t.toFixed(2)+' DT';
     document.getElementById('cartItems').value=JSON.stringify(cart);
     document.getElementById('btnVente').disabled=false;
+    calcMonnaie();
 }
 function filterProducts(){const q=document.getElementById('searchProd').value.toLowerCase();document.querySelectorAll('#prodGrid > div').forEach(el=>{el.style.display=el.dataset.search.includes(q)?'':'none'});}
 function filterCat(cat){document.querySelectorAll('#prodGrid > div').forEach(el=>{el.style.display=(!cat||el.dataset.cat===cat)?'':'none'});document.querySelectorAll('[data-cat]').forEach(b=>{b.className='px-3 py-1.5 rounded-full text-xs font-semibold bg-white text-gray-600 border hover:bg-asel hover:text-white transition-colors'});if(cat){const btn=document.querySelector(`[data-cat="${cat}"]`);if(btn)btn.className='px-3 py-1.5 rounded-full text-xs font-semibold bg-asel text-white';document.getElementById('cat-all').className='px-3 py-1.5 rounded-full text-xs font-semibold bg-white text-gray-600 border'}else{document.getElementById('cat-all').className='px-3 py-1.5 rounded-full text-xs font-semibold bg-asel text-white'}}
@@ -4225,6 +4253,7 @@ function openBonReception(){
     <span>&copy; <?=date('Y')?> ASEL Mobile</span> &middot; 
     <a href="map.php" class="text-asel hover:underline"><i class="bi bi-map"></i> Carte</a> &middot; 
     <button onclick="showShortcuts()" class="text-gray-400 hover:text-asel">Raccourcis <kbd class="bg-gray-100 px-1 rounded text-[10px]">?</kbd></button> &middot;
+    <span>v15.3</span>
     <span>v14.0</span>
 </footer>
 
