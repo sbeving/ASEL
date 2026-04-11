@@ -5401,7 +5401,7 @@ function doBarcodeLookup() {
                             <div class="grid grid-cols-${Math.min(data.stock.length, 4)} gap-2">${stockHtml}</div>
                         </div>
                         <div class="flex gap-2">
-                            <button onclick="closeModal();openEditProduct(${p.id},'${p.nom.replace(/'/g,"\\'")}',${p.categorie_id},'${(p.marque||'').replace(/'/g,"\\'")}','${(p.reference||'').replace(/'/g,"\\'")}','${(p.code_barre||'').replace(/'/g,"\\'")}',${p.prix_achat},${p.prix_vente},${p.seuil_alerte})" 
+                            <button onclick="closeModal();openEditProduct(${p.id},'${p.nom.replace(/'/g,"\\'")}',${p.categorie_id},'${(p.marque||'').replace(/'/g,"\\'")}','${(p.reference||'').replace(/'/g,"\\'")}','${(p.code_barre||'').replace(/'/g,"\\'")}',${p.prix_achat},${p.prix_vente},${p.seuil_alerte},${p.prix_achat_ht||0},${p.prix_vente_ht||0},${p.tva_rate||19},'${(p.description||'').replace(/'/g,"\\'")}'" 
                                 class="flex-1 py-2 rounded-xl bg-asel hover:bg-asel-dark text-white text-sm font-bold flex items-center justify-center gap-1">
                                 <i class="bi bi-pencil"></i> Modifier
                             </button>
