@@ -4807,22 +4807,8 @@ function modalRow(cols) {
 
 // Stock check before sale
 function checkStockBeforeSale() {
-    let warnings = [];
-    cart.forEach(item => {
-        if (item.qty > item.maxQty * 0.8) {
-            warnings.push(`${item.nom}: ${item.qty}/${item.maxQty} (stock bas après vente)`);
-        }
-    });
-    if (warnings.length > 0) {
-        const total = cart.reduce((s, c) => s + Math.max(0, c.qty * c.prix - c.remise), 0);
-        showConfirm(
-            'Attention — Stock bas',
-            warnings.join('\n') + '\n\nTotal: ' + total.toFixed(1) + ' DT. Continuer?',
-            'warning',
-            () => { prepareSubmit(); document.getElementById('saleForm').submit(); }
-        );
-        return false;
-    }
+    // Stock validation is handled server-side (pre-check before facture insert)
+    // No client-side blocking — just let the sale through
     return true;
 }
 
