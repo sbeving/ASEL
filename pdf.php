@@ -237,14 +237,29 @@ if ($type === 'rapport_mois') {
                        FROM ventes v WHERE DATE_FORMAT(v.date_vente,'%Y-%m')=? $where_f 
                        GROUP BY v.date_vente ORDER BY v.date_vente", [$mois]);
     
-    $top_produits = query("SELECT p.nom, SUM(v.quantite) as qty, SUM(v.prix_total) as ca 
+    $top_produits = query("SELECT p.nom, SUM(v.quantite) as qty, SUM(v.prix_total) as ca, SUM(v.quantite*p.prix_achat) as cout 
                           FROM ventes v JOIN produits p ON v.produit_id=p.id 
                           WHERE DATE_FORMAT(v.date_vente,'%Y-%m')=? $where_f 
                           GROUP BY p.id ORDER BY ca DESC LIMIT 15", [$mois]);
     
+    // By mode paiement
+    $by_mode = query("SELECT f.mode_paiement, SUM(f.total_ttc) as total, COUNT(*) as nb 
+                      FROM factures f WHERE DATE_FORMAT(f.date_facture,'%Y-%m')=? AND f.statut!='annulee' ".($fid?"AND f.franchise_id=".intval($fid):"")."
+                      GROUP BY f.mode_paiement ORDER BY total DESC", [$mois]);
+    
+    // By employee  
+    $by_emp = query("SELECT u.nom_complet, SUM(v.prix_total) as ca, COUNT(*) as tx 
+                     FROM ventes v LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id 
+                     WHERE DATE_FORMAT(v.date_vente,'%Y-%m')=? $where_f 
+                     GROUP BY v.utilisateur_id ORDER BY ca DESC", [$mois]);
+    
     $total_ca = array_sum(array_column($par_jour, 'ca'));
     $total_art = array_sum(array_column($par_jour, 'articles'));
     $total_tx = array_sum(array_column($par_jour, 'transactions'));
+    $total_cout = array_sum(array_column($top_produits, 'cout'));
+    $total_profit = $total_ca - $total_cout;
+    $total_ca_ht = round($total_ca / 1.19, 2);
+    $total_tva = $total_ca - $total_ca_ht;
     $nb_jours = count($par_jour);
     
     ?>
@@ -281,10 +296,13 @@ if ($type === 'rapport_mois') {
     </div>
     
     <div class="kpis">
-        <div class="kpi"><div class="val"><?=number_format($total_ca)?> DT</div><div class="lbl">CA Total</div></div>
-        <div class="kpi"><div class="val"><?=number_format($total_art)?></div><div class="lbl">Articles</div></div>
+        <div class="kpi"><div class="val"><?=number_format($total_ca,2)?> DT</div><div class="lbl">CA TTC</div></div>
+        <div class="kpi"><div class="val"><?=number_format($total_ca_ht,2)?> DT</div><div class="lbl">CA HT</div></div>
+        <div class="kpi"><div class="val"><?=number_format($total_tva,2)?> DT</div><div class="lbl">TVA 19%</div></div>
+        <div class="kpi"><div class="val" style="color:<?=$total_profit>=0?'#28A745':'#E63946'?>"><?=number_format($total_profit,2)?> DT</div><div class="lbl">Bénéfice net</div></div>
+        <div class="kpi"><div class="val"><?=$total_art?></div><div class="lbl">Articles</div></div>
         <div class="kpi"><div class="val"><?=$total_tx?></div><div class="lbl">Transactions</div></div>
-        <div class="kpi"><div class="val"><?=$nb_jours > 0 ? number_format($total_ca/$nb_jours) : 0?></div><div class="lbl">CA/Jour moy.</div></div>
+        <div class="kpi"><div class="val"><?=$nb_jours > 0 ? number_format($total_ca/$nb_jours) : 0?> DT</div><div class="lbl">CA/Jour moy.</div></div>
     </div>
     
     <h2>📊 Ventes par jour</h2>
@@ -298,13 +316,29 @@ if ($type === 'rapport_mois') {
     
     <h2>🏆 Top Produits</h2>
     <table>
-        <thead><tr><th>#</th><th>Produit</th><th style="text-align:center">Qté vendue</th><th style="text-align:right">CA</th></tr></thead>
-        <tbody><?php foreach ($top_produits as $i => $tp): ?>
-            <tr><td><?=$i+1?></td><td><?=htmlspecialchars($tp['nom'])?></td><td style="text-align:center"><?=$tp['qty']?></td><td style="text-align:right"><strong><?=number_format($tp['ca'])?> DT</strong></td></tr>
+        <thead><tr><th>#</th><th>Produit</th><th style="text-align:center">Qté</th><th style="text-align:right">CA TTC</th><th style="text-align:right">Bénéfice</th></tr></thead>
+        <tbody><?php foreach ($top_produits as $i => $tp): $b=floatval($tp['ca'])-floatval($tp['cout']); ?>
+            <tr><td><?=$i+1?></td><td><?=htmlspecialchars($tp['nom'])?></td><td style="text-align:center"><?=$tp['qty']?></td><td style="text-align:right"><strong><?=number_format($tp['ca'],2)?> DT</strong></td><td style="text-align:right;color:<?=$b>=0?'#28A745':'#E63946'?>"><?=number_format($b,2)?> DT</td></tr>
         <?php endforeach; ?></tbody>
     </table>
     
-    <div class="footer"><p>Généré le <?=date('d/m/Y à H:i')?> — ASEL Mobile</p></div>
+    <?php if($by_mode): ?>
+    <h2>💳 Par mode de paiement</h2>
+    <table>
+        <thead><tr><th>Mode</th><th style="text-align:center">Nb factures</th><th style="text-align:right">Total</th></tr></thead>
+        <tbody><?php foreach($by_mode as $m): ?><tr><td><?=ucfirst($m['mode_paiement'])?></td><td style="text-align:center"><?=$m['nb']?></td><td style="text-align:right"><strong><?=number_format($m['total'],2)?> DT</strong></td></tr><?php endforeach;?></tbody>
+    </table>
+    <?php endif; ?>
+    
+    <?php if($by_emp): ?>
+    <h2>👥 Performance par vendeur</h2>
+    <table>
+        <thead><tr><th>Vendeur</th><th style="text-align:center">Ventes</th><th style="text-align:right">CA</th></tr></thead>
+        <tbody><?php foreach($by_emp as $e): ?><tr><td><?=htmlspecialchars($e['nom_complet']??'Inconnu')?></td><td style="text-align:center"><?=$e['tx']?></td><td style="text-align:right"><strong><?=number_format($e['ca'],2)?> DT</strong></td></tr><?php endforeach;?></tbody>
+    </table>
+    <?php endif; ?>
+    
+    <div class="footer"><p>Rapport généré le <?=date('d/m/Y à H:i')?> — ASEL Mobile | CA HT: <?=number_format($total_ca_ht,2)?> DT | TVA: <?=number_format($total_tva,2)?> DT | Bénéfice: <?=number_format($total_profit,2)?> DT</p></div>
 </body>
 </html>
 <?php exit;
