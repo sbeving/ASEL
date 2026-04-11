@@ -81,7 +81,16 @@ $lignes = query("SELECT * FROM facture_lignes WHERE facture_id=?", [$id]);
     <div class="row"><span>Remise:</span><span>-<?=number_format($f['remise_totale'],2)?> DT</span></div>
     <?php endif; ?>
     
-    <div class="row big" style="margin:4px 0"><span>TOTAL</span><span><?=number_format($f['total_ttc'],2)?> DT</span></div>
+    <?php 
+    // Show HT/TVA if available
+    $ht = floatval($f['total_ht'] ?: round($f['total_ttc']/1.19,2));
+    $tva = $f['total_ttc'] - $ht;
+    if(abs($tva) > 0.01): ?>
+    <div class="row" style="font-size:9px;color:#666"><span>Total HT:</span><span><?=number_format($ht,2)?> DT</span></div>
+    <div class="row" style="font-size:9px;color:#666"><span>TVA 19%:</span><span><?=number_format($tva,2)?> DT</span></div>
+    <?php endif; ?>
+    
+    <div class="row big" style="margin:4px 0"><span>TOTAL TTC</span><span><?=number_format($f['total_ttc'],2)?> DT</span></div>
     
     <div class="line"></div>
     

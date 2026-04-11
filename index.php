@@ -58,8 +58,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $numero = $prefix . '-' . date('Ymd') . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
         
         // Create facture (stock pre-checked above, safe to insert)
-        execute("INSERT INTO factures (numero,franchise_id,client_id,type_facture,sous_total,remise_totale,total_ht,tva,total_ttc,mode_paiement,montant_recu,monnaie,utilisateur_id) VALUES (?,?,?,?,?,?,?,0,?,?,?,?,?)",
-            [$numero, $vfid, $client_id, $type_facture, $sous_total, $remise_totale, $total_ttc, $total_ttc, $mode_paiement, $montant_recu, round($monnaie,2), $user['id']]);
+        // Calculate HT and TVA from TTC (default 19% TVA)
+        $total_ht_calc = round($total_ttc / 1.19, 2);
+        $tva_calc = $total_ttc - $total_ht_calc;
+        execute("INSERT INTO factures (numero,franchise_id,client_id,type_facture,sous_total,remise_totale,total_ht,tva,total_ttc,mode_paiement,montant_recu,monnaie,utilisateur_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [$numero, $vfid, $client_id, $type_facture, $sous_total, $remise_totale, $total_ht_calc, $tva_calc, $total_ttc, $mode_paiement, $montant_recu, round($monnaie,2), $user['id']]);
         $facture_id = db()->lastInsertId();
         
         // Create lines + stock updates
