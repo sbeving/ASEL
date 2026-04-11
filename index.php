@@ -1808,7 +1808,8 @@ function scanBarcode(code){
                 document.getElementById('barcodeResult').innerHTML='<span class="text-green-600"><i class="bi bi-check-circle-fill"></i> Résultat unique — Ajouté!</span>';
                 beepOk();
             } else {
-                document.getElementById('barcodeResult').innerHTML='<span class="text-red-500"><i class="bi bi-x-circle-fill"></i> Code <b>'+code+'</b> non trouvé</span>';
+                document.getElementById('barcodeResult').innerHTML='<span class="text-red-500"><i class="bi bi-x-circle-fill"></i> Code <b>'+code+'</b> non trouvé</span>' +
+                    (<?=can('add_produit')?'true':'false'?> ? '<button onclick="openQuickAddProduct(\'pos\');document.getElementById(\'barcodeResult\').innerHTML=\'\'" class="ml-2 text-xs text-asel underline">+ Créer produit</button>' : '');
                 beepErr();
             }
         }
@@ -3001,7 +3002,14 @@ elseif ($page === 'transferts'):
     // Already closed today?
     $already_closed = queryOne("SELECT id FROM clotures WHERE franchise_id=? AND date_cloture=CURDATE()", [$cl_fid]);
 ?>
-<h1 class="text-2xl font-bold text-asel-dark mb-4 flex items-center gap-2"><i class="bi bi-calendar-check text-asel"></i> Clôture journalière</h1>
+<div class="flex justify-between items-center mb-4">
+    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-calendar-check text-asel"></i> Clôture journalière</h1>
+    <?php if(!$already_closed): ?>
+    <button onclick="quickCloture()" class="bg-gradient-to-r from-asel to-asel-dark text-white font-bold px-4 py-2 rounded-xl text-sm flex items-center gap-2 hover:opacity-90 transition-opacity">
+        <i class="bi bi-lightning-charge-fill"></i> Clôture rapide
+    </button>
+    <?php endif; ?>
+</div>
 <!-- Today's overview -->
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
     <div class="bg-asel/10 border-2 border-asel/20 rounded-xl p-4">
@@ -3046,6 +3054,47 @@ elseif ($page === 'transferts'):
         <button type="submit" class="btn-submit"><i class="bi bi-calendar-check"></i> Soumettre la clôture</button>
     </form>
 </div>
+<script>
+function quickCloture() {
+    const sysCA = <?=number_format($sys['t'],2,'.','')?>;
+    const sysArt = <?=intval($sys['a'])?>;
+    openModal(
+        modalHeader('bi-lightning-charge-fill','Clôture rapide','Confirmer les totaux système') +
+        `<div class="p-6 space-y-4">
+            <div class="bg-asel/10 rounded-xl p-4 text-center">
+                <div class="text-3xl font-black text-asel">${sysCA.toFixed(2)} DT</div>
+                <div class="text-sm text-gray-500">${sysArt} articles vendus</div>
+            </div>
+            <p class="text-sm text-gray-600">La clôture sera soumise avec ces totaux système. Confirmez-vous?</p>
+            <div class="flex gap-3">
+                <button onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 font-semibold text-sm">Vérifier manuellement</button>
+                <button onclick="closeModal();submitQuickCloture(${sysCA},${sysArt})" class="flex-1 py-2.5 rounded-xl bg-asel text-white font-bold text-sm flex items-center justify-center gap-2">
+                    <i class="bi bi-check-circle"></i> Confirmer
+                </button>
+            </div>
+        </div>`,
+        {size:'max-w-sm'}
+    );
+}
+function submitQuickCloture(ca, art) {
+    const form = document.querySelector('form[action="#"], .form-card form');
+    // Find the cloture form by action input
+    const forms = document.querySelectorAll('form');
+    for(const f of forms) {
+        const action = f.querySelector('input[name="action"]');
+        if(action && action.value === 'cloture_submit') {
+            const totalDecl = f.querySelector('input[name="total_declare"]');
+            const artDecl = f.querySelector('input[name="articles_declare"]');
+            const commentaire = f.querySelector('textarea[name="commentaire"]');
+            if(totalDecl) totalDecl.value = ca.toFixed(2);
+            if(artDecl) artDecl.value = art;
+            if(commentaire) commentaire.value = 'Clôture rapide — totaux système';
+            f.submit();
+            return;
+        }
+    }
+}
+</script>
 <?php if ($recent_clotures): ?>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <div class="px-4 py-3 border-b font-semibold text-sm"><i class="bi bi-clock-history text-gray-400"></i> Historique</div>
