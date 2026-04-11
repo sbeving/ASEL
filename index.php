@@ -4077,14 +4077,20 @@ elseif ($page === 'factures'):
     $en_retard = array_filter($echeances, fn($e) => $e['statut']==='en_retard');
     $total_du = array_sum(array_column(array_filter($echeances, fn($e) => $e['statut']!=='payee'), 'montant'));
     $total_encaisse = array_sum(array_column(array_filter($echeances, fn($e) => $e['statut']==='payee'), 'montant'));
+    // Next 30-day forecast
+    $next30 = array_filter($echeances, fn($e) => $e['statut']==='en_attente' && strtotime($e['date_echeance']) <= strtotime('+30 days'));
+    $next30_total = array_sum(array_column($next30, 'montant'));
+    // Next 7 days
+    $next7 = array_filter($echeances, fn($e) => $e['statut']==='en_attente' && strtotime($e['date_echeance']) <= strtotime('+7 days'));
+    $next7_total = array_sum(array_column($next7, 'montant'));
 ?>
 <div class="flex justify-between items-center mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-credit-card text-asel"></i> Échéances <span class="text-sm font-normal text-gray-400">(<?=count($echeances)?>)</span></h1>
 </div>
 <!-- KPIs -->
-<div class="grid grid-cols-3 gap-3 mb-4">
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
     <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-red-400">
-        <div class="text-[10px] text-gray-400 uppercase font-bold">À encaisser</div>
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Total dû</div>
         <div class="text-xl font-black text-red-600"><?=number_format($total_du,2)?> DT</div>
         <div class="text-xs text-gray-400"><?=count($en_attente)+count($en_retard)?> lots en attente</div>
     </div>
@@ -4095,6 +4101,16 @@ elseif ($page === 'factures'):
     <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-red-600">
         <div class="text-[10px] text-gray-400 uppercase font-bold">En retard</div>
         <div class="text-xl font-black <?=count($en_retard)?'text-red-600':'text-gray-400'?>"><?=count($en_retard)?></div>
+    </div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-orange-400">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Dans 7 jours</div>
+        <div class="text-xl font-black text-orange-600"><?=number_format($next7_total,2)?> DT</div>
+        <div class="text-xs text-gray-400"><?=count($next7)?> lot(s)</div>
+    </div>
+    <div class="bg-white rounded-xl p-3 shadow-sm border-l-4 border-blue-500">
+        <div class="text-[10px] text-gray-400 uppercase font-bold">Dans 30 jours</div>
+        <div class="text-xl font-black text-blue-600"><?=number_format($next30_total,2)?> DT</div>
+        <div class="text-xs text-gray-400"><?=count($next30)?> lot(s)</div>
     </div>
 </div>
 
