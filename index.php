@@ -1277,18 +1277,23 @@ elseif ($page === 'pos'):
         
         <!-- Product list -->
         <div class="space-y-1 max-h-[50vh] overflow-y-auto" id="prodGrid">
-            <?php foreach ($stock as $s): ?>
-            <div class="bg-white rounded-lg p-3 flex items-center justify-between cursor-pointer hover:bg-asel-light/50 hover:border-asel border border-transparent transition-all"
+            <?php foreach ($stock as $s): 
+                $is_low = $s['quantite'] <= $s['seuil_alerte'] && $s['quantite'] > 0;
+                $is_zero = $s['quantite'] <= 0;
+            ?>
+            <div class="bg-white rounded-lg p-3 flex items-center justify-between cursor-pointer hover:bg-asel-light/50 hover:border-asel border <?=$is_zero?'border-red-200 bg-red-50/30':($is_low?'border-amber-200 bg-amber-50/20':'border-transparent')?> transition-all <?=$is_zero?'opacity-60':''?>"
                  data-search="<?=e(strtolower($s['pnom'].' '.$s['reference'].' '.$s['code_barre'].' '.$s['marque']))?>"
                  data-cat="<?=e($s['cnom'])?>" data-barcode="<?=e($s['code_barre'])?>"
                  onclick="addToCart(<?=$s['produit_id']?>,'<?=ejs($s['pnom'])?>',<?=$s['prix_vente']?>,<?=$s['quantite']?>,<?=$s['seuil_alerte']?>)">
-                <div>
-                    <div class="font-semibold text-sm text-asel-dark"><?=htmlspecialchars($s['pnom'])?></div>
-                    <div class="text-xs text-gray-400"><?=$s['marque']?> · <?=$s['reference']?></div>
+                <div class="flex-1 min-w-0">
+                    <div class="font-semibold text-sm text-asel-dark truncate"><?=e($s['pnom'])?></div>
+                    <div class="text-xs text-gray-400"><?=e($s['marque'])?> · <?=e($s['reference'])?></div>
                 </div>
-                <div class="text-right shrink-0">
+                <div class="text-right shrink-0 ml-2">
                     <div class="font-bold text-asel"><?=number_format($s['prix_vente'],1)?> DT</div>
-                    <div class="text-xs text-gray-400">Stock: <?=$s['quantite']?></div>
+                    <div class="text-xs font-bold <?=$is_zero?'text-red-500':($is_low?'text-amber-600':'text-gray-400')?>">
+                        <?=$is_zero?'⚠️ Épuisé':($is_low?'⚠️ '.$s['quantite']:'×'.$s['quantite'])?>
+                    </div>
                 </div>
             </div>
             <?php endforeach; ?>
@@ -1372,29 +1377,42 @@ const beepErr = () => { try { const ac=new AudioContext();const o=ac.createOscil
 function showToast(msg, type='success') {
     let t=document.getElementById('toast');
     if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t);}
-    t.className='fixed bottom-5 right-5 z-[9999] px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all duration-300 '+(type==='success'?'bg-green-500 text-white':'bg-red-500 text-white');
+    const colors = {
+        success: 'bg-green-500 text-white',
+        error: 'bg-red-500 text-white',
+        warning: 'bg-amber-400 text-amber-900',
+        info: 'bg-blue-500 text-white'
+    };
+    t.className='fixed bottom-5 right-5 z-[9999] px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all duration-300 max-w-xs '+(colors[type]||colors.success);
     t.textContent=msg;t.style.transform='translateY(0)';t.style.opacity='1';
-    setTimeout(()=>{t.style.transform='translateY(100px)';t.style.opacity='0';},2500);
+    clearTimeout(t._timer);
+    t._timer=setTimeout(()=>{t.style.transform='translateY(100px)';t.style.opacity='0';},3000);
 }
 
 function addToCart(id,nom,prix,max,seuil){
     seuil = seuil || 3;
     if(max <= 0){
         beepErr();
-        openModal(modalHeader('bi-exclamation-triangle-fill','Stock épuisé','Impossible d\'ajouter ce produit',true) +
-            `<div class="p-6"><div class="bg-red-50 border-2 border-red-200 rounded-xl p-4 text-center"><i class="bi bi-x-octagon-fill text-red-500 text-3xl"></i><p class="mt-2 font-bold text-red-700">${nom}</p><p class="text-red-600 text-sm">Stock = 0 — Vente impossible</p></div><button onclick="closeModal()" class="w-full mt-4 py-2.5 rounded-xl bg-gray-200 font-semibold text-sm">Fermer</button></div>`,
-            {size:'max-w-sm'});
+        openModal(modalHeader('bi-x-octagon','Stock épuisé','Impossible d\'ajouter',true) +
+            `<div class="p-6 text-center">
+                <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3"><i class="bi bi-x-octagon-fill text-red-500 text-2xl"></i></div>
+                <p class="font-bold text-gray-800 mb-1">${nom}</p>
+                <p class="text-red-600 text-sm mb-4">Stock = 0. Faites une entrée de stock d'abord.</p>
+                <button onclick="closeModal()" class="w-full py-2.5 rounded-xl bg-gray-200 font-semibold text-sm">Fermer</button>
+            </div>`,
+            {size:'max-w-xs'});
         return;
     }
     const e=cart.find(c=>c.id===id);
     const newQty = e ? e.qty + 1 : 1;
-    if(newQty > max){beepErr();showToast('Stock maximum atteint!','error');return;}
-    // Warn if stock is low (near seuil_alerte)
-    if(max <= seuil && !e){
-        openModal(modalHeader('bi-exclamation-triangle','Stock faible','Attention — stock presque épuisé') +
-            `<div class="p-6"><div class="bg-yellow-50 border-2 border-yellow-300 rounded-xl p-4 text-center"><i class="bi bi-exclamation-triangle-fill text-yellow-500 text-2xl"></i><p class="mt-2 font-bold text-yellow-800">${nom}</p><p class="text-yellow-700 text-sm">Stock restant: <b>${max}</b> (seuil alerte: ${seuil})</p></div><div class="flex gap-2 mt-4"><button onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 font-semibold text-sm">Annuler</button><button onclick="closeModal();forceAddToCart(${id},'${nom.replace(/'/g,"\\'")}',${prix},${max})" class="flex-1 py-2.5 rounded-xl bg-yellow-500 text-white font-semibold text-sm">Ajouter quand même</button></div></div>`,
-            {size:'max-w-sm'});
+    if(newQty > max){
+        beepErr();
+        showToast(`⚠️ Stock max atteint pour ${nom} (${max})`, 'error');
         return;
+    }
+    // Non-blocking low-stock toast warning (doesn't interrupt flow)
+    if(max <= seuil && !e){
+        showToast(`⚠️ Stock bas: ${nom} (${max} restant)`, 'warning');
     }
     forceAddToCart(id,nom,prix,max);
 }
