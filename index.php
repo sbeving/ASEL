@@ -892,8 +892,10 @@ if (currentFranchise()) { $notif_where[] = "(franchise_id=? OR franchise_id IS N
 if (userRole()) { $notif_where[] = "(role_cible=? OR role_cible IS NULL)"; $notif_params[] = userRole(); }
 $notif_where[] = "(utilisateur_id=? OR utilisateur_id IS NULL)"; $notif_params[] = $user['id'];
 $notif_sql = "SELECT COUNT(*) as c FROM notifications WHERE lu=0 AND (" . implode(' OR ', $notif_where) . ")";
-$notif_count = queryOne($notif_sql, $notif_params)['c'] ?? 0;
-$notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ', $notif_where) . ") ORDER BY date_creation DESC LIMIT 10", $notif_params);
+try {
+    $notif_count = queryOne($notif_sql, $notif_params)['c'] ?? 0;
+    $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ', $notif_where) . ") ORDER BY date_creation DESC LIMIT 10", $notif_params);
+} catch(Exception $e) { $notif_count = 0; $notifs = []; }
 ?>
 
 <!-- Mobile nav toggle -->
@@ -947,6 +949,18 @@ $notifs = query("SELECT * FROM notifications WHERE lu=0 AND (" . implode(' OR ',
         </a>
         <?php endif; ?>
     </div>
+    
+    <!-- Notification preview in sidebar -->
+    <?php if($notifs && count($notifs) > 0): ?>
+    <div class="px-3 py-2 border-b border-white/10">
+        <?php foreach(array_slice($notifs, 0, 3) as $n): $nc=match($n['type_notif']){'danger'=>'border-red-400 bg-red-900/30','warning'=>'border-amber-400 bg-amber-900/30',default=>'border-blue-400 bg-blue-900/20'}; ?>
+        <a href="<?=e($n['lien']??'?page=notifications')?>" class="flex items-start gap-2 py-1.5 px-2 rounded-lg hover:bg-white/10 transition-colors mb-1 border-l-2 <?=$nc?>">
+            <div class="flex-1 min-w-0"><div class="text-xs font-semibold text-white/90 truncate"><?=e($n['titre'])?></div><div class="text-[10px] text-white/50 truncate"><?=e(mb_substr($n['message'],0,35))?></div></div>
+        </a>
+        <?php endforeach; ?>
+        <a href="?page=notifications" class="text-[10px] text-white/40 hover:text-white/70 block text-center mt-1">Voir tout (<?=$notif_count?>)</a>
+    </div>
+    <?php endif; ?>
     
     <!-- Nav -->
     <nav class="py-4 space-y-1">
