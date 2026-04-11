@@ -79,18 +79,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         // Create echeances if payment by lot
         if ($mode_paiement === 'echeance' && $client_id) {
-            $nb_ech = intval($_POST['nb_echeances'] ?? 3);
-            $interv = intval($_POST['interv_jours'] ?? 30);
+            $nb_ech = max(1, intval($_POST['nb_echeances'] ?? 2));
+            $interv = max(1, intval($_POST['interv_jours'] ?? 30));
             $prem_date = $_POST['prem_date'] ?: date('Y-m-d', strtotime('+30 days'));
-            $montant_par = round($total_ttc / $nb_ech, 2);
-            $reste = round($total_ttc - ($montant_par * ($nb_ech - 1)), 2);
+            $especes_versees = floatval($_POST['especes_versees'] ?? 0);
+            // Prix lot may differ from cart total (seller can set markup)
+            $prix_lot = floatval($_POST['prix_lot'] ?? 0);
+            if ($prix_lot <= 0) $prix_lot = $total_ttc; // fallback to cart total
+            
+            $reste_a_etaler = max(0, $prix_lot - $especes_versees);
+            
+            // Update facture total to reflect lot price if different
+            if (abs($prix_lot - $total_ttc) > 0.01) {
+                execute("UPDATE factures SET total_ttc=?,total_ht=?,remise_totale=?,montant_recu=?,monnaie=0 WHERE id=?",
+                    [$prix_lot, $prix_lot, 0, $especes_versees, $facture_id]);
+            }
+            
+            $montant_par = $nb_ech > 0 ? round($reste_a_etaler / $nb_ech, 2) : 0;
+            $reste = round($reste_a_etaler - ($montant_par * ($nb_ech - 1)), 2);
             
             for ($i = 0; $i < $nb_ech; $i++) {
                 $date_ech = date('Y-m-d', strtotime($prem_date . " + " . ($i * $interv) . " days"));
                 $mt = ($i === $nb_ech - 1) ? $reste : $montant_par;
+                if ($mt <= 0) continue;
                 execute("INSERT INTO echeances (facture_id,franchise_id,client_id,montant,date_echeance,note,utilisateur_id) VALUES (?,?,?,?,?,?,?)",
                     [$facture_id, $vfid, $client_id, $mt, $date_ech, "Lot " . ($i+1) . "/$nb_ech — Facture $numero", $user['id']]);
             }
+            auditLog('vente_lot', 'facture', $facture_id, [
+                'prix_lot'=>$prix_lot, 'especes'=>$especes_versees, 
+                'reste'=>$reste_a_etaler, 'nb_lots'=>$nb_ech
+            ]);
         }
         
         $_SESSION['flash'] = ['type'=>'success','msg'=>"Vente enregistrée! Facture $numero — <a href='pdf.php?type=facture&id=$facture_id' target='_blank' class='underline font-bold'>📄 Facture PDF</a> | <a href='receipt.php?id=$facture_id' target='_blank' class='underline font-bold'>🧾 Ticket</a>"];
@@ -1356,13 +1374,30 @@ elseif ($page === 'pos'):
                     <input type="number" id="montantRecu" step="0.5" class="flex-1 border-2 border-gray-200 rounded-lg px-3 py-1.5 text-xs" placeholder="Montant reçu" oninput="calcMonnaie()">
                     <span class="text-xs font-bold text-green-600" id="monnaieDisplay"></span>
                 </div>
-                <!-- Echeance -->
-                <div id="echeanceDiv" class="mb-2 hidden bg-yellow-50 rounded-lg p-2 text-xs">
-                    <div class="grid grid-cols-3 gap-1">
-                        <div><label class="font-bold">Nb lots</label><input type="number" id="nbEch" min="2" max="24" value="3" class="w-full border rounded px-1 py-1 text-xs"></div>
-                        <div><label class="font-bold">Jours</label><input type="number" id="intervJ" min="7" max="90" value="30" class="w-full border rounded px-1 py-1 text-xs"></div>
-                        <div><label class="font-bold">1ère date</label><input type="date" id="premD" class="w-full border rounded px-1 py-1 text-xs" value="<?=date('Y-m-d',strtotime('+30 days'))?>"></div>
+                <!-- Echeance / Paiement par lots -->
+                <div id="echeanceDiv" class="mb-2 hidden bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs space-y-2">
+                    <div class="font-bold text-amber-800 flex items-center gap-1"><i class="bi bi-calendar-range"></i> Paiement par lots</div>
+                    <!-- Prix lot (may differ from cart total) -->
+                    <div>
+                        <label class="font-bold text-gray-600">Prix total lot (DT) <span class="text-gray-400 font-normal">— peut être différent du prix panier</span></label>
+                        <div class="flex gap-2 mt-0.5">
+                            <input type="number" id="prixLot" step="0.5" class="w-32 border-2 border-amber-300 rounded-lg px-2 py-1.5 text-xs font-bold" oninput="calcEcheances()" placeholder="0.00">
+                            <button type="button" onclick="document.getElementById('prixLot').value=parseFloat(document.getElementById('cartTotal').textContent)||0;calcEcheances()" class="text-xs text-amber-700 hover:text-amber-900 underline">= Prix panier</button>
+                        </div>
                     </div>
+                    <!-- Espèces versées upfront -->
+                    <div>
+                        <label class="font-bold text-gray-600">Espèces versées maintenant (DT)</label>
+                        <input type="number" id="especesVersees" step="0.5" value="0" min="0" class="w-32 border-2 border-green-300 rounded-lg px-2 py-1.5 text-xs mt-0.5" oninput="calcEcheances()" placeholder="0.00">
+                    </div>
+                    <!-- Lots config -->
+                    <div class="grid grid-cols-3 gap-2">
+                        <div><label class="font-bold text-gray-600">Nb de lots</label><input type="number" id="nbEch" min="1" max="24" value="2" class="w-full border-2 border-gray-200 rounded-lg px-2 py-1.5 text-xs mt-0.5" oninput="calcEcheances()"></div>
+                        <div><label class="font-bold text-gray-600">Intervalle (jours)</label><input type="number" id="intervJ" min="7" max="180" value="30" class="w-full border-2 border-gray-200 rounded-lg px-2 py-1.5 text-xs mt-0.5" oninput="calcEcheances()"></div>
+                        <div><label class="font-bold text-gray-600">1ère date</label><input type="date" id="premD" class="w-full border-2 border-gray-200 rounded-lg px-2 py-1.5 text-xs mt-0.5" value="<?=date('Y-m-d',strtotime('+30 days'))?>" oninput="calcEcheances()"></div>
+                    </div>
+                    <!-- Summary -->
+                    <div id="echeanceSummary" class="bg-white rounded-lg p-2 space-y-1 border border-amber-200 text-xs"></div>
                 </div>
                 <form method="POST" id="saleForm">
                     <input type="hidden" name="_csrf" value="<?=$csrf?>">
@@ -1373,9 +1408,11 @@ elseif ($page === 'pos'):
                     <input type="hidden" name="type_facture" id="formTypeFacture" value="ticket">
                     <input type="hidden" name="mode_paiement" id="formModePaiement" value="especes">
                     <input type="hidden" name="montant_recu" id="formMontantRecu" value="0">
-                    <input type="hidden" name="nb_echeances" id="formNbEch" value="3">
+                    <input type="hidden" name="nb_echeances" id="formNbEch" value="2">
                     <input type="hidden" name="interv_jours" id="formIntervJ" value="30">
                     <input type="hidden" name="prem_date" id="formPremD" value="">
+                    <input type="hidden" name="especes_versees" id="formEspecesVersees" value="0">
+                    <input type="hidden" name="prix_lot" id="formPrixLot" value="0">
                     <button type="submit" class="w-full bg-asel hover:bg-asel-dark text-white font-bold py-3 rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2" id="btnVente" disabled onclick="event.preventDefault();prepareSubmit();if(checkStockBeforeSale()){this.innerHTML='<i class=\'bi bi-hourglass-split\'></i> Traitement...';this.disabled=true;document.getElementById('saleForm').submit();}">
                         <i class="bi bi-check-circle"></i> VALIDER LA VENTE
                     </button>
@@ -1544,9 +1581,76 @@ function filterProducts(){
     });
 }
 function filterCat(cat){document.querySelectorAll('#prodGrid > div').forEach(el=>{el.style.display=(!cat||el.dataset.cat===cat)?'':'none'});document.querySelectorAll('[data-cat]').forEach(b=>{b.className='px-3 py-1.5 rounded-full text-xs font-semibold bg-white text-gray-600 border hover:bg-asel hover:text-white transition-colors'});if(cat){const btn=document.querySelector(`[data-cat="${cat}"]`);if(btn)btn.className='px-3 py-1.5 rounded-full text-xs font-semibold bg-asel text-white';document.getElementById('cat-all').className='px-3 py-1.5 rounded-full text-xs font-semibold bg-white text-gray-600 border'}else{document.getElementById('cat-all').className='px-3 py-1.5 rounded-full text-xs font-semibold bg-asel text-white'}}
-function toggleEcheance(){const mp=document.getElementById('modePaiement').value;const mr=document.getElementById('montantRecuDiv');const ed=document.getElementById('echeanceDiv');if(mp==='echeance'){mr.classList.add('hidden');ed.classList.remove('hidden');}else{mr.classList.remove('hidden');ed.classList.add('hidden');}}
+function toggleEcheance(){
+    const mp = document.getElementById('modePaiement').value;
+    const mr = document.getElementById('montantRecuDiv');
+    const ed = document.getElementById('echeanceDiv');
+    if(mp === 'echeance') {
+        mr.classList.add('hidden');
+        ed.classList.remove('hidden');
+        // Auto-fill prix lot with cart total
+        const cartTot = parseFloat(document.getElementById('cartTotal').textContent) || 0;
+        if(!document.getElementById('prixLot').value && cartTot > 0)
+            document.getElementById('prixLot').value = cartTot.toFixed(2);
+        calcEcheances();
+    } else {
+        mr.classList.remove('hidden');
+        ed.classList.add('hidden');
+    }
+}
+
+function calcEcheances(){
+    const prixLot = parseFloat(document.getElementById('prixLot').value) || 0;
+    const especes = parseFloat(document.getElementById('especesVersees').value) || 0;
+    const nbLots = parseInt(document.getElementById('nbEch').value) || 2;
+    const interv = parseInt(document.getElementById('intervJ').value) || 30;
+    const premDate = document.getElementById('premD').value;
+    const resteAEtaler = Math.max(0, prixLot - especes);
+    const montantParLot = nbLots > 0 ? (resteAEtaler / nbLots) : 0;
+    const cartTot = parseFloat(document.getElementById('cartTotal').textContent) || 0;
+    const majoriation = prixLot > 0 && cartTot > 0 ? ((prixLot - cartTot) / cartTot * 100) : 0;
+    
+    // Build summary
+    let rows = '';
+    if(especes > 0)
+        rows += `<div class="flex justify-between text-green-700"><span>💵 Espèces maintenant</span><span class="font-bold">${especes.toFixed(2)} DT</span></div>`;
+    
+    if(resteAEtaler > 0 && nbLots > 0) {
+        for(let i = 0; i < nbLots; i++) {
+            const mt = (i === nbLots-1) ? (resteAEtaler - montantParLot*(nbLots-1)).toFixed(2) : montantParLot.toFixed(2);
+            let d = '—';
+            if(premDate) {
+                const date = new Date(premDate);
+                date.setDate(date.getDate() + i * interv);
+                d = date.toLocaleDateString('fr-TN');
+            }
+            rows += `<div class="flex justify-between text-gray-600"><span>Lot ${i+1}/${nbLots} — ${d}</span><span class="font-bold">${mt} DT</span></div>`;
+        }
+    }
+    
+    const summary = document.getElementById('echeanceSummary');
+    if(summary) summary.innerHTML = `
+        ${rows}
+        <div class="border-t pt-1 mt-1 flex justify-between font-bold">
+            <span>TOTAL</span>
+            <span class="text-amber-700">${prixLot.toFixed(2)} DT${majoriation > 0.1 ? ` <span class="text-orange-500 font-normal">(+${majoriation.toFixed(1)}% vs panier)</span>` : ''}</span>
+        </div>`;
+}
 function calcMonnaie(){const recu=parseFloat(document.getElementById('montantRecu').value)||0;const total=parseFloat(document.getElementById('cartTotal').textContent)||0;const monnaie=recu-total;document.getElementById('monnaieDisplay').textContent=monnaie>0?'Monnaie: '+monnaie.toFixed(1)+' DT':'';}
-function prepareSubmit(){document.getElementById('formMontantRecu').value=document.getElementById('montantRecu').value||'0';document.getElementById('formNbEch').value=document.getElementById('nbEch')?.value||'3';document.getElementById('formIntervJ').value=document.getElementById('intervJ')?.value||'30';document.getElementById('formPremD').value=document.getElementById('premD')?.value||'';}
+function prepareSubmit(){
+    const mp = document.getElementById('modePaiement').value;
+    document.getElementById('formMontantRecu').value = document.getElementById('montantRecu').value || '0';
+    document.getElementById('formNbEch').value = document.getElementById('nbEch')?.value || '2';
+    document.getElementById('formIntervJ').value = document.getElementById('intervJ')?.value || '30';
+    document.getElementById('formPremD').value = document.getElementById('premD')?.value || '';
+    if(mp === 'echeance') {
+        const especes = parseFloat(document.getElementById('especesVersees')?.value || 0);
+        const prixLot = parseFloat(document.getElementById('prixLot')?.value || 0);
+        document.getElementById('formEspecesVersees').value = especes.toFixed(2);
+        document.getElementById('formPrixLot').value = prixLot.toFixed(2);
+        document.getElementById('formMontantRecu').value = especes.toFixed(2);
+    }
+}
 document.addEventListener('keydown',e=>{
     const bi=document.getElementById('barcodeInput');
     if(e.key==='F2'){e.preventDefault();if(bi)bi.focus();return;}
