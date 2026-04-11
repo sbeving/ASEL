@@ -998,14 +998,52 @@ if ($page === 'dashboard'):
 ?>
 
 <!-- Dashboard header with quick actions -->
-<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-    <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-speedometer2 text-asel"></i> Tableau de bord</h1>
-    <div class="flex gap-2">
+<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <div>
+        <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-speedometer2 text-asel"></i> Tableau de bord</h1>
+        <div class="text-xs text-gray-400 mt-0.5"><?=date('l d F Y', time())?> &middot; <?=e($user['nom_complet'])?></div>
+    </div>
+    <div class="flex gap-2 flex-wrap">
         <?php if (can('pos')): ?><a href="?page=pos" class="bg-asel hover:bg-asel-dark text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors"><i class="bi bi-cart3"></i> Nouvelle vente</a><?php endif; ?>
         <?php if (can('entree')): ?><button onclick="openQuickStockEntry('<?=$fid?:($franchises[0]['id']??'')?>','<?=ejs($fid?shortF($franchises[0]['nom']??''):'')?>') " class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-asel hover:text-asel transition-colors"><i class="bi bi-box-arrow-in-down"></i> Entrée stock</button><?php endif; ?>
         <?php if (can('add_produit')): ?><button onclick="openQuickAddProduct()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-green-500 hover:text-green-600 transition-colors"><i class="bi bi-plus-circle"></i> Produit</button><?php endif; ?>
         <?php if (isAdmin()): ?><button onclick="openBarcodeLookup()" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-4 py-2 rounded-lg hover:border-purple-500 hover:text-purple-600 transition-colors"><i class="bi bi-upc-scan"></i> Scanner</button><?php endif; ?>
     </div>
+</div>
+<!-- Today's at-a-glance banner -->
+<div class="bg-gradient-to-r from-asel to-asel-dark rounded-xl p-4 mb-4 text-white flex flex-wrap gap-4 items-center">
+    <div class="flex-1 min-w-0">
+        <div class="text-xs text-white/60 font-bold uppercase">CA Aujourd'hui</div>
+        <div class="text-3xl font-black"><?=number_format($vj['t'],2)?> <span class="text-base font-normal text-white/70">DT</span></div>
+        <?php if($trend != 0): ?><div class="text-xs text-white/70 mt-0.5"><?=$trend>0?'↑ +':'↓ '?><?=abs($trend)?>% vs hier</div><?php endif; ?>
+    </div>
+    <div class="w-px bg-white/20 h-12 hidden sm:block"></div>
+    <div class="text-center">
+        <div class="text-xs text-white/60 font-bold uppercase">Ventes</div>
+        <div class="text-xl font-black"><?=$vj['n']?></div>
+    </div>
+    <div class="w-px bg-white/20 h-12 hidden sm:block"></div>
+    <?php if(isAdminOrGest()): ?>
+    <div class="text-center">
+        <div class="text-xs text-white/60 font-bold uppercase">Bénéfice</div>
+        <div class="text-xl font-black <?=$profit_today>=0?'text-green-300':'text-red-300'?>"><?=number_format($profit_today,1)?></div>
+        <div class="text-xs text-white/50"><?=$margin_today?>% marge</div>
+    </div>
+    <?php endif; ?>
+    <?php if($tr_solde != 0): ?>
+    <div class="w-px bg-white/20 h-12 hidden sm:block"></div>
+    <div class="text-center">
+        <div class="text-xs text-white/60 font-bold uppercase">Trésorerie</div>
+        <div class="text-xl font-black <?=$tr_solde>=0?'text-green-300':'text-red-300'?>"><?=number_format($tr_solde,1)?></div>
+    </div>
+    <?php endif; ?>
+    <?php if(count($alertes)>0): ?>
+    <div class="w-px bg-white/20 h-12 hidden sm:block"></div>
+    <a href="?page=stock" class="text-center hover:text-yellow-200 transition-colors">
+        <div class="text-xs text-white/60 font-bold uppercase">Stock bas</div>
+        <div class="text-xl font-black text-yellow-300">⚠️ <?=count($alertes)?></div>
+    </a>
+    <?php endif; ?>
 </div>
 
 <!-- KPIs -->
@@ -1606,7 +1644,18 @@ function toggleEcheance(){
     const mp = document.getElementById('modePaiement').value;
     const mr = document.getElementById('montantRecuDiv');
     const ed = document.getElementById('echeanceDiv');
+    const clientId = document.getElementById('formClientId').value;
+    
     if(mp === 'echeance') {
+        // Require a client for lot payment
+        if(!clientId) {
+            showToast('⚠️ Sélectionnez un client pour utiliser le paiement par lot', 'warning');
+            document.getElementById('modePaiement').value = 'especes';
+            document.getElementById('formModePaiement').value = 'especes';
+            mr.classList.remove('hidden');
+            ed.classList.add('hidden');
+            return;
+        }
         mr.classList.add('hidden');
         ed.classList.remove('hidden');
         // Auto-fill prix lot with cart total
