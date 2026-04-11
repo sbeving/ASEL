@@ -1951,7 +1951,7 @@ function searchEntreeProducts(q) {
         
         return `<div class="entree-result px-4 py-2.5 hover:bg-asel-light cursor-pointer border-b last:border-0 flex items-center gap-3 transition-colors" 
             data-idx="${i}"
-            onclick="selectEntreeProd(${JSON.stringify({id:p.id,nom:p.nom,ref:p.ref,cat:p.cat,marque:p.marque,pa:p.pa,pv:p.pv,tva:p.tva,code_barre:p.code_barre}).replace(/'/g,"\\'")})"
+            onclick="selectEntreeProdById(${p.id})"
             onmouseenter="searchIdx=${i};highlightResult()">
             <div class="flex-1 min-w-0">
                 <div class="font-semibold text-sm truncate">${displayName}${badge}</div>
@@ -1974,7 +1974,7 @@ function searchEntreeProducts(q) {
     
     // Auto-select first result
     if(scored.length === 1 || (scored[0].score >= 900)) {
-        selectEntreeProd(scored[0].p);
+        selectEntreeProdById(scored[0].p.id);
     }
 }
 
@@ -2010,7 +2010,7 @@ function handleEntreeKey(e) {
                 p.ref === e.target.value.trim()
             );
             if(exact) {
-                selectEntreeProd(exact);
+                selectEntreeProdById(exact.id);
                 addEntreeLineFromSearch();
             }
         }
@@ -2024,6 +2024,10 @@ function handleEntreeKey(e) {
     }
 }
 
+function selectEntreeProdById(id) {
+    const prod = entreeProds.find(p => p.id === id);
+    if(prod) selectEntreeProd(prod);
+}
 function selectEntreeProd(prod) {
     selectedProd = typeof prod === 'string' ? JSON.parse(prod) : prod;
     
