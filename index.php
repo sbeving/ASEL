@@ -3362,6 +3362,7 @@ function submitQuickCloture(ca, art) {
         'prix_asc' => 'p.prix_vente ASC',
         'prix_desc' => 'p.prix_vente DESC',
         'marge' => '((p.prix_vente-p.prix_achat)/GREATEST(p.prix_vente,0.01)*100) DESC',
+        'marge_asc' => '((p.prix_vente-p.prix_achat)/GREATEST(p.prix_vente,0.01)*100) ASC',
         'ref' => 'p.reference ASC',
         'marque' => 'p.marque ASC, p.nom ASC',
         default => 'c.nom ASC, p.nom ASC',
@@ -3429,6 +3430,7 @@ function submitQuickCloture(ca, art) {
                     <option value="prix_asc" <?=$pf_sort==='prix_asc'?'selected':''?>>Prix ↑</option>
                     <option value="prix_desc" <?=$pf_sort==='prix_desc'?'selected':''?>>Prix ↓</option>
                     <option value="marge" <?=$pf_sort==='marge'?'selected':''?>>Marge ↓</option>
+                    <option value="marge_asc" <?=$pf_sort==='marge_asc'?'selected':''?>>Marge ↑ (faible)</option>
                 </select>
             </div>
             <button class="bg-asel text-white px-3 py-1.5 rounded-lg text-sm font-semibold"><i class="bi bi-funnel"></i> Appliquer</button>
@@ -4192,8 +4194,15 @@ elseif ($page === 'factures'):
                 <td class="px-3 py-2"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?=$sb[$e['statut']]??''?>"><?=$e['statut']?></span></td>
                 <td class="px-3 py-2">
                     <?php if ($e['statut']!=='payee'): ?>
+                    <div class="flex gap-1">
                     <form method="POST" class="inline"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="pay_echeance"><input type="hidden" name="echeance_id" value="<?=$e['id']?>">
-                    <button class="bg-green-500 text-white px-2 py-1 rounded text-xs font-bold">💰 Encaisser</button></form>
+                    <button class="bg-green-500 text-white px-2 py-1 rounded text-xs font-bold">💰</button></form>
+                    <?php if($e['client_tel']): ?>
+                    <a href="https://wa.me/<?=preg_replace('/[^0-9]/','',$e['client_tel'])?>?text=<?=rawurlencode('Bonjour '.($e['client_nom']??'').', votre versement de '.number_format($e['montant'],2).' DT est dû le '.date('d/m/Y',strtotime($e['date_echeance'])).' — ASEL Mobile')?>" target="_blank" class="bg-green-600 text-white px-2 py-1 rounded text-xs font-bold" title="WhatsApp">
+                        <i class="bi bi-whatsapp text-xs"></i>
+                    </a>
+                    <?php endif; ?>
+                    </div>
                     <?php else: ?>✅<?php endif; ?>
                 </td>
             </tr>
