@@ -5,6 +5,9 @@ define('DB_USER', 'if0_41570853');
 define('DB_PASS', 'dtqOrICDVV0p6');
 define('DB_NAME', 'if0_41570853_asel');
 
+// === TIMEZONE: Tunisia (GMT+1) ===
+date_default_timezone_set('Africa/Tunis');
+
 function db() {
     static $pdo = null;
     if (!$pdo) {
@@ -12,6 +15,8 @@ function db() {
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
         ]);
+        // Set MySQL session timezone to Tunisia
+        $pdo->exec("SET time_zone = '+01:00'");
     }
     return $pdo;
 }

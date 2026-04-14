@@ -5823,7 +5823,16 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
         </div>
         <div class="text-right">
             <div class="text-4xl font-black tracking-tight" id="currentTime"><?=date('H:i')?></div>
-            <div class="text-xs text-white/50 mt-0.5"><?=strftime('%A %d %B')?></div>
+            <div class="text-xs text-white/50 mt-0.5"><?php
+                if(class_exists('IntlDateFormatter')) {
+                    $fmt = new IntlDateFormatter('fr_TN', IntlDateFormatter::FULL, IntlDateFormatter::NONE, 'Africa/Tunis', null, 'EEEE dd MMMM');
+                    echo $fmt->format(new DateTime());
+                } else {
+                    $jours = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+                    $mois = ['','Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+                    echo $jours[date('w')].' '.date('d').' '.$mois[intval(date('m'))];
+                }
+            ?></div>
             <?php if($mes_total_min > 0): ?>
             <div class="mt-2 bg-white/15 rounded-lg px-3 py-1.5 text-center">
                 <div class="text-lg font-black"><?=$mes_h?>h<?=str_pad($mes_m,2,'0',STR_PAD_LEFT)?></div>
