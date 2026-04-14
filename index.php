@@ -20,7 +20,11 @@ $centralId = getCentralId();
 $retailFranchises = getRetailFranchises();
 
 // === RBAC: Check page permission ===
-requirePermission($page);
+if ($page === 'import_phones') {
+    if (!isAdmin()) { die('Admin only'); }
+} else {
+    requirePermission($page);
+}
 
 // === Handle POST ===
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -5712,7 +5716,7 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
 </div>
 
 <!-- ====================== IMPORT PHONES (admin only) ====================== -->
-<?php if ($page === 'import_phones' && isAdmin()):
+<?php if ($page === 'import_phones'):
     $excel_phones = [
         ['Evertek E28', 'Evertek', 52.52, 62.50, 57.98, 69.00],
         ['Geniphone A2mini', 'Geniphone', 31.85, 37.90, 37.82, 45.00],
