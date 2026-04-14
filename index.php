@@ -645,9 +645,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $lng = $_POST['longitude'] ? floatval($_POST['longitude']) : null;
         $type = in_array($_POST['type_pointage'], ['entree','sortie','pause_debut','pause_fin']) ? $_POST['type_pointage'] : 'entree';
         $franchise_id_p = can('view_all_franchises') ? (intval($_POST['franchise_id']) ?: currentFranchise()) : currentFranchise();
+        $now_tz = date('Y-m-d H:i:s'); // Uses PHP timezone (Africa/Tunis)
         
-        execute("INSERT INTO pointages (utilisateur_id,franchise_id,type_pointage,latitude,longitude,adresse,note,device_info) VALUES (?,?,?,?,?,?,?,?)",
-            [$user['id'], $franchise_id_p, $type, $lat, $lng, strParam('adresse',300), strParam('note'), strParam('device_info',100)]);
+        execute("INSERT INTO pointages (utilisateur_id,franchise_id,type_pointage,heure,latitude,longitude,adresse,note,device_info) VALUES (?,?,?,?,?,?,?,?,?)",
+            [$user['id'], $franchise_id_p, $type, $now_tz, $lat, $lng, strParam('adresse',300), strParam('note'), strParam('device_info',100)]);
         
         $msg = match($type) {
             'entree' => '✅ Entrée enregistrée à ' . date('H:i'),
@@ -4483,7 +4484,7 @@ function calcEcart(idx, sys, phys) {
     $mes_ventes_mois = queryOne("SELECT COALESCE(SUM(prix_total),0) as ca, COUNT(*) as nb FROM ventes WHERE utilisateur_id=? AND MONTH(date_vente)=MONTH(CURDATE()) AND YEAR(date_vente)=YEAR(CURDATE())", [$user['id']]);
     // Pointage today
     try {
-        $mon_pointage_today = query("SELECT * FROM pointages WHERE utilisateur_id=? AND DATE(heure)=CURDATE() ORDER BY heure ASC", [$user['id']]);
+        $mon_pointage_today = query("SELECT * FROM pointages WHERE utilisateur_id=? AND DATE(heure)=? ORDER BY heure ASC", [$user['id'], date('Y-m-d')]);
     } catch(Exception $e) { $mon_pointage_today = []; }
 ?>
 <h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-person-gear text-asel"></i> Mon compte</h1>
@@ -5861,7 +5862,7 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
     $pt_user_filter = intval($_GET['uid'] ?? 0);
     
     // Last pointage for current user today
-    try { $mon_dernier = queryOne("SELECT * FROM pointages WHERE utilisateur_id=? AND DATE(heure)=CURDATE() ORDER BY heure DESC LIMIT 1", [$user['id']]); } catch(Exception $e) { $mon_dernier = null; }
+    try { $mon_dernier = queryOne("SELECT * FROM pointages WHERE utilisateur_id=? AND DATE(heure)=? ORDER BY heure DESC LIMIT 1", [$user['id'], date('Y-m-d')]); } catch(Exception $e) { $mon_dernier = null; }
     $mon_prochain = match($mon_dernier['type_pointage'] ?? '') {
         'entree', 'pause_fin' => 'sortie',
         'sortie' => 'entree',
@@ -5871,7 +5872,7 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
     
     // My pointages today (timeline for current user)
     try {
-        $mes_pointages_today = query("SELECT * FROM pointages WHERE utilisateur_id=? AND DATE(heure)=CURDATE() ORDER BY heure ASC", [$user['id']]);
+        $mes_pointages_today = query("SELECT * FROM pointages WHERE utilisateur_id=? AND DATE(heure)=? ORDER BY heure ASC", [$user['id'], date('Y-m-d')]);
     } catch(Exception $e) { $mes_pointages_today = []; }
     // My hours worked today
     $mes_entrees = []; $mes_sorties = [];
