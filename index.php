@@ -982,6 +982,66 @@ $csrf = csrfToken();
     @keyframes badge-bounce { 0%,100%{transform:scale(1)} 50%{transform:scale(1.2)} }
     .badge-animate { animation: badge-bounce 0.5s ease; }
     </style>
+    <!-- ASEL Design System v2 -->
+    <style>
+    :root {
+        --asel: #2AABE2; --asel-dark: #1B3A5C; --asel-light: #F0F8FF; --asel-accent: #E63946;
+        --radius-sm: 0.5rem; --radius-md: 0.75rem; --radius-lg: 1rem; --radius-xl: 1.5rem;
+        --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+        --shadow-hover: 0 4px 14px rgba(0,0,0,0.08);
+        --transition-fast: 150ms cubic-bezier(0.4,0,0.2,1);
+        --transition-normal: 250ms cubic-bezier(0.4,0,0.2,1);
+    }
+    /* Table enhancement */
+    .asel-table-wrapper { position: relative; }
+    .asel-table-toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; background: #fafbfc; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+    .asel-table-search { border: 2px solid #e5e7eb; border-radius: var(--radius-md); padding: 6px 12px 6px 32px; font-size: 0.8125rem; width: 220px; max-width: 100%; transition: border-color var(--transition-fast); background: white url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='%239ca3af' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0'/%3E%3C/svg%3E") no-repeat 10px center; }
+    .asel-table-search:focus { border-color: var(--asel); outline: none; box-shadow: 0 0 0 3px rgba(42,171,226,0.12); }
+    .asel-table-meta { font-size: 0.6875rem; color: #9ca3af; font-weight: 600; }
+    .asel-table-pagination { display: flex; align-items: center; gap: 2px; padding: 0.625rem 1rem; border-top: 1px solid #f3f4f6; background: #fafbfc; border-radius: 0 0 var(--radius-lg) var(--radius-lg); justify-content: center; flex-wrap: wrap; }
+    .asel-table-pagination button, .asel-table-pagination span { font-size: 0.75rem; padding: 4px 10px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; transition: all var(--transition-fast); background: transparent; color: #6b7280; }
+    .asel-table-pagination button:hover:not(:disabled) { background: var(--asel-light); color: var(--asel); }
+    .asel-table-pagination button:disabled { opacity: 0.3; cursor: default; }
+    .asel-table-pagination .pg-active { background: var(--asel); color: white; border-radius: 6px; }
+    .asel-table-pagination .pg-info { font-size: 0.6875rem; color: #9ca3af; padding: 4px 8px; }
+    /* Sortable headers */
+    th[data-sortable] { cursor: pointer; user-select: none; position: relative; padding-right: 20px !important; }
+    th[data-sortable]:hover { background: rgba(42,171,226,0.08) !important; }
+    th[data-sortable]::after { content: '⇅'; position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 10px; opacity: 0.25; }
+    th[data-sort-dir="asc"]::after { content: '↑'; opacity: 0.7; color: var(--asel); }
+    th[data-sort-dir="desc"]::after { content: '↓'; opacity: 0.7; color: var(--asel); }
+    /* Row hover accent */
+    .asel-enhanced tbody tr { transition: background var(--transition-fast); border-left: 3px solid transparent; }
+    .asel-enhanced tbody tr:hover { background: var(--asel-light) !important; border-left-color: var(--asel); }
+    .asel-enhanced tbody tr:nth-child(even) { background: rgba(0,0,0,0.015); }
+    /* Toast stack */
+    .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column-reverse; gap: 8px; pointer-events: none; }
+    .toast-item { pointer-events: auto; padding: 12px 18px; border-radius: var(--radius-md); font-size: 0.8125rem; font-weight: 500; box-shadow: var(--shadow-hover); transform: translateX(120%); opacity: 0; transition: all 300ms cubic-bezier(0.34,1.56,0.64,1); max-width: 320px; position: relative; overflow: hidden; }
+    .toast-item.show { transform: translateX(0); opacity: 1; }
+    .toast-item .toast-progress { position: absolute; bottom: 0; left: 0; height: 3px; background: rgba(255,255,255,0.4); transition: width linear; }
+    .toast-success { background: #059669; color: white; }
+    .toast-error { background: #DC2626; color: white; }
+    .toast-warning { background: #D97706; color: white; }
+    .toast-info { background: var(--asel); color: white; }
+    /* Modal enhancements */
+    #modal { backdrop-filter: blur(4px); }
+    #modalContent { animation: modalSlideUp 250ms cubic-bezier(0.34,1.56,0.64,1); }
+    @keyframes modalSlideUp { from { opacity: 0; transform: translateY(20px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    /* Card system */
+    .card { background: white; border-radius: var(--radius-lg); box-shadow: var(--shadow-card); transition: box-shadow var(--transition-normal), transform var(--transition-normal); }
+    .card:hover { box-shadow: var(--shadow-hover); }
+    .card-interactive:hover { transform: translateY(-1px); }
+    /* Empty state */
+    .asel-empty { text-align: center; padding: 3rem 1rem; color: #d1d5db; }
+    .asel-empty i { font-size: 2.5rem; margin-bottom: 0.75rem; display: block; }
+    .asel-empty p { font-size: 0.875rem; color: #9ca3af; }
+    /* Better scrollbar for tables */
+    .asel-table-wrapper::-webkit-scrollbar { height: 6px; }
+    .asel-table-wrapper::-webkit-scrollbar-thumb { background: var(--asel); border-radius: 3px; }
+    .asel-table-wrapper::-webkit-scrollbar-track { background: #f1f1f1; }
+    @media print { .asel-table-toolbar, .asel-table-pagination, .toast-container, #modal, .fab, nav, .sidebar, .no-print { display: none !important; } }
+    @media (max-width: 640px) { .asel-table-search { width: 100%; } .asel-table-toolbar { flex-direction: column; align-items: stretch; } }
+    </style>
 </head>
 <body class="h-full bg-gray-50 font-sans">
 
@@ -7635,6 +7695,218 @@ function showShortcuts() {
         {size: 'max-w-sm'}
     );
 }
+
+// ===================================================================
+// ASEL DESIGN SYSTEM v2 — Global Table Enhancement + Toast + UX
+// ===================================================================
+
+// --- TOAST SYSTEM (enhanced) ---
+(function(){
+    // Create toast container
+    let tc = document.querySelector('.toast-container');
+    if(!tc) { tc = document.createElement('div'); tc.className = 'toast-container'; document.body.appendChild(tc); }
+    
+    window.showToast = function(msg, type='success', duration=3500) {
+        const t = document.createElement('div');
+        t.className = 'toast-item toast-' + type;
+        const icons = {success:'✓',error:'✕',warning:'⚠',info:'ℹ'};
+        t.innerHTML = `<span>${icons[type]||''} ${msg}</span><div class="toast-progress" style="width:100%"></div>`;
+        tc.appendChild(t);
+        requestAnimationFrame(() => { t.classList.add('show'); });
+        // Progress bar
+        const prog = t.querySelector('.toast-progress');
+        if(prog) { prog.style.transitionDuration = duration+'ms'; requestAnimationFrame(() => prog.style.width = '0%'); }
+        const timer = setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, duration);
+        t.onclick = () => { clearTimeout(timer); t.classList.remove('show'); setTimeout(() => t.remove(), 300); };
+    };
+})();
+
+// --- ASEL TABLE ENHANCEMENT ---
+class AselTable {
+    constructor(table, opts = {}) {
+        this.table = table;
+        this.perPage = opts.perPage || 15;
+        this.page = 1;
+        this.sortCol = -1;
+        this.sortDir = 'asc';
+        this.searchQuery = '';
+        this.tbody = table.querySelector('tbody');
+        this.thead = table.querySelector('thead');
+        if(!this.tbody || !this.thead) return;
+        
+        this.allRows = Array.from(this.tbody.querySelectorAll('tr'));
+        this.filteredRows = [...this.allRows];
+        if(this.allRows.length < 5) return; // Skip tiny tables
+        
+        this.table.classList.add('asel-enhanced');
+        this.buildWrapper();
+        this.makeSortable();
+        this.render();
+    }
+    
+    buildWrapper() {
+        // Wrap table in container
+        const wrapper = document.createElement('div');
+        wrapper.className = 'asel-table-wrapper';
+        this.table.parentNode.insertBefore(wrapper, this.table);
+        wrapper.appendChild(this.table);
+        
+        // Toolbar with search + info
+        const toolbar = document.createElement('div');
+        toolbar.className = 'asel-table-toolbar';
+        toolbar.innerHTML = `
+            <input type="text" class="asel-table-search" placeholder="Rechercher..." aria-label="Rechercher">
+            <div class="flex items-center gap-2">
+                <span class="asel-table-meta" data-role="count">${this.allRows.length} lignes</span>
+                <select class="text-xs border border-gray-200 rounded-md px-1 py-0.5 text-gray-500" data-role="perpage">
+                    <option value="10" ${this.perPage===10?'selected':''}>10</option>
+                    <option value="15" ${this.perPage===15?'selected':''}>15</option>
+                    <option value="25" ${this.perPage===25?'selected':''}>25</option>
+                    <option value="50" ${this.perPage===50?'selected':''}>50</option>
+                    <option value="9999">Tout</option>
+                </select>
+            </div>
+        `;
+        wrapper.insertBefore(toolbar, this.table);
+        
+        // Search handler
+        const search = toolbar.querySelector('.asel-table-search');
+        search.addEventListener('input', () => { this.searchQuery = search.value; this.page = 1; this.filter(); this.render(); });
+        
+        // Per-page handler
+        toolbar.querySelector('[data-role="perpage"]').addEventListener('change', (e) => {
+            this.perPage = parseInt(e.target.value); this.page = 1; this.render();
+        });
+        
+        // Pagination container
+        this.pagination = document.createElement('div');
+        this.pagination.className = 'asel-table-pagination';
+        wrapper.appendChild(this.pagination);
+        
+        this.toolbar = toolbar;
+        this.countEl = toolbar.querySelector('[data-role="count"]');
+    }
+    
+    makeSortable() {
+        const ths = this.thead.querySelectorAll('th');
+        ths.forEach((th, idx) => {
+            // Skip action columns (last column often has buttons)
+            if(th.textContent.trim() === '' || th.textContent.trim().toLowerCase().includes('action') || th.textContent.trim().toLowerCase().includes('act.') || th.textContent.trim().toLowerCase().includes('edit')) return;
+            th.setAttribute('data-sortable', idx);
+            th.addEventListener('click', () => this.sort(idx, th));
+        });
+    }
+    
+    sort(colIdx, th) {
+        // Toggle direction
+        if(this.sortCol === colIdx) { this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc'; }
+        else { this.sortCol = colIdx; this.sortDir = 'asc'; }
+        
+        // Update header indicators
+        this.thead.querySelectorAll('th').forEach(h => h.removeAttribute('data-sort-dir'));
+        th.setAttribute('data-sort-dir', this.sortDir);
+        
+        const dir = this.sortDir === 'asc' ? 1 : -1;
+        this.filteredRows.sort((a, b) => {
+            const ac = (a.cells[colIdx]?.textContent || '').trim();
+            const bc = (b.cells[colIdx]?.textContent || '').trim();
+            // Smart sort: try numeric first
+            const an = parseFloat(ac.replace(/[^0-9.,-]/g, '').replace(',', '.'));
+            const bn = parseFloat(bc.replace(/[^0-9.,-]/g, '').replace(',', '.'));
+            if (!isNaN(an) && !isNaN(bn)) return (an - bn) * dir;
+            // Date sort (dd/mm or dd/mm/yyyy)
+            const ad = ac.match(/(\d{2})\/(\d{2})(?:\/(\d{4}))?/);
+            const bd = bc.match(/(\d{2})\/(\d{2})(?:\/(\d{4}))?/);
+            if(ad && bd) {
+                const da = new Date((ad[3]||'2026')+'-'+(ad[2])+'-'+(ad[1]));
+                const db = new Date((bd[3]||'2026')+'-'+(bd[2])+'-'+(bd[1]));
+                if(!isNaN(da) && !isNaN(db)) return (da-db)*dir;
+            }
+            return ac.localeCompare(bc, 'fr', {sensitivity:'base'}) * dir;
+        });
+        this.page = 1;
+        this.render();
+    }
+    
+    filter() {
+        if(!this.searchQuery.trim()) { this.filteredRows = [...this.allRows]; return; }
+        const q = this.searchQuery.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+        const words = q.split(/\s+/).filter(Boolean);
+        this.filteredRows = this.allRows.filter(row => {
+            const text = row.textContent.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+            return words.every(w => text.includes(w));
+        });
+    }
+    
+    render() {
+        const total = this.filteredRows.length;
+        const totalPages = Math.max(1, Math.ceil(total / this.perPage));
+        if(this.page > totalPages) this.page = totalPages;
+        const start = (this.page - 1) * this.perPage;
+        const end = Math.min(start + this.perPage, total);
+        
+        // Show/hide rows
+        this.allRows.forEach(r => r.style.display = 'none');
+        this.filteredRows.slice(start, end).forEach(r => r.style.display = '');
+        
+        // Update count
+        if(this.countEl) {
+            this.countEl.textContent = this.searchQuery 
+                ? `${total} résultat${total>1?'s':''} / ${this.allRows.length}`
+                : `${total} ligne${total>1?'s':''}`;
+        }
+        
+        // Render pagination
+        if(totalPages <= 1 && !this.searchQuery) { this.pagination.style.display = 'none'; return; }
+        this.pagination.style.display = 'flex';
+        
+        let html = `<button ${this.page<=1?'disabled':''} data-pg="${this.page-1}">‹ Préc</button>`;
+        
+        // Smart page numbers
+        const range = [];
+        if(totalPages <= 7) { for(let i=1;i<=totalPages;i++) range.push(i); }
+        else {
+            range.push(1);
+            if(this.page > 3) range.push('...');
+            for(let i=Math.max(2,this.page-1); i<=Math.min(totalPages-1,this.page+1); i++) range.push(i);
+            if(this.page < totalPages-2) range.push('...');
+            range.push(totalPages);
+        }
+        
+        for(const p of range) {
+            if(p === '...') { html += `<span class="pg-info">…</span>`; }
+            else { html += `<button class="${p===this.page?'pg-active':''}" data-pg="${p}">${p}</button>`; }
+        }
+        
+        html += `<button ${this.page>=totalPages?'disabled':''} data-pg="${this.page+1}">Suiv ›</button>`;
+        html += `<span class="pg-info">${start+1}-${end} sur ${total}</span>`;
+        
+        this.pagination.innerHTML = html;
+        this.pagination.querySelectorAll('button[data-pg]').forEach(btn => {
+            btn.addEventListener('click', () => { this.page = parseInt(btn.dataset.pg); this.render(); });
+        });
+    }
+}
+
+// --- AUTO-ENHANCE ALL TABLES ---
+document.addEventListener('DOMContentLoaded', () => {
+    // Skip tables that have custom JS handling
+    const skipParents = ['prodGrid','cartBody','entreeLines','saleForm','entreeForm','pointageForm','inventaireForm'];
+    
+    document.querySelectorAll('table').forEach(table => {
+        // Skip if inside a skipped container
+        if(skipParents.some(id => table.closest('#'+id))) return;
+        // Skip if already enhanced
+        if(table.classList.contains('asel-enhanced')) return;
+        // Skip tiny tables
+        const tbody = table.querySelector('tbody');
+        if(!tbody || tbody.querySelectorAll('tr').length < 5) return;
+        // Skip tables without proper thead
+        if(!table.querySelector('thead th')) return;
+        
+        new AselTable(table);
+    });
+});
 </script>
 
 </body>
