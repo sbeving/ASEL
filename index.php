@@ -5755,7 +5755,14 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
 
 function openBonReception() {
     window._brLignes = [];
-    const prods = <?=json_encode(array_map(fn($p)=>['id'=>$p['id'],'nom'=>$p['nom'],'ref'=>$p['reference']??'','cat'=>$p['cat_nom'],'marque'=>$p['marque']??'','pa_ht'=>floatval($p['prix_achat_ht']??$p['prix_achat']),'pa_ttc'=>floatval($p['prix_achat_ttc']??$p['prix_achat']),'pv_ttc'=>floatval($p['prix_vente_ttc']??$p['prix_vente']),'tva'=>floatval($p['tva_rate']??19)], $produits))?>;
+    const prods = <?=json_encode(array_map(function($p) {
+        $tva = floatval($p['tva_rate'] ?? 19);
+        $pa_ht = floatval($p['prix_achat_ht'] ?? 0);
+        $pa_ttc = floatval($p['prix_achat_ttc'] ?? $p['prix_achat'] ?? 0);
+        // If HT is 0 or missing, calculate from TTC
+        if ($pa_ht <= 0 && $pa_ttc > 0) $pa_ht = round($pa_ttc / (1 + $tva/100), 2);
+        return ['id'=>$p['id'],'nom'=>$p['nom'],'ref'=>$p['reference']??'','cat'=>$p['cat_nom'],'marque'=>$p['marque']??'','pa_ht'=>$pa_ht,'pa_ttc'=>$pa_ttc,'pv_ttc'=>floatval($p['prix_vente_ttc']??$p['prix_vente']??0),'tva'=>$tva];
+    }, $produits))?>;
     const fournList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>$f['nom']], $fournisseurs))?>;
     const franchList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>shortF($f['nom'])], $allFranchises))?>;
     
@@ -5918,10 +5925,12 @@ function openBonReception() {
     function updatePricePreview() {
         const opt = prodSel.options[prodSel.selectedIndex];
         if(!opt) return;
-        const pa_ht = parseFloat(opt.dataset.paHt) || 0;
+        let pa_ht = parseFloat(opt.dataset.paHt) || 0;
         const tva = parseFloat(opt.dataset.tva) || 19;
         const pa_ttc = parseFloat(opt.dataset.paTtc) || 0;
-        priceInput.value = pa_ht > 0 ? pa_ht.toFixed(2) : '';
+        // Calculate HT from TTC if missing
+        if(pa_ht <= 0 && pa_ttc > 0) pa_ht = Math.round(pa_ttc / (1 + tva/100) * 100) / 100;
+        priceInput.value = pa_ht > 0 ? pa_ht.toFixed(2) : (pa_ttc > 0 ? pa_ttc.toFixed(2) : '');
         priceInput.placeholder = pa_ttc > 0 ? 'TTC: ' + pa_ttc.toFixed(2) : 'P.A. HT';
         // Show price info
         if(pa_ht > 0) {
@@ -5958,9 +5967,14 @@ function openBonReception() {
         const opt = prodSel.options[prodSel.selectedIndex];
         if(!opt) { showToast('Sélectionnez un produit', 'error'); return; }
         const qty = parseInt(document.getElementById('brQty').value) || 1;
-        const prix_ht = parseFloat(priceInput.value) || parseFloat(opt.dataset.paHt) || 0;
         const tva = parseFloat(opt.dataset.tva) || 19;
-        if(prix_ht <= 0) { showToast('Saisissez un prix HT', 'warning'); priceInput.focus(); return; }
+        let prix_ht = parseFloat(priceInput.value) || parseFloat(opt.dataset.paHt) || 0;
+        // If HT is still 0, calculate from TTC
+        if(prix_ht <= 0) {
+            const pa_ttc = parseFloat(opt.dataset.paTtc) || 0;
+            if(pa_ttc > 0) prix_ht = Math.round(pa_ttc / (1 + tva/100) * 100) / 100;
+        }
+        if(prix_ht <= 0) { showToast('Saisissez un prix d\'achat', 'warning'); priceInput.focus(); return; }
         
         // Check for duplicate — add to existing line
         const existing = lignes.findIndex(l => l.produit_id === parseInt(prodSel.value));
