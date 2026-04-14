@@ -5852,8 +5852,9 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
         <input type="hidden" name="adresse" id="punchAddr" value="">
         <input type="hidden" name="device_info" value="<?=e($_SERVER['HTTP_USER_AGENT'] ?? '')?>">
         <?php if($pt_fid): ?><input type="hidden" name="franchise_id" value="<?=$pt_fid?>"><?php endif; ?>
+        <input type="hidden" name="note" id="punchNote" value="">
         
-        <div class="grid grid-cols-4 gap-3">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <button type="button" onclick="doPunch('entree')" class="py-4 rounded-xl font-bold text-sm transition-all text-center <?=$mon_prochain==='entree'?'bg-green-400 text-white shadow-lg ring-2 ring-green-300 ring-offset-2 ring-offset-asel scale-[1.03]':'bg-white/15 text-white/70 hover:bg-white/25 hover:text-white'?>">
                 <i class="bi bi-box-arrow-in-right text-2xl block mb-1"></i>
                 Entrée
@@ -5872,7 +5873,14 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
             </button>
         </div>
         
-        <div id="locationStatus" class="mt-4 text-xs text-white/50 text-center flex items-center justify-center gap-1.5">
+        <!-- Optional note -->
+        <div class="mt-3">
+            <input type="text" id="punchNoteInput" placeholder="📝 Note optionnelle (ex: réunion, livraison...)" 
+                class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/30 focus:bg-white/15 focus:border-white/40 outline-none transition-all"
+                oninput="document.getElementById('punchNote').value=this.value" maxlength="250">
+        </div>
+        
+        <div id="locationStatus" class="mt-3 text-xs text-white/50 text-center flex items-center justify-center gap-1.5">
             <i class="bi bi-geo-alt-fill"></i> <span id="locationText">Localisation non activée</span>
         </div>
     </form>
@@ -6175,10 +6183,11 @@ try {
     </div>
     <?php endif; ?>
 </div>
-<?php endif; ?>
+<?php endif; // monthly view_all_franchises ?>
 
 <?php endif; // pointage page ?>
 
+</div><!-- /wrapper -->
 </main>
 
 <!-- Footer -->
