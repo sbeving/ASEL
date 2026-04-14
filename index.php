@@ -5043,7 +5043,25 @@ function getLocation(fid) {
             <div><label class="form-label">Horaires</label><input name="horaires" class="form-input" value="Lun-Sam: 09:00-19:00"></div>
             <div class="flex items-end gap-2">
                 <button type="button" onclick="getNewPointLocation()" class="bg-green-500 text-white px-4 py-2.5 rounded-lg text-xs font-bold"><i class="bi bi-crosshair"></i> Ma position</button>
+                <button type="button" onclick="togglePickerMap()" class="bg-purple-500 text-white px-4 py-2.5 rounded-lg text-xs font-bold"><i class="bi bi-pin-map"></i> Choisir sur carte</button>
             </div>
+        </div>
+        <!-- Interactive map picker -->
+        <div id="pickerMapContainer" class="hidden mt-2">
+            <div class="bg-blue-50 border border-blue-200 rounded-xl p-2 mb-2">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs text-blue-700 font-semibold"><i class="bi bi-hand-index"></i> Cliquez sur la carte pour placer le point</span>
+                    <button type="button" onclick="togglePickerMap()" class="text-xs text-blue-500 hover:text-blue-700"><i class="bi bi-x-lg"></i> Fermer</button>
+                </div>
+                <!-- Search box for location -->
+                <div class="mt-2 flex gap-2">
+                    <input type="text" id="pickerSearch" class="flex-1 border-2 border-blue-200 rounded-lg px-3 py-1.5 text-sm" placeholder="🔍 Chercher une adresse, ville..." 
+                        onkeypress="if(event.key==='Enter'){event.preventDefault();searchPickerLocation();}">
+                    <button type="button" onclick="searchPickerLocation()" class="bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold"><i class="bi bi-search"></i></button>
+                </div>
+            </div>
+            <div id="pickerMap" style="height:350px;border-radius:12px;overflow:hidden;border:2px solid #e5e7eb"></div>
+            <div id="pickerCoords" class="text-xs text-gray-400 mt-1 text-center"></div>
         </div>
         <div><label class="form-label">Notes internes</label><textarea name="notes_internes" class="form-input" rows="2" placeholder="Notes confidentielles (visibles uniquement par l'équipe)..."></textarea></div>
         <button type="submit" class="btn-submit"><i class="bi bi-plus-circle"></i> Ajouter le point</button>
@@ -5170,8 +5188,153 @@ function getNewPointLocation() {
     navigator.geolocation.getCurrentPosition(pos => {
         document.getElementById('new_pt_lat').value = pos.coords.latitude.toFixed(6);
         document.getElementById('new_pt_lng').value = pos.coords.longitude.toFixed(6);
+        // If picker map is open, move marker there
+        if(pickerMapInstance && pickerMarker) {
+            pickerMarker.setLatLng([pos.coords.latitude, pos.coords.longitude]);
+            pickerMapInstance.setView([pos.coords.latitude, pos.coords.longitude], 15);
+        }
+        // Also add to main map
+        L.marker([pos.coords.latitude, pos.coords.longitude], {icon: L.divIcon({
+            html: '<div style="background:#10B981;color:white;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,0.3);border:2px solid white">📍</div>',
+            className:'', iconSize:[28,28], iconAnchor:[14,14]
+        })}).addTo(nMap).bindPopup('Ma position');
+        nMap.setView([pos.coords.latitude, pos.coords.longitude], 14);
     }, err => { alert('Erreur: ' + err.message); }, {enableHighAccuracy:true,timeout:15000});
 }
+
+// === INTERACTIVE MAP PICKER ===
+let pickerMapInstance = null;
+let pickerMarker = null;
+
+function togglePickerMap() {
+    const container = document.getElementById('pickerMapContainer');
+    const isHidden = container.classList.contains('hidden');
+    container.classList.toggle('hidden');
+    
+    if (isHidden && !pickerMapInstance) {
+        // Initialize picker map
+        setTimeout(() => {
+            pickerMapInstance = L.map('pickerMap').setView([36.79, 10.17], 8);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
+                attribution: '© OpenStreetMap',
+                maxZoom: 19
+            }).addTo(pickerMapInstance);
+            
+            // Add existing points as reference
+            <?php foreach ($points_map as $pt): ?>
+            L.circleMarker([<?=$pt['latitude']?>, <?=$pt['longitude']?>], {
+                radius: 6, fillColor: typeColors['<?=$pt['type_point']?>']||'#666', 
+                color: '#fff', weight: 2, fillOpacity: 0.8
+            }).addTo(pickerMapInstance).bindTooltip('<?=ejs($pt['nom'])?>');
+            <?php endforeach; ?>
+            
+            // Draggable marker
+            const pickIcon = L.divIcon({
+                html: '<div style="background:#E63946;color:white;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 3px 10px rgba(0,0,0,0.4);border:3px solid white;cursor:grab">📍</div>',
+                className: '', iconSize: [36, 36], iconAnchor: [18, 36]
+            });
+            
+            // Check if we already have coords
+            const existLat = parseFloat(document.getElementById('new_pt_lat').value);
+            const existLng = parseFloat(document.getElementById('new_pt_lng').value);
+            const startPos = (existLat && existLng) ? [existLat, existLng] : [36.79, 10.17];
+            
+            pickerMarker = L.marker(startPos, {icon: pickIcon, draggable: true}).addTo(pickerMapInstance);
+            if (existLat && existLng) pickerMapInstance.setView(startPos, 14);
+            
+            // Update coords on drag
+            pickerMarker.on('dragend', function(e) {
+                const pos = e.target.getLatLng();
+                setPickerCoords(pos.lat, pos.lng);
+            });
+            
+            // Click on map to move marker
+            pickerMapInstance.on('click', function(e) {
+                pickerMarker.setLatLng(e.latlng);
+                setPickerCoords(e.latlng.lat, e.latlng.lng);
+            });
+            
+            pickerMapInstance.invalidateSize();
+        }, 100);
+    } else if (isHidden && pickerMapInstance) {
+        // Just re-invalidate when reopening
+    } else if (!isHidden && pickerMapInstance) {
+        setTimeout(() => pickerMapInstance.invalidateSize(), 100);
+    }
+}
+
+function setPickerCoords(lat, lng) {
+    document.getElementById('new_pt_lat').value = lat.toFixed(6);
+    document.getElementById('new_pt_lng').value = lng.toFixed(6);
+    document.getElementById('pickerCoords').innerHTML = 
+        '<span class="text-green-600 font-semibold"><i class="bi bi-check-circle-fill"></i> ' + lat.toFixed(6) + ', ' + lng.toFixed(6) + '</span>' +
+        ' — <a href="https://www.google.com/maps?q='+lat+','+lng+'" target="_blank" class="text-asel hover:underline">Google Maps ↗</a>';
+    
+    // Reverse geocode to auto-fill address/city
+    fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat='+lat+'&lon='+lng+'&accept-language=fr')
+        .then(r => r.json())
+        .then(d => {
+            if (d.address) {
+                // Auto-fill ville if empty
+                const villeInput = document.querySelector('input[name="ville"]');
+                const adresseInput = document.querySelector('input[name="adresse"]');
+                if (villeInput && !villeInput.value) {
+                    villeInput.value = d.address.city || d.address.town || d.address.village || d.address.suburb || '';
+                }
+                if (adresseInput && !adresseInput.value) {
+                    adresseInput.value = (d.display_name || '').substring(0, 250);
+                }
+                // Update coords display with address
+                document.getElementById('pickerCoords').innerHTML = 
+                    '<span class="text-green-600 font-semibold"><i class="bi bi-check-circle-fill"></i> ' + 
+                    (d.display_name||'').substring(0, 80) + '</span>';
+            }
+        })
+        .catch(() => {});
+}
+
+function searchPickerLocation() {
+    const q = document.getElementById('pickerSearch').value.trim();
+    if (!q || !pickerMapInstance) return;
+    
+    // Add Tunisia context for better results
+    const searchQ = q.includes('Tunis') ? q : q + ', Tunisia';
+    
+    fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(searchQ) + '&limit=1&accept-language=fr')
+        .then(r => r.json())
+        .then(results => {
+            if (results.length > 0) {
+                const r = results[0];
+                const lat = parseFloat(r.lat);
+                const lng = parseFloat(r.lon);
+                pickerMarker.setLatLng([lat, lng]);
+                pickerMapInstance.setView([lat, lng], 15);
+                setPickerCoords(lat, lng);
+            } else {
+                document.getElementById('pickerCoords').innerHTML = '<span class="text-red-500"><i class="bi bi-x-circle"></i> Aucun résultat pour "' + q + '"</span>';
+            }
+        })
+        .catch(() => {
+            document.getElementById('pickerCoords').innerHTML = '<span class="text-red-500"><i class="bi bi-x-circle"></i> Erreur de recherche</span>';
+        });
+}
+
+// Also allow clicking on the main network map to pick location
+nMap.on('click', function(e) {
+    // Only if the add form exists
+    if (document.getElementById('new_pt_lat')) {
+        document.getElementById('new_pt_lat').value = e.latlng.lat.toFixed(6);
+        document.getElementById('new_pt_lng').value = e.latlng.lng.toFixed(6);
+        // Visual feedback
+        if (window._mainMapPickMarker) nMap.removeLayer(window._mainMapPickMarker);
+        window._mainMapPickMarker = L.marker(e.latlng, {icon: L.divIcon({
+            html: '<div style="background:#E63946;color:white;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.3);border:2px solid white">+</div>',
+            className:'', iconSize:[28,28], iconAnchor:[14,14]
+        })}).addTo(nMap).bindPopup('Nouveau point: ' + e.latlng.lat.toFixed(4) + ', ' + e.latlng.lng.toFixed(4)).openPopup();
+        // Sync with picker map if open
+        if (pickerMarker) pickerMarker.setLatLng(e.latlng);
+    }
+});
 </script>
 <?php endif; ?>
 
