@@ -6240,6 +6240,10 @@ try {
             $pairs = min(count($ep['entrees']), count($ep['sorties']));
             $total_min = 0;
             for($i=0;$i<$pairs;$i++) $total_min += round(($ep['sorties'][$i]-$ep['entrees'][$i])/60);
+            // If still clocked in today (more entrees than sorties), add live time
+            if(count($ep['entrees']) > count($ep['sorties']) && $pt_mois === date('Y-m')) {
+                $total_min += round((time() - end($ep['entrees'])) / 60);
+            }
             $monthly_hours[$uid] = $total_min;
         }
     } catch(Exception $e) { $monthly_hours = []; }
@@ -6414,6 +6418,8 @@ function submitPunch() {
     document.getElementById('pointageForm').submit();
 }
 </script>
+<!-- Global Scanner Modal (hidden by default) -->
+<div id="scannerModal" class="fixed inset-0 z-50 bg-black/60 items-center justify-center p-4" style="display:none">
     <div class="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
         <div class="bg-asel-dark text-white px-4 py-3 flex justify-between items-center">
             <span class="font-bold text-sm"><i class="bi bi-upc-scan"></i> Scanner code-barres</span>
@@ -6438,7 +6444,7 @@ function submitPunch() {
             </div>
         </div>
     </div>
-</div>
+</div><!-- /scannerModal -->
 
 <script>
 let globalScanner = null;
