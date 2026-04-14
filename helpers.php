@@ -46,7 +46,7 @@ define('PERMISSIONS', [
         'points_reseau', 'add_point', 'edit_point', 'delete_point',
         'add_pointage', 'validate_pointage',
         'fournisseurs', 'add_fournisseur', 'edit_fournisseur',
-        'bons_reception', 'create_bon_reception', 'valider_bon_reception',
+        'bons_reception', 'create_bon_reception', 'valider_bon_reception', 'validate_bon_reception', 'delete_bon_reception',
         'tresorerie', 'add_tresorerie', 'cloture_mensuelle',
         'familles_categories', 'add_famille', 'add_sous_categorie',
         // Scope

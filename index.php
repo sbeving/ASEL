@@ -755,16 +755,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $br_fid = can('view_all_franchises') ? intval($_POST['franchise_id']) : currentFranchise();
         $br_fourn = intval($_POST['fournisseur_id']) ?: null;
         $lignes = json_decode($_POST['lignes'], true);
+        $is_draft = ($_POST['save_as'] ?? '') === 'brouillon';
         $total_ht = 0; $total_tva = 0; $total_ttc = 0;
         foreach ($lignes as $l) {
             $lht = floatval($l['prix_ht']) * intval($l['qty']);
             $ltva = $lht * floatval($l['tva_rate'] ?? 19) / 100;
             $total_ht += $lht; $total_tva += $ltva; $total_ttc += $lht + $ltva;
         }
+        $prefix = $is_draft ? 'BRB' : 'BR';
         $count = queryOne("SELECT COUNT(*)+1 as n FROM bons_reception WHERE DATE(date_creation)=CURDATE()")['n'];
-        $numero = 'BR-' . date('Ymd') . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
-        execute("INSERT INTO bons_reception (numero,franchise_id,fournisseur_id,total_ht,tva,total_ttc,statut,note,utilisateur_id) VALUES (?,?,?,?,?,?,'valide',?,?)",
-            [$numero, $br_fid, $br_fourn, round($total_ht,2), round($total_tva,2), round($total_ttc,2), strParam('note'), $user['id']]);
+        $numero = $prefix . '-' . date('Ymd') . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
+        $statut = $is_draft ? 'brouillon' : 'valide';
+        execute("INSERT INTO bons_reception (numero,franchise_id,fournisseur_id,total_ht,tva,total_ttc,statut,note,utilisateur_id) VALUES (?,?,?,?,?,?,?,?,?)",
+            [$numero, $br_fid, $br_fourn, round($total_ht,2), round($total_tva,2), round($total_ttc,2), $statut, strParam('note'), $user['id']]);
         $bon_id = db()->lastInsertId();
         foreach ($lignes as $l) {
             $pid = intval($l['produit_id']);
@@ -774,13 +777,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $prix_ttc = round($prix_ht * (1 + $tva_r/100), 2);
             execute("INSERT INTO bon_reception_lignes (bon_id,produit_id,quantite,prix_unitaire_ht,tva_rate,prix_unitaire_ttc,total_ht,total_ttc) VALUES (?,?,?,?,?,?,?,?)",
                 [$bon_id, $pid, $qty, $prix_ht, $tva_r, $prix_ttc, round($prix_ht*$qty,2), round($prix_ttc*$qty,2)]);
-            // Update stock
-            execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantite=quantite+VALUES(quantite)", [$br_fid, $pid, $qty]);
-            execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,prix_unitaire,note,utilisateur_id) VALUES (?,?,'entree',?,?,?,?)",
-                [$br_fid, $pid, $qty, $prix_ht, "BR $numero", $user['id']]);
+            // Only update stock if NOT draft
+            if (!$is_draft) {
+                execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantite=quantite+VALUES(quantite)", [$br_fid, $pid, $qty]);
+                execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,prix_unitaire,note,utilisateur_id) VALUES (?,?,'entree',?,?,?,?)",
+                    [$br_fid, $pid, $qty, $prix_ht, "BR $numero", $user['id']]);
+            }
         }
-        $_SESSION['flash'] = ['type'=>'success','msg'=>"Bon de réception $numero créé! Stock mis à jour."];
-        auditLog('bon_reception', 'bon', $bon_id, ['numero'=>$numero, 'total_ttc'=>$total_ttc, 'lignes'=>count($lignes)]);
+        if ($is_draft) {
+            $_SESSION['flash'] = ['type'=>'info','msg'=>"📝 Brouillon $numero enregistré. Validez-le pour mettre à jour le stock."];
+        } else {
+            $_SESSION['flash'] = ['type'=>'success','msg'=>"✅ Bon $numero créé! Stock mis à jour."];
+        }
+        auditLog('bon_reception', 'bon', $bon_id, ['numero'=>$numero, 'total_ttc'=>$total_ttc, 'lignes'=>count($lignes), 'statut'=>$statut]);
+        $page = 'bons_reception';
+    }
+    // === VALIDATE DRAFT BON ===
+    elseif ($action === 'validate_bon_reception' && can('create_bon_reception')) {
+        $bon_id = intval($_POST['bon_id']);
+        $bon = queryOne("SELECT * FROM bons_reception WHERE id=? AND statut='brouillon'", [$bon_id]);
+        if ($bon) {
+            $bon_lignes = query("SELECT * FROM bon_reception_lignes WHERE bon_id=?", [$bon_id]);
+            foreach ($bon_lignes as $l) {
+                execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantite=quantite+VALUES(quantite)",
+                    [$bon['franchise_id'], $l['produit_id'], $l['quantite']]);
+                execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,prix_unitaire,note,utilisateur_id) VALUES (?,?,'entree',?,?,?,?)",
+                    [$bon['franchise_id'], $l['produit_id'], $l['quantite'], $l['prix_unitaire_ht'], "BR ".$bon['numero']." (validé)", $user['id']]);
+                // Update product purchase price
+                if ($l['prix_unitaire_ht'] > 0) {
+                    execute("UPDATE produits SET prix_achat_ht=?, prix_achat_ttc=?, prix_achat=? WHERE id=?",
+                        [$l['prix_unitaire_ht'], $l['prix_unitaire_ttc'], $l['prix_unitaire_ttc'], $l['produit_id']]);
+                }
+            }
+            execute("UPDATE bons_reception SET statut='valide' WHERE id=?", [$bon_id]);
+            $_SESSION['flash'] = ['type'=>'success','msg'=>"✅ Bon ".$bon['numero']." validé! Stock mis à jour (".count($bon_lignes)." produit(s))."];
+            auditLog('validate_bon', 'bon', $bon_id, ['numero'=>$bon['numero'], 'lignes'=>count($bon_lignes)]);
+        } else {
+            $_SESSION['flash'] = ['type'=>'danger','msg'=>"Bon introuvable ou déjà validé."];
+        }
+        $page = 'bons_reception';
+    }
+    // === DELETE DRAFT BON ===
+    elseif ($action === 'delete_bon_reception' && can('create_bon_reception')) {
+        $bon_id = intval($_POST['bon_id']);
+        $bon = queryOne("SELECT * FROM bons_reception WHERE id=? AND statut='brouillon'", [$bon_id]);
+        if ($bon) {
+            execute("DELETE FROM bon_reception_lignes WHERE bon_id=?", [$bon_id]);
+            execute("DELETE FROM bons_reception WHERE id=?", [$bon_id]);
+            $_SESSION['flash'] = ['type'=>'success','msg'=>"🗑️ Brouillon ".$bon['numero']." supprimé."];
+            auditLog('delete_bon_draft', 'bon', $bon_id, ['numero'=>$bon['numero']]);
+        }
         $page = 'bons_reception';
     }
     // === TRESORERIE ===
@@ -5685,28 +5731,41 @@ $bons_ce_mois = count(array_filter($bons, fn($b) => date('Y-m', strtotime($b['da
 </div>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <table class="w-full text-sm">
-        <thead><tr class="bg-asel-dark text-white text-xs uppercase"><th class="px-3 py-2 text-left">N°</th><th class="px-3 py-2">Date</th><th class="px-3 py-2 hidden sm:table-cell">Franchise</th><th class="px-3 py-2 hidden md:table-cell">Fournisseur</th><th class="px-3 py-2 text-right hidden sm:table-cell">HT</th><th class="px-3 py-2 text-right hidden md:table-cell">TVA</th><th class="px-3 py-2 text-right">TTC</th><th class="px-3 py-2 hidden sm:table-cell">Par</th><th class="px-3 py-2">Actions</th></tr></thead>
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase"><th class="px-3 py-2 text-left">N°</th><th class="px-3 py-2">Statut</th><th class="px-3 py-2">Date</th><th class="px-3 py-2 hidden sm:table-cell">Franchise</th><th class="px-3 py-2 hidden md:table-cell">Fournisseur</th><th class="px-3 py-2 text-right">TTC</th><th class="px-3 py-2 hidden sm:table-cell">Par</th><th class="px-3 py-2">Actions</th></tr></thead>
         <tbody class="divide-y">
-        <?php foreach($bons as $b): ?>
-        <tr class="hover:bg-asel-light/20">
+        <?php foreach($bons as $b): 
+            $is_draft = ($b['statut'] ?? 'valide') === 'brouillon';
+            $statut_badge = $is_draft 
+                ? '<span class="inline-flex items-center gap-1 bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full"><i class="bi bi-pencil-square"></i> Brouillon</span>'
+                : '<span class="inline-flex items-center gap-1 bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full"><i class="bi bi-check-circle-fill"></i> Validé</span>';
+        ?>
+        <tr class="hover:bg-asel-light/20 <?=$is_draft?'bg-amber-50/30':''?>">
             <td class="px-3 py-2 font-mono font-bold text-asel text-xs"><?=e($b['numero'])?></td>
+            <td class="px-3 py-2 text-center"><?=$statut_badge?></td>
             <td class="px-3 py-2 text-center text-xs"><?=date('d/m/Y', strtotime($b['date_reception']))?></td>
             <td class="px-3 py-2 text-center text-xs hidden sm:table-cell"><?=e(shortF($b['fnom']))?></td>
             <td class="px-3 py-2 text-center text-xs hidden md:table-cell"><?=e($b['fourn_nom'] ?? '—')?></td>
-            <td class="px-3 py-2 text-right font-mono text-xs hidden sm:table-cell"><?=number_format($b['total_ht'],2)?></td>
-            <td class="px-3 py-2 text-right font-mono text-xs text-gray-400 hidden md:table-cell"><?=number_format($b['tva'],2)?></td>
             <td class="px-3 py-2 text-right font-mono font-bold"><?=number_format($b['total_ttc'],2)?> <span class="text-xs text-gray-400">DT</span></td>
             <td class="px-3 py-2 text-center text-xs hidden sm:table-cell"><?=e($b['unom'] ?? '')?></td>
             <td class="px-3 py-2">
-                <div class="flex gap-1.5">
+                <div class="flex gap-1">
                     <button onclick="viewBon(<?=$b['id']?>,'<?=ejs($b['numero'])?>','<?=ejs($b['fourn_nom']??'')?>','<?=ejs($b['fnom'])?>','<?=date('d/m/Y',strtotime($b['date_reception']))?>',<?=floatval($b['total_ht'])?>,<?=floatval($b['tva'])?>,<?=floatval($b['total_ttc'])?>,'<?=ejs($b['note']??'')?>')" 
-                        class="text-asel hover:text-asel-dark p-1" title="Voir détails">
-                        <i class="bi bi-eye text-sm"></i>
-                    </button>
-                    <a href="pdf.php?type=bon_reception&id=<?=$b['id']?>" target="_blank" 
-                       class="text-gray-400 hover:text-asel p-1" title="Imprimer">
-                        <i class="bi bi-printer text-sm"></i>
-                    </a>
+                        class="text-asel hover:text-asel-dark p-1" title="Voir détails"><i class="bi bi-eye text-sm"></i></button>
+                    <a href="pdf.php?type=bon_reception&id=<?=$b['id']?>" target="_blank" class="text-gray-400 hover:text-asel p-1" title="Imprimer"><i class="bi bi-printer text-sm"></i></a>
+                    <?php if($is_draft): ?>
+                    <form method="POST" class="inline" onsubmit="return confirm('Valider ce bon et mettre à jour le stock?')">
+                        <input type="hidden" name="_csrf" value="<?=$csrf?>">
+                        <input type="hidden" name="action" value="validate_bon_reception">
+                        <input type="hidden" name="bon_id" value="<?=$b['id']?>">
+                        <button class="text-green-500 hover:text-green-700 p-1" title="Valider & mettre à jour stock"><i class="bi bi-check-circle text-sm"></i></button>
+                    </form>
+                    <form method="POST" class="inline" onsubmit="return confirm('Supprimer ce brouillon?')">
+                        <input type="hidden" name="_csrf" value="<?=$csrf?>">
+                        <input type="hidden" name="action" value="delete_bon_reception">
+                        <input type="hidden" name="bon_id" value="<?=$b['id']?>">
+                        <button class="text-red-400 hover:text-red-600 p-1" title="Supprimer brouillon"><i class="bi bi-trash text-sm"></i></button>
+                    </form>
+                    <?php endif; ?>
                 </div>
             </td>
         </tr>
@@ -5911,9 +5970,17 @@ function openBonReception() {
                 <label class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Note / Référence BL</label>
                 <input name="note" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-asel outline-none" placeholder="BL-2024-XXX ou note libre...">
             </div>
-            <button type="submit" class="w-full py-3 rounded-xl bg-asel hover:bg-asel-dark text-white font-bold text-sm transition-colors flex items-center justify-center gap-2">
-                <i class="bi bi-check-circle"></i> Créer bon de réception & mettre à jour stock
-            </button>
+            <input type="hidden" name="save_as" id="brSaveAs" value="valide">
+            <div class="grid grid-cols-2 gap-3">
+                <button type="button" onclick="document.getElementById('brSaveAs').value='brouillon';this.closest('form').submit()" 
+                    class="py-3 rounded-xl border-2 border-amber-400 text-amber-700 font-bold text-sm hover:bg-amber-50 transition-colors flex items-center justify-center gap-2">
+                    <i class="bi bi-pencil-square"></i> Sauvegarder brouillon
+                </button>
+                <button type="submit" onclick="document.getElementById('brSaveAs').value='valide'" 
+                    class="py-3 rounded-xl bg-asel hover:bg-asel-dark text-white font-bold text-sm transition-colors flex items-center justify-center gap-2">
+                    <i class="bi bi-check-circle"></i> Valider & stock
+                </button>
+            </div>
         </div>
         </form>`, {size:'max-w-2xl'});
     
