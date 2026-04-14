@@ -5711,6 +5711,141 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
 <?php endif; ?>
 </div>
 
+<!-- ====================== IMPORT PHONES (admin only) ====================== -->
+<?php if ($page === 'import_phones' && isAdmin()):
+    $excel_phones = [
+        ['Evertek E28', 'Evertek', 52.52, 62.50, 57.98, 69.00],
+        ['Geniphone A2mini', 'Geniphone', 31.85, 37.90, 37.82, 45.00],
+        ['Logicom P197E', 'Logicom', 31.51, 37.50, 37.82, 45.00],
+        ['Nokia 105 2024', 'Nokia', 45.71, 54.40, 54.62, 65.00],
+        ['Honor X5C 4/64', 'Honor', 273.95, 326.00, 302.52, 360.00],
+        ['Honor X6C 6/128', 'Honor', 353.78, 421.00, 415.97, 495.00],
+        ['Honor X5C Plus 4/128', 'Honor', 300.00, 357.00, 390.76, 465.00],
+        ['Realme C61 8/256', 'Realme', 433.61, 516.00, 478.99, 570.00],
+        ['Realme Note 60X 3/64', 'Realme', 236.97, 282.00, 268.91, 320.00],
+        ['Xiaomi Redmi 13 6/128', 'Xiaomi', 394.96, 470.00, 436.97, 520.00],
+        ['Xiaomi Redmi 15C 4/128', 'Xiaomi', 339.50, 404.00, 373.95, 445.00],
+        ['Xiaomi Redmi 15C 6/128', 'Xiaomi', 370.59, 441.00, 415.97, 495.00],
+        ['Xiaomi Redmi A5 3/64', 'Xiaomi', 228.57, 272.00, 294.12, 350.00],
+        ['Samsung A04 3/32', 'Samsung', 346.22, 412.00, 382.35, 455.00],
+        ['Samsung A04 S 4/128', 'Samsung', 416.30, 495.40, 457.98, 545.00],
+        ['Samsung A07 4/64', 'Samsung', 298.32, 355.00, 335.29, 399.00],
+        ['Samsung Galaxy A14 4/128', 'Samsung', 409.24, 487.00, 453.78, 540.00],
+        ['Vivo Y04 4/64', 'Vivo', 263.87, 314.00, 319.33, 380.00],
+    ];
+    
+    $cat_row = queryOne("SELECT id FROM categories WHERE nom LIKE '%phone%' OR nom LIKE '%Télé%' LIMIT 1");
+    if (!$cat_row) { execute("INSERT IGNORE INTO categories (nom) VALUES ('Téléphones')"); $cat_id = db()->lastInsertId(); }
+    else { $cat_id = $cat_row['id']; }
+    
+    $fourn_row = queryOne("SELECT id FROM fournisseurs WHERE nom LIKE '%Actelo%' LIMIT 1");
+    if (!$fourn_row) { execute("INSERT INTO fournisseurs (nom, adresse) VALUES ('Actelo', 'Tunisie')"); $fourn_id = db()->lastInsertId(); }
+    else { $fourn_id = $fourn_row['id']; }
+    
+    $all_fids = array_column(query("SELECT id FROM franchises WHERE actif=1"), 'id');
+    $existing_prods = query("SELECT id, LOWER(nom) as nom_l, LOWER(COALESCE(marque,'')) as marque_l FROM produits");
+    
+    $results = [];
+    $added = 0; $updated = 0; $skipped = 0;
+    
+    foreach ($excel_phones as $phone) {
+        [$nom, $marque, $pa_ht, $pa_ttc, $pv_ht, $pv_ttc] = $phone;
+        $nom_l = mb_strtolower(trim($nom));
+        $marque_l = mb_strtolower(trim($marque));
+        
+        $found_id = null;
+        foreach ($existing_prods as $ex) {
+            if ($ex['nom_l'] === $nom_l) { $found_id = $ex['id']; break; }
+            if (mb_strlen($nom_l) >= 5 && (mb_strpos($ex['nom_l'], $nom_l) !== false || mb_strpos($nom_l, $ex['nom_l']) !== false)) { $found_id = $ex['id']; break; }
+            if ($marque_l === $ex['marque_l'] && $marque_l) {
+                $skip_words = [$marque_l,'4','3','6','8','32','64','128','256','black','white','blue','green','red','gold','cyan','cooper','silver','violet'];
+                $nom_words = array_filter(preg_split('/[\s\/\-]+/', $nom_l), fn($w) => mb_strlen($w) >= 2 && !in_array($w, $skip_words));
+                $ex_words = array_filter(preg_split('/[\s\/\-]+/', $ex['nom_l']), fn($w) => mb_strlen($w) >= 2 && !in_array($w, $skip_words));
+                $matches = 0;
+                foreach ($nom_words as $w) { foreach ($ex_words as $ew) { if ($w === $ew || mb_strpos($ew, $w) !== false || mb_strpos($w, $ew) !== false) { $matches++; break; } } }
+                if ($matches >= max(1, min(count($nom_words), count($ex_words))) && count($nom_words) > 0) { $found_id = $ex['id']; break; }
+            }
+        }
+        
+        if ($found_id) {
+            $cur = queryOne("SELECT prix_achat_ttc, prix_vente_ttc FROM produits WHERE id=?", [$found_id]);
+            if ($cur && (abs(($cur['prix_achat_ttc'] ?? 0) - $pa_ttc) > 1 || abs(($cur['prix_vente_ttc'] ?? 0) - $pv_ttc) > 1)) {
+                execute("UPDATE produits SET prix_achat=?, prix_vente=?, prix_achat_ht=?, prix_achat_ttc=?, prix_vente_ht=?, prix_vente_ttc=?, fournisseur_id=? WHERE id=?",
+                    [$pa_ttc, $pv_ttc, $pa_ht, $pa_ttc, $pv_ht, $pv_ttc, $fourn_id, $found_id]);
+                $results[] = ['nom'=>$nom,'marque'=>$marque,'pa'=>$pa_ttc,'pv'=>$pv_ttc,'status'=>'updated','id'=>$found_id];
+                $updated++;
+            } else {
+                $results[] = ['nom'=>$nom,'marque'=>$marque,'pa'=>$pa_ttc,'pv'=>$pv_ttc,'status'=>'skip','id'=>$found_id];
+                $skipped++;
+            }
+        } else {
+            execute("INSERT INTO produits (nom, categorie_id, prix_achat, prix_vente, prix_achat_ht, prix_achat_ttc, prix_vente_ht, prix_vente_ttc, tva_rate, marque, fournisseur_id, seuil_alerte) VALUES (?,?,?,?,?,?,?,?,19,?,?,1)",
+                [$nom, $cat_id, $pa_ttc, $pv_ttc, $pa_ht, $pa_ttc, $pv_ht, $pv_ttc, $marque, $fourn_id]);
+            $new_id = db()->lastInsertId();
+            foreach ($all_fids as $fid_s) execute("INSERT IGNORE INTO stock (franchise_id, produit_id, quantite) VALUES (?,?,0)", [$fid_s, $new_id]);
+            $existing_prods[] = ['id'=>$new_id, 'nom_l'=>$nom_l, 'marque_l'=>$marque_l];
+            $results[] = ['nom'=>$nom,'marque'=>$marque,'pa'=>$pa_ttc,'pv'=>$pv_ttc,'status'=>'added','id'=>$new_id];
+            $added++;
+        }
+    }
+?>
+<h1 class="text-2xl font-bold text-asel-dark mb-6 flex items-center gap-2"><i class="bi bi-phone text-asel"></i> Import Smartphones — Résultat</h1>
+
+<!-- KPIs -->
+<div class="grid grid-cols-3 gap-3 mb-6">
+    <div class="bg-green-50 border-2 border-green-200 rounded-xl p-4 text-center">
+        <div class="text-3xl font-black text-green-600"><?=$added?></div>
+        <div class="text-xs font-bold text-green-700">Créés</div>
+    </div>
+    <div class="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-center">
+        <div class="text-3xl font-black text-amber-600"><?=$updated?></div>
+        <div class="text-xs font-bold text-amber-700">Prix mis à jour</div>
+    </div>
+    <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-4 text-center">
+        <div class="text-3xl font-black text-gray-500"><?=$skipped?></div>
+        <div class="text-xs font-bold text-gray-600">Déjà existants</div>
+    </div>
+</div>
+
+<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <table class="w-full text-sm">
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase"><th class="px-4 py-3 text-left">#</th><th class="px-4 py-3 text-left">Produit</th><th class="px-4 py-3">Marque</th><th class="px-4 py-3 text-right">PA TTC</th><th class="px-4 py-3 text-right">PV TTC</th><th class="px-4 py-3 text-center">Statut</th></tr></thead>
+        <tbody class="divide-y">
+        <?php foreach ($results as $i => $r):
+            $bg = match($r['status']) { 'added'=>'bg-green-50', 'updated'=>'bg-amber-50', default=>'bg-gray-50/50' };
+            $badge = match($r['status']) { 'added'=>'<span class="bg-green-100 text-green-700 text-xs font-bold px-2 py-1 rounded-full">✅ Créé #'.$r['id'].'</span>', 'updated'=>'<span class="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-1 rounded-full">📝 MAJ #'.$r['id'].'</span>', default=>'<span class="bg-gray-100 text-gray-500 text-xs font-bold px-2 py-1 rounded-full">⏭️ Existe #'.$r['id'].'</span>' };
+        ?>
+        <tr class="<?=$bg?>">
+            <td class="px-4 py-3 text-xs text-gray-400"><?=$i+1?></td>
+            <td class="px-4 py-3 font-semibold"><?=e($r['nom'])?></td>
+            <td class="px-4 py-3 text-center text-xs"><?=e($r['marque'])?></td>
+            <td class="px-4 py-3 text-right font-mono"><?=number_format($r['pa'],2)?></td>
+            <td class="px-4 py-3 text-right font-mono font-bold"><?=number_format($r['pv'],2)?></td>
+            <td class="px-4 py-3 text-center"><?=$badge?></td>
+        </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+</div>
+
+<?php if ($added > 0): ?>
+<div class="mt-6 bg-green-50 border-2 border-green-200 rounded-xl p-5 flex items-center gap-4">
+    <i class="bi bi-check-circle-fill text-green-500 text-3xl"></i>
+    <div>
+        <div class="font-bold text-green-800 text-lg"><?=$added?> produit(s) créé(s) avec stock = 0</div>
+        <div class="text-sm text-green-700">Allez dans <b>Entrée stock</b> ou <b>Bons de réception</b> pour ajouter les quantités pour Soukra.</div>
+    </div>
+    <a href="?page=entree" class="ml-auto bg-green-600 text-white font-bold px-5 py-2.5 rounded-xl text-sm hover:bg-green-700 transition-colors shrink-0"><i class="bi bi-box-arrow-in-down"></i> Entrée stock</a>
+</div>
+<?php endif; ?>
+
+<div class="mt-4 flex gap-3">
+    <a href="?page=produits" class="bg-white border-2 border-asel text-asel font-bold px-4 py-2 rounded-xl text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-tags"></i> Voir les produits</a>
+    <a href="?page=dashboard" class="bg-white border-2 border-gray-200 text-gray-600 font-bold px-4 py-2 rounded-xl text-sm hover:border-asel hover:text-asel transition-colors"><i class="bi bi-house"></i> Dashboard</a>
+</div>
+
+<?php endif; ?>
+
 <!-- ====================== POINTAGE PAGE ====================== -->
 <?php if ($page === 'pointage' && can('pointage')):
     $pt_fid = $fid ?: currentFranchise();

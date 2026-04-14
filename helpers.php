@@ -30,7 +30,7 @@ define('PERMISSIONS', [
         'clients', 'services', 'recharges', 'factures',
         'gestion_services', 'gestion_asel', 'echeances', 'inventaire',
         'notifications', 'mon_compte', 'stock_central',
-        'pointage', 'pointage_admin',
+        'pointage', 'pointage_admin', 'import_phones',
         // Actions
         'vente', 'entree_stock', 'entree_multi_stock', 'transfert', 'transfert_valider',
         'retour', 'cloture_submit', 'add_produit', 'edit_produit',
