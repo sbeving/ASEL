@@ -5754,12 +5754,13 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
 }
 
 function openBonReception() {
-    let lignes = [];
+    window._brLignes = [];
     const prods = <?=json_encode(array_map(fn($p)=>['id'=>$p['id'],'nom'=>$p['nom'],'ref'=>$p['reference']??'','cat'=>$p['cat_nom'],'marque'=>$p['marque']??'','pa_ht'=>floatval($p['prix_achat_ht']??$p['prix_achat']),'pa_ttc'=>floatval($p['prix_achat_ttc']??$p['prix_achat']),'pv_ttc'=>floatval($p['prix_vente_ttc']??$p['prix_vente']),'tva'=>floatval($p['tva_rate']??19)], $produits))?>;
     const fournList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>$f['nom']], $fournisseurs))?>;
     const franchList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>shortF($f['nom'])], $allFranchises))?>;
     
-    function renderBR(){
+    window.renderBR = function(){
+        const lignes = window._brLignes;
         let total_ht=0, total_tva=0, total_ttc=0;
         let rows = lignes.map((l,i)=>{
             const lht = l.qty * l.prix_ht;
@@ -5773,15 +5774,15 @@ function openBonReception() {
                 </td>
                 <td class="px-3 py-2 text-center">
                     <input type="number" value="${l.qty}" min="1" class="w-14 border border-gray-200 rounded-lg text-center text-sm font-bold py-1" 
-                        onchange="lignes[${i}].qty=parseInt(this.value)||1;renderBR()">
+                        onchange="window._brLignes[${i}].qty=parseInt(this.value)||1;renderBR()">
                 </td>
                 <td class="px-3 py-2 text-right">
                     <input type="number" value="${l.prix_ht.toFixed(2)}" step="0.01" class="w-20 border border-gray-200 rounded-lg text-right text-sm py-1 px-2"
-                        onchange="lignes[${i}].prix_ht=parseFloat(this.value)||0;renderBR()">
+                        onchange="window._brLignes[${i}].prix_ht=parseFloat(this.value)||0;renderBR()">
                 </td>
                 <td class="px-3 py-2 text-right text-xs text-gray-500">${lttc.toFixed(2)}</td>
                 <td class="px-3 py-2 text-center">
-                    <button type="button" onclick="lignes.splice(${i},1);renderBR()" class="text-red-400 hover:text-red-600 transition-colors"><i class="bi bi-trash text-sm"></i></button>
+                    <button type="button" onclick="window._brLignes.splice(${i},1);renderBR()" class="text-red-400 hover:text-red-600 transition-colors"><i class="bi bi-trash text-sm"></i></button>
                 </td>
             </tr>`;
         }).join('');
@@ -5800,7 +5801,7 @@ function openBonReception() {
     }
     
     openModal(modalHeader('bi-receipt','Nouveau bon de réception','Entrée de stock avec bon') +
-        `<form method="POST" class="space-y-0" onsubmit="if(!lignes.length){event.preventDefault();showToast('Ajoutez au moins un produit','error');return false;}">
+        `<form method="POST" class="space-y-0" onsubmit="if(!window._brLignes.length){event.preventDefault();showToast('Ajoutez au moins un produit','error');return false;}">
         <input type="hidden" name="_csrf" value="<?=$csrf?>">
         <input type="hidden" name="action" value="create_bon_reception">
         <input type="hidden" name="lignes" id="brLignesInput" value="[]">
@@ -5953,6 +5954,7 @@ function openBonReception() {
     };
     
     window.addBRLine = function(){
+        const lignes = window._brLignes;
         const opt = prodSel.options[prodSel.selectedIndex];
         if(!opt) { showToast('Sélectionnez un produit', 'error'); return; }
         const qty = parseInt(document.getElementById('brQty').value) || 1;
