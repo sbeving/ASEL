@@ -5755,87 +5755,233 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
 
 function openBonReception() {
     let lignes = [];
-    const prods = <?=json_encode(array_map(fn($p)=>['id'=>$p['id'],'nom'=>$p['nom'],'ref'=>$p['reference'],'cat'=>$p['cat_nom'],'pa'=>$p['prix_achat'],'tva'=>$p['tva_rate']??19], $produits))?>;
+    const prods = <?=json_encode(array_map(fn($p)=>['id'=>$p['id'],'nom'=>$p['nom'],'ref'=>$p['reference']??'','cat'=>$p['cat_nom'],'marque'=>$p['marque']??'','pa_ht'=>floatval($p['prix_achat_ht']??$p['prix_achat']),'pa_ttc'=>floatval($p['prix_achat_ttc']??$p['prix_achat']),'pv_ttc'=>floatval($p['prix_vente_ttc']??$p['prix_vente']),'tva'=>floatval($p['tva_rate']??19)], $produits))?>;
     const fournList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>$f['nom']], $fournisseurs))?>;
     const franchList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>shortF($f['nom'])], $allFranchises))?>;
     
     function renderBR(){
-        let total_ht=0, total_tva=0;
+        let total_ht=0, total_tva=0, total_ttc=0;
         let rows = lignes.map((l,i)=>{
             const lht = l.qty * l.prix_ht;
             const ltva = lht * l.tva_rate / 100;
-            total_ht += lht; total_tva += ltva;
-            return `<tr><td class="px-2 py-1 text-xs">${l.nom}</td><td class="px-2 py-1 text-center">${l.qty}</td><td class="px-2 py-1 text-right">${l.prix_ht.toFixed(2)}</td><td class="px-2 py-1 text-right">${l.tva_rate}%</td><td class="px-2 py-1 text-right font-bold">${(lht+ltva).toFixed(2)}</td><td class="px-2 py-1 text-center"><button type=button onclick="lignes.splice(${i},1);renderBR()" class="text-red-500"><i class="bi bi-trash"></i></button></td></tr>`;
+            const lttc = lht + ltva;
+            total_ht += lht; total_tva += ltva; total_ttc += lttc;
+            return `<tr class="border-b border-gray-100 hover:bg-gray-50">
+                <td class="px-3 py-2">
+                    <div class="font-semibold text-sm">${l.nom}</div>
+                    <div class="text-[10px] text-gray-400">${l.marque||''} · ${l.ref||''}</div>
+                </td>
+                <td class="px-3 py-2 text-center">
+                    <input type="number" value="${l.qty}" min="1" class="w-14 border border-gray-200 rounded-lg text-center text-sm font-bold py-1" 
+                        onchange="lignes[${i}].qty=parseInt(this.value)||1;renderBR()">
+                </td>
+                <td class="px-3 py-2 text-right">
+                    <input type="number" value="${l.prix_ht.toFixed(2)}" step="0.01" class="w-20 border border-gray-200 rounded-lg text-right text-sm py-1 px-2"
+                        onchange="lignes[${i}].prix_ht=parseFloat(this.value)||0;renderBR()">
+                </td>
+                <td class="px-3 py-2 text-right text-xs text-gray-500">${lttc.toFixed(2)}</td>
+                <td class="px-3 py-2 text-center">
+                    <button type="button" onclick="lignes.splice(${i},1);renderBR()" class="text-red-400 hover:text-red-600 transition-colors"><i class="bi bi-trash text-sm"></i></button>
+                </td>
+            </tr>`;
         }).join('');
-        document.getElementById('brLignes').innerHTML = rows || '<tr><td colspan=6 class="px-2 py-4 text-center text-gray-400 text-xs">Ajoutez des produits</td></tr>';
+        
+        const lignesEl = document.getElementById('brLignes');
+        if(!rows) {
+            lignesEl.innerHTML = '<tr><td colspan="5" class="px-3 py-8 text-center text-gray-300"><i class="bi bi-box-seam text-2xl block mb-2"></i>Ajoutez des produits ci-dessus</td></tr>';
+        } else {
+            lignesEl.innerHTML = rows;
+        }
         document.getElementById('brTotalHT').textContent = total_ht.toFixed(2);
         document.getElementById('brTotalTVA').textContent = total_tva.toFixed(2);
-        document.getElementById('brTotalTTC').textContent = (total_ht+total_tva).toFixed(2);
+        document.getElementById('brTotalTTC').textContent = total_ttc.toFixed(2);
+        document.getElementById('brCount').textContent = lignes.length + ' produit' + (lignes.length>1?'s':'');
         document.getElementById('brLignesInput').value = JSON.stringify(lignes);
     }
     
     openModal(modalHeader('bi-receipt','Nouveau bon de réception','Entrée de stock avec bon') +
-        `<form method=post class="p-4 space-y-3">
-        <input type=hidden name=_csrf value="<?=$csrf?>"><input type=hidden name=action value=create_bon_reception>
-        <input type=hidden name=lignes id=brLignesInput value="[]">
-        <div class="grid grid-cols-2 gap-3">
-            <div><label class="text-xs font-bold text-gray-500">Franchise *</label>
-                <select name=franchise_id class="w-full border-2 rounded-xl px-3 py-2 text-sm">${franchList.map(f=>'<option value='+f.id+'>'+f.nom+'</option>').join('')}</select></div>
-            <div><label class="text-xs font-bold text-gray-500">Fournisseur</label>
-                <select name=fournisseur_id class="w-full border-2 rounded-xl px-3 py-2 text-sm"><option value="">—</option>${fournList.map(f=>'<option value='+f.id+'>'+f.nom+'</option>').join('')}</select></div>
-        </div>
-        <div class="bg-gray-50 rounded-xl p-3">
-            <div class="mb-2">
-                <label class="text-xs font-bold text-gray-500 mb-1 block"><i class="bi bi-search"></i> Rechercher produit</label>
-                <input id=brSearch type=text placeholder="Tapez nom, réf ou marque..." class="w-full border-2 border-asel/30 rounded-lg px-3 py-2 text-sm focus:border-asel outline-none" oninput="filterBRProducts()">
-            </div>
-            <div class="flex gap-2 mb-2">
-                <select id=brProd class="flex-1 border-2 rounded-lg px-2 py-1.5 text-xs" size="1">
-                    ${prods.map(p=>'<option value="'+p.id+'" data-pa="'+p.pa+'" data-tva="'+(p.tva||19)+'" data-search="'+(p.nom+' '+p.ref+' '+p.cat).toLowerCase()+'">'+p.nom+' ['+p.ref+'] — '+p.cat+'</option>').join('')}
+        `<form method="POST" class="space-y-0" onsubmit="if(!lignes.length){event.preventDefault();showToast('Ajoutez au moins un produit','error');return false;}">
+        <input type="hidden" name="_csrf" value="<?=$csrf?>">
+        <input type="hidden" name="action" value="create_bon_reception">
+        <input type="hidden" name="lignes" id="brLignesInput" value="[]">
+        
+        <!-- Header fields -->
+        <div class="px-5 pt-4 pb-3 grid grid-cols-2 gap-3">
+            <div>
+                <label class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Franchise *</label>
+                <select name="franchise_id" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:border-asel outline-none">
+                    ${franchList.map(f=>'<option value="'+f.id+'">'+f.nom+'</option>').join('')}
                 </select>
-                <input id=brQty type=number value=1 min=1 class="w-16 border-2 rounded-lg px-2 py-1.5 text-xs text-center" placeholder="Qté">
-                <input id=brPrix type=number step=0.01 placeholder="Prix HT" class="w-24 border-2 rounded-lg px-2 py-1.5 text-xs">
-                <button type=button onclick="addBRLine()" class="bg-green-500 text-white px-3 rounded-lg text-xs font-bold hover:bg-green-600 transition-colors"><i class="bi bi-plus"></i> Ajouter</button>
             </div>
-            <table class="w-full text-xs"><thead><tr class="text-gray-400 uppercase"><th class="text-left px-2">Produit</th><th>Qté</th><th class="text-right">P.U. HT</th><th class="text-right">TVA</th><th class="text-right">TTC</th><th></th></tr></thead>
-            <tbody id=brLignes><tr><td colspan=6 class="px-2 py-4 text-center text-gray-400">Ajoutez des produits</td></tr></tbody>
-            <tfoot><tr class="border-t-2 font-bold text-sm"><td colspan=2 class="px-2 py-2">Totaux</td><td class="text-right px-2" id=brTotalHT>0.00</td><td class="text-right px-2" id=brTotalTVA>0.00</td><td class="text-right px-2 text-asel" id=brTotalTTC>0.00</td><td></td></tr></tfoot>
+            <div>
+                <label class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Fournisseur</label>
+                <select name="fournisseur_id" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-asel outline-none">
+                    <option value="">— Aucun —</option>
+                    ${fournList.map(f=>'<option value="'+f.id+'">'+f.nom+'</option>').join('')}
+                </select>
+            </div>
+        </div>
+        
+        <!-- Product selector -->
+        <div class="mx-5 bg-gradient-to-br from-gray-50 to-blue-50/30 rounded-xl border-2 border-dashed border-gray-200 p-4">
+            <div class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <i class="bi bi-box-seam text-asel"></i> Ajouter des produits
+                <span class="ml-auto bg-asel/10 text-asel font-bold px-2 py-0.5 rounded-full text-[10px]" id="brCount">0 produit</span>
+            </div>
+            
+            <!-- Search -->
+            <div class="relative mb-3">
+                <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                <input id="brSearch" type="text" placeholder="Rechercher nom, référence, marque..." 
+                    class="w-full pl-9 pr-4 border-2 border-gray-200 rounded-xl py-2.5 text-sm focus:border-asel outline-none bg-white"
+                    oninput="filterBRProducts()" autocomplete="off">
+            </div>
+            
+            <!-- Product + Qty + Price row -->
+            <div class="flex gap-2 items-end flex-wrap">
+                <div class="flex-1 min-w-[200px]">
+                    <select id="brProd" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:border-asel outline-none">
+                        ${prods.map(p=>'<option value="'+p.id+'" data-pa-ht="'+p.pa_ht+'" data-pa-ttc="'+p.pa_ttc+'" data-tva="'+p.tva+'" data-ref="'+(p.ref||'')+'" data-marque="'+(p.marque||'')+'" data-search="'+(p.nom+' '+p.ref+' '+p.marque+' '+p.cat).toLowerCase()+'">'+p.nom+(p.ref?' ['+p.ref+']':'')+' — '+p.cat+'</option>').join('')}
+                    </select>
+                </div>
+                <div class="w-20">
+                    <label class="text-[10px] font-bold text-gray-400 block mb-0.5">Quantité</label>
+                    <input id="brQty" type="number" value="1" min="1" class="w-full border-2 border-gray-200 rounded-xl px-2 py-2.5 text-sm text-center font-bold focus:border-asel outline-none">
+                </div>
+                <div class="w-28">
+                    <label class="text-[10px] font-bold text-gray-400 block mb-0.5">Prix achat HT</label>
+                    <input id="brPrix" type="number" step="0.01" placeholder="P.A. HT" class="w-full border-2 border-gray-200 rounded-xl px-2 py-2.5 text-sm text-right font-mono focus:border-asel outline-none">
+                </div>
+                <button type="button" onclick="addBRLine()" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-colors flex items-center gap-1.5 shrink-0">
+                    <i class="bi bi-plus-lg"></i> Ajouter
+                </button>
+            </div>
+            
+            <!-- Price info -->
+            <div id="brPriceInfo" class="mt-2 text-xs text-gray-400 hidden">
+                <span>HT: <b id="brInfoHT">0</b></span> · 
+                <span>TVA <span id="brInfoTVA">19</span>%: <b id="brInfoTVAmt">0</b></span> · 
+                <span>TTC: <b class="text-asel" id="brInfoTTC">0</b></span>
+            </div>
+        </div>
+        
+        <!-- Lines table -->
+        <div class="mx-5 mt-3 bg-white rounded-xl border overflow-hidden">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="bg-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                        <th class="px-3 py-2.5 text-left">Produit</th>
+                        <th class="px-3 py-2.5 text-center w-20">Qté</th>
+                        <th class="px-3 py-2.5 text-right w-24">P.U. HT</th>
+                        <th class="px-3 py-2.5 text-right w-20">Total TTC</th>
+                        <th class="px-3 py-2.5 w-10"></th>
+                    </tr>
+                </thead>
+                <tbody id="brLignes">
+                    <tr><td colspan="5" class="px-3 py-8 text-center text-gray-300"><i class="bi bi-box-seam text-2xl block mb-2"></i>Ajoutez des produits ci-dessus</td></tr>
+                </tbody>
+                <tfoot>
+                    <tr class="border-t-2 border-gray-200 bg-gray-50">
+                        <td colspan="2" class="px-3 py-3 font-bold text-sm">Totaux</td>
+                        <td class="px-3 py-3 text-right text-sm">
+                            <div class="font-semibold" id="brTotalHT">0.00</div>
+                            <div class="text-[10px] text-gray-400">TVA: <span id="brTotalTVA">0.00</span></div>
+                        </td>
+                        <td class="px-3 py-3 text-right">
+                            <div class="text-lg font-black text-asel" id="brTotalTTC">0.00</div>
+                            <div class="text-[10px] text-gray-400">DT TTC</div>
+                        </td>
+                        <td></td>
+                    </tr>
+                </tfoot>
             </table>
         </div>
-        <div><label class="text-xs font-bold text-gray-500">Note</label><input name=note class="w-full border-2 rounded-xl px-3 py-2 text-sm"></div>
-        <button type=submit class="w-full py-2.5 rounded-xl bg-asel text-white font-bold text-sm">✅ Créer bon & mettre à jour stock</button>
+        
+        <!-- Note + Submit -->
+        <div class="px-5 pt-3 pb-5 space-y-3">
+            <div>
+                <label class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Note / Référence BL</label>
+                <input name="note" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-asel outline-none" placeholder="BL-2024-XXX ou note libre...">
+            </div>
+            <button type="submit" class="w-full py-3 rounded-xl bg-asel hover:bg-asel-dark text-white font-bold text-sm transition-colors flex items-center justify-center gap-2">
+                <i class="bi bi-check-circle"></i> Créer bon de réception & mettre à jour stock
+            </button>
+        </div>
         </form>`, {size:'max-w-2xl'});
     
     // Auto-fill price on product change
-    document.getElementById('brProd').addEventListener('change', function(){
-        const opt = this.options[this.selectedIndex];
-        document.getElementById('brPrix').value = opt.dataset.pa || '';
-    });
-    document.getElementById('brProd').dispatchEvent(new Event('change'));
+    const prodSel = document.getElementById('brProd');
+    const priceInput = document.getElementById('brPrix');
+    const priceInfo = document.getElementById('brPriceInfo');
+    
+    function updatePricePreview() {
+        const opt = prodSel.options[prodSel.selectedIndex];
+        if(!opt) return;
+        const pa_ht = parseFloat(opt.dataset.paHt) || 0;
+        const tva = parseFloat(opt.dataset.tva) || 19;
+        const pa_ttc = parseFloat(opt.dataset.paTtc) || 0;
+        priceInput.value = pa_ht > 0 ? pa_ht.toFixed(2) : '';
+        priceInput.placeholder = pa_ttc > 0 ? 'TTC: ' + pa_ttc.toFixed(2) : 'P.A. HT';
+        // Show price info
+        if(pa_ht > 0) {
+            const tva_mt = pa_ht * tva / 100;
+            document.getElementById('brInfoHT').textContent = pa_ht.toFixed(2);
+            document.getElementById('brInfoTVA').textContent = tva;
+            document.getElementById('brInfoTVAmt').textContent = tva_mt.toFixed(2);
+            document.getElementById('brInfoTTC').textContent = (pa_ht + tva_mt).toFixed(2);
+            priceInfo.classList.remove('hidden');
+        } else { priceInfo.classList.add('hidden'); }
+    }
+    
+    prodSel.addEventListener('change', updatePricePreview);
+    updatePricePreview();
     
     // Product search filter
     window.filterBRProducts = function(){
-        const q = document.getElementById('brSearch').value.toLowerCase();
-        const sel = document.getElementById('brProd');
-        for(let opt of sel.options){
-            const match = !q || (opt.dataset.search || '').includes(q);
+        const q = document.getElementById('brSearch').value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+        const words = q.split(/\s+/).filter(Boolean);
+        for(let opt of prodSel.options){
+            const s = (opt.dataset.search || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+            const match = !q || words.every(w => s.includes(w));
             opt.style.display = match ? '' : 'none';
             opt.hidden = !match;
         }
         // Select first visible option
-        for(let opt of sel.options){
-            if(!opt.hidden){ sel.value = opt.value; sel.dispatchEvent(new Event('change')); break; }
+        for(let opt of prodSel.options){
+            if(!opt.hidden){ prodSel.value = opt.value; updatePricePreview(); break; }
         }
     };
     
     window.addBRLine = function(){
-        const sel = document.getElementById('brProd');
-        const opt = sel.options[sel.selectedIndex];
+        const opt = prodSel.options[prodSel.selectedIndex];
+        if(!opt) { showToast('Sélectionnez un produit', 'error'); return; }
         const qty = parseInt(document.getElementById('brQty').value) || 1;
-        const prix_ht = parseFloat(document.getElementById('brPrix').value) || 0;
+        const prix_ht = parseFloat(priceInput.value) || parseFloat(opt.dataset.paHt) || 0;
         const tva = parseFloat(opt.dataset.tva) || 19;
-        lignes.push({produit_id: parseInt(sel.value), nom: opt.text, qty, prix_ht, tva_rate: tva});
+        if(prix_ht <= 0) { showToast('Saisissez un prix HT', 'warning'); priceInput.focus(); return; }
+        
+        // Check for duplicate — add to existing line
+        const existing = lignes.findIndex(l => l.produit_id === parseInt(prodSel.value));
+        if(existing >= 0) {
+            lignes[existing].qty += qty;
+            lignes[existing].prix_ht = prix_ht; // update price
+            showToast('Quantité mise à jour: ' + lignes[existing].nom.split('[')[0].trim(), 'info');
+        } else {
+            lignes.push({
+                produit_id: parseInt(prodSel.value), 
+                nom: opt.text.split('—')[0].trim(),
+                ref: opt.dataset.ref || '',
+                marque: opt.dataset.marque || '',
+                qty, prix_ht, tva_rate: tva
+            });
+            showToast('Ajouté: ' + opt.text.split('—')[0].trim(), 'success');
+        }
         renderBR();
+        // Reset qty and focus search for next product
+        document.getElementById('brQty').value = 1;
+        document.getElementById('brSearch').value = '';
+        filterBRProducts();
+        document.getElementById('brSearch').focus();
     };
 }
 </script>
