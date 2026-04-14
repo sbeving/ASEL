@@ -1173,7 +1173,7 @@ try {
         'familles_categories'=>'Familles & Catégories',
         'pointage'=>'Pointage employés',
     ];
-    if ($page !== 'dashboard'):
+    if ($page !== 'dashboard' && $page !== 'pointage' && $page !== '__import_phones__'):
     ?>
     <nav class="flex items-center gap-1.5 text-xs text-gray-400 mb-4">
         <a href="?page=dashboard" class="hover:text-asel"><i class="bi bi-house"></i></a>
@@ -5936,7 +5936,7 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
         $employes_absents_count = max(0, $total_employes - $total_employes_today);
     }
 ?>
-<div class="flex flex-wrap justify-between items-center gap-3 mb-6">
+<div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-clock-history text-asel"></i> Pointage employés</h1>
     <div class="flex items-center gap-3">
         <?php if(can('view_all_franchises')): ?>
