@@ -5752,6 +5752,8 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
                 {size:'max-w-lg'});
         });
 }
+
+function openBonReception() {
     let lignes = [];
     const prods = <?=json_encode(array_map(fn($p)=>['id'=>$p['id'],'nom'=>$p['nom'],'ref'=>$p['reference'],'cat'=>$p['cat_nom'],'pa'=>$p['prix_achat'],'tva'=>$p['tva_rate']??19], $produits))?>;
     const fournList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>$f['nom']], $fournisseurs))?>;
