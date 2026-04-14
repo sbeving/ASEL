@@ -5727,7 +5727,24 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
         default => 'entree',
     };
     
-    // All pointages for the day (admin view)
+    // My pointages today (timeline for current user)
+    try {
+        $mes_pointages_today = query("SELECT * FROM pointages WHERE utilisateur_id=? AND DATE(heure)=CURDATE() ORDER BY heure ASC", [$user['id']]);
+    } catch(Exception $e) { $mes_pointages_today = []; }
+    // My hours worked today
+    $mes_entrees = []; $mes_sorties = [];
+    foreach($mes_pointages_today as $mp) {
+        if($mp['type_pointage'] === 'entree') $mes_entrees[] = strtotime($mp['heure']);
+        if($mp['type_pointage'] === 'sortie') $mes_sorties[] = strtotime($mp['heure']);
+    }
+    $mes_pairs = min(count($mes_entrees), count($mes_sorties));
+    $mes_total_min = 0;
+    for($i=0;$i<$mes_pairs;$i++) $mes_total_min += round(($mes_sorties[$i]-$mes_entrees[$i])/60);
+    // If clocked in and no sortie yet, count from last entree to now
+    if(count($mes_entrees) > count($mes_sorties)) $mes_total_min += round((time()-end($mes_entrees))/60);
+    $mes_h = floor($mes_total_min/60); $mes_m = $mes_total_min % 60;
+    
+    // All pointages for the selected day (admin view)
     $pt_where = "DATE(p.heure)=?";
     $pt_params = [$pt_date];
     if($pt_fid && can('view_all_franchises')) { $pt_where .= " AND p.franchise_id=?"; $pt_params[] = $pt_fid; }
@@ -5738,48 +5755,81 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
         $pointages_list = query("SELECT p.*,u.nom_complet,u.role,f.nom as fnom FROM pointages p JOIN utilisateurs u ON p.utilisateur_id=u.id LEFT JOIN franchises f ON p.franchise_id=f.id WHERE $pt_where ORDER BY p.heure ASC", $pt_params);
     } catch(Exception $e) { $pointages_list = []; }
     
-    // Compute hours worked per employee today
+    // Compute hours worked per employee for the selected day
     $heures_par_employe = [];
     foreach ($pointages_list as $pt) {
         $uid = $pt['utilisateur_id'];
         if (!isset($heures_par_employe[$uid])) {
-            $heures_par_employe[$uid] = ['nom'=>$pt['nom_complet'],'entrees'=>[],'sorties'=>[],'total_min'=>0];
+            $heures_par_employe[$uid] = ['nom'=>$pt['nom_complet'],'role'=>$pt['role'],'franchise'=>$pt['fnom']??'','entrees'=>[],'sorties'=>[],'pauses'=>[],'total_min'=>0,'pointages'=>[]];
         }
+        $heures_par_employe[$uid]['pointages'][] = $pt;
         if ($pt['type_pointage'] === 'entree') $heures_par_employe[$uid]['entrees'][] = strtotime($pt['heure']);
         if ($pt['type_pointage'] === 'sortie') $heures_par_employe[$uid]['sorties'][] = strtotime($pt['heure']);
+        if ($pt['type_pointage'] === 'pause_debut') $heures_par_employe[$uid]['pauses'][] = strtotime($pt['heure']);
     }
     foreach ($heures_par_employe as $uid => &$emp) {
         $pairs = min(count($emp['entrees']), count($emp['sorties']));
         for ($i = 0; $i < $pairs; $i++) {
             $emp['total_min'] += round(($emp['sorties'][$i] - $emp['entrees'][$i]) / 60);
         }
+        // If still clocked in (has entree without sortie), show live hours
+        if(count($emp['entrees']) > count($emp['sorties']) && $pt_date === $today) {
+            $emp['total_min'] += round((time() - end($emp['entrees'])) / 60);
+            $emp['is_live'] = true;
+        }
     }
+    unset($emp);
     
     // Get employees for filter (admin only)
-    $employees_list = can('view_all_franchises') ? query("SELECT id, nom_complet FROM utilisateurs WHERE actif=1 AND role!='admin' ORDER BY nom_complet") : [];
+    $employees_list = can('view_all_franchises') ? query("SELECT id, nom_complet FROM utilisateurs WHERE actif=1 ORDER BY nom_complet") : [];
+    
+    // KPIs
+    $total_employes_today = count($heures_par_employe);
+    $total_heures_today = array_sum(array_column($heures_par_employe, 'total_min'));
+    $employes_en_poste = count(array_filter($heures_par_employe, fn($e) => isset($e['is_live'])));
+    $employes_absents_count = 0;
+    if(can('view_all_franchises')) {
+        $total_employes = queryOne("SELECT COUNT(*) as c FROM utilisateurs WHERE actif=1 AND role NOT IN ('admin')")['c'] ?? 0;
+        $employes_absents_count = max(0, $total_employes - $total_employes_today);
+    }
 ?>
-<div class="flex justify-between items-center mb-4">
+<div class="flex flex-wrap justify-between items-center gap-3 mb-6">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-clock-history text-asel"></i> Pointage employés</h1>
-    <div class="text-sm text-gray-400"><?=date('d/m/Y H:i')?></div>
+    <div class="flex items-center gap-3">
+        <?php if(can('view_all_franchises')): ?>
+        <a href="api.php?action=export_pointage&date=<?=e($pt_date)?>" class="bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:border-asel hover:text-asel transition-colors"><i class="bi bi-download"></i> Export</a>
+        <?php endif; ?>
+        <div class="text-sm text-gray-400 bg-white px-3 py-1.5 rounded-lg border"><?=date('d/m/Y H:i')?></div>
+    </div>
 </div>
 
 <!-- MY PUNCH CARD -->
-<div class="bg-gradient-to-r from-asel to-asel-dark rounded-2xl p-5 mb-5 text-white shadow-lg">
-    <div class="flex justify-between items-start mb-4">
-        <div>
-            <div class="text-xs text-white/60 font-bold uppercase">Mon pointage</div>
-            <div class="text-xl font-black mt-0.5"><?=e($user['nom_complet'])?></div>
-            <div class="text-sm text-white/70 mt-1">
+<div class="bg-gradient-to-br from-asel via-asel to-asel-dark rounded-2xl p-6 mb-6 text-white shadow-xl">
+    <div class="flex flex-wrap justify-between items-start gap-4 mb-5">
+        <div class="flex-1 min-w-0">
+            <div class="text-[10px] text-white/50 font-bold uppercase tracking-widest mb-1">Mon pointage</div>
+            <div class="text-xl font-black"><?=e($user['nom_complet'])?></div>
+            <div class="text-sm text-white/70 mt-1.5">
                 <?php if($mon_dernier): ?>
-                Dernier: <b><?=match($mon_dernier['type_pointage']){'entree'=>'Entrée','sortie'=>'Sortie','pause_debut'=>'Pause','pause_fin'=>'Retour pause',default=>$mon_dernier['type_pointage']}?></b> à <?=date('H:i', strtotime($mon_dernier['heure']))?>
+                <span class="inline-flex items-center gap-1.5 bg-white/15 px-3 py-1 rounded-full text-xs">
+                    <?php $last_icon = match($mon_dernier['type_pointage']){'entree'=>'bi-box-arrow-in-right','sortie'=>'bi-box-arrow-right','pause_debut'=>'bi-cup-hot','pause_fin'=>'bi-play-circle',default=>'bi-clock'}; ?>
+                    <i class="bi <?=$last_icon?>"></i>
+                    <?=match($mon_dernier['type_pointage']){'entree'=>'Entrée','sortie'=>'Sortie','pause_debut'=>'Pause','pause_fin'=>'Retour',default=>$mon_dernier['type_pointage']}?> à <?=date('H:i', strtotime($mon_dernier['heure']))?>
+                </span>
                 <?php else: ?>
-                Pas encore pointé aujourd'hui
+                <span class="text-white/50">Pas encore pointé aujourd'hui</span>
                 <?php endif; ?>
             </div>
         </div>
         <div class="text-right">
-            <div class="text-3xl font-black" id="currentTime"><?=date('H:i')?></div>
-            <div class="text-xs text-white/60"><?=date('D d M')?></div>
+            <div class="text-4xl font-black tracking-tight" id="currentTime"><?=date('H:i')?></div>
+            <div class="text-xs text-white/50 mt-0.5"><?=strftime('%A %d %B')?></div>
+            <?php if($mes_total_min > 0): ?>
+            <div class="mt-2 bg-white/15 rounded-lg px-3 py-1.5 text-center">
+                <div class="text-lg font-black"><?=$mes_h?>h<?=str_pad($mes_m,2,'0',STR_PAD_LEFT)?></div>
+                <div class="text-[10px] text-white/60">travaillées</div>
+            </div>
+            <?php endif; ?>
         </div>
     </div>
     
@@ -5794,135 +5844,226 @@ function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
         <input type="hidden" name="device_info" value="<?=e($_SERVER['HTTP_USER_AGENT'] ?? '')?>">
         <?php if($pt_fid): ?><input type="hidden" name="franchise_id" value="<?=$pt_fid?>"><?php endif; ?>
         
-        <div class="flex gap-3 flex-wrap">
-            <button type="button" onclick="doPunch('entree')" class="flex-1 py-3 rounded-xl font-bold text-sm transition-all <?=$mon_prochain==='entree'?'bg-green-400 text-white shadow-lg scale-105':'bg-white/20 text-white/80 hover:bg-white/30'?>">
-                <i class="bi bi-box-arrow-in-right text-xl block mb-0.5"></i>
+        <div class="grid grid-cols-4 gap-3">
+            <button type="button" onclick="doPunch('entree')" class="py-4 rounded-xl font-bold text-sm transition-all text-center <?=$mon_prochain==='entree'?'bg-green-400 text-white shadow-lg ring-2 ring-green-300 ring-offset-2 ring-offset-asel scale-[1.03]':'bg-white/15 text-white/70 hover:bg-white/25 hover:text-white'?>">
+                <i class="bi bi-box-arrow-in-right text-2xl block mb-1"></i>
                 Entrée
             </button>
-            <button type="button" onclick="doPunch('pause_debut')" class="flex-1 py-3 rounded-xl font-bold text-sm transition-all <?=$mon_prochain==='pause_debut'?'bg-yellow-400 text-yellow-900 shadow-lg scale-105':'bg-white/20 text-white/80 hover:bg-white/30'?>">
-                <i class="bi bi-cup-hot text-xl block mb-0.5"></i>
+            <button type="button" onclick="doPunch('pause_debut')" class="py-4 rounded-xl font-bold text-sm transition-all text-center <?=$mon_prochain==='pause_debut'?'bg-yellow-400 text-yellow-900 shadow-lg ring-2 ring-yellow-300 ring-offset-2 ring-offset-asel scale-[1.03]':'bg-white/15 text-white/70 hover:bg-white/25 hover:text-white'?>">
+                <i class="bi bi-cup-hot text-2xl block mb-1"></i>
                 Pause
             </button>
-            <button type="button" onclick="doPunch('pause_fin')" class="flex-1 py-3 rounded-xl font-bold text-sm transition-all <?=$mon_prochain==='pause_fin'?'bg-blue-400 text-white shadow-lg scale-105':'bg-white/20 text-white/80 hover:bg-white/30'?>">
-                <i class="bi bi-play-circle text-xl block mb-0.5"></i>
+            <button type="button" onclick="doPunch('pause_fin')" class="py-4 rounded-xl font-bold text-sm transition-all text-center <?=$mon_prochain==='pause_fin'?'bg-blue-400 text-white shadow-lg ring-2 ring-blue-300 ring-offset-2 ring-offset-asel scale-[1.03]':'bg-white/15 text-white/70 hover:bg-white/25 hover:text-white'?>">
+                <i class="bi bi-play-circle text-2xl block mb-1"></i>
                 Retour
             </button>
-            <button type="button" onclick="doPunch('sortie')" class="flex-1 py-3 rounded-xl font-bold text-sm transition-all <?=$mon_prochain==='sortie'?'bg-red-400 text-white shadow-lg scale-105':'bg-white/20 text-white/80 hover:bg-white/30'?>">
-                <i class="bi bi-box-arrow-right text-xl block mb-0.5"></i>
+            <button type="button" onclick="doPunch('sortie')" class="py-4 rounded-xl font-bold text-sm transition-all text-center <?=$mon_prochain==='sortie'?'bg-red-400 text-white shadow-lg ring-2 ring-red-300 ring-offset-2 ring-offset-asel scale-[1.03]':'bg-white/15 text-white/70 hover:bg-white/25 hover:text-white'?>">
+                <i class="bi bi-box-arrow-right text-2xl block mb-1"></i>
                 Sortie
             </button>
         </div>
         
-        <div id="locationStatus" class="mt-3 text-xs text-white/60 text-center">
+        <div id="locationStatus" class="mt-4 text-xs text-white/50 text-center flex items-center justify-center gap-1.5">
             <i class="bi bi-geo-alt-fill"></i> <span id="locationText">Localisation non activée</span>
         </div>
     </form>
-</div>
-
-<!-- ADMIN: Today's pointages + hours summary -->
-<?php if(can('view_all_franchises') || count($heures_par_employe) > 1): ?>
-<div class="mb-4">
-    <form class="flex gap-2 items-center flex-wrap mb-3">
-        <input type="hidden" name="page" value="pointage">
-        <input type="date" name="date" value="<?=e($pt_date)?>" class="border-2 border-gray-200 rounded-xl px-3 py-1.5 text-sm">
-        <?php if($employees_list): ?>
-        <select name="uid" class="border-2 border-gray-200 rounded-xl px-3 py-1.5 text-sm">
-            <option value="">Tous les employés</option>
-            <?php foreach($employees_list as $emp): ?>
-            <option value="<?=$emp['id']?>" <?=$pt_user_filter==$emp['id']?'selected':''?>><?=e($emp['nom_complet'])?></option>
-            <?php endforeach; ?>
-        </select>
-        <?php endif; ?>
-        <button class="bg-asel text-white px-4 py-1.5 rounded-xl text-sm font-bold"><i class="bi bi-funnel"></i></button>
-    </form>
     
-    <!-- Hours summary cards -->
-    <?php if($heures_par_employe): ?>
-    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
-        <?php foreach($heures_par_employe as $uid => $emp): 
-            $h = floor($emp['total_min'] / 60);
-            $m = $emp['total_min'] % 60;
-        ?>
-        <div class="bg-white rounded-xl p-4 shadow-sm">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-asel/10 rounded-xl flex items-center justify-center font-black text-asel text-sm">
-                    <?=mb_strtoupper(mb_substr($emp['nom'],0,2))?>
-                </div>
-                <div>
-                    <div class="font-semibold text-sm"><?=e($emp['nom'])?></div>
-                    <div class="text-xs text-gray-400"><?=count($emp['entrees'])?> pointage(s)</div>
-                </div>
-                <div class="ml-auto text-right">
-                    <div class="font-black text-lg <?=$emp['total_min']>=480?'text-green-600':($emp['total_min']>0?'text-asel':'text-gray-300')?>"><?=$h?>h<?=$m>0?"$m":'00'?></div>
-                    <div class="text-[10px] text-gray-400">travaillées</div>
-                </div>
-            </div>
+    <!-- My today's timeline (compact) -->
+    <?php if($mes_pointages_today): ?>
+    <div class="mt-4 pt-4 border-t border-white/15">
+        <div class="text-[10px] text-white/40 font-bold uppercase tracking-wider mb-2">Mon historique aujourd'hui</div>
+        <div class="flex flex-wrap gap-2">
+            <?php foreach($mes_pointages_today as $mp): 
+                $mp_cfg = match($mp['type_pointage']) {
+                    'entree' => ['bg'=>'bg-green-400/20 text-green-300 border-green-400/30', 'icon'=>'bi-box-arrow-in-right'],
+                    'sortie' => ['bg'=>'bg-red-400/20 text-red-300 border-red-400/30', 'icon'=>'bi-box-arrow-right'],
+                    'pause_debut' => ['bg'=>'bg-yellow-400/20 text-yellow-300 border-yellow-400/30', 'icon'=>'bi-cup-hot'],
+                    'pause_fin' => ['bg'=>'bg-blue-400/20 text-blue-300 border-blue-400/30', 'icon'=>'bi-play-circle'],
+                    default => ['bg'=>'bg-white/10 text-white/70 border-white/20', 'icon'=>'bi-clock'],
+                };
+            ?>
+            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border <?=$mp_cfg['bg']?>">
+                <i class="bi <?=$mp_cfg['icon']?> text-sm"></i>
+                <?=date('H:i', strtotime($mp['heure']))?>
+                <?php if($mp['latitude']): ?><i class="bi bi-geo-alt-fill text-[10px] opacity-50"></i><?php endif; ?>
+            </span>
+            <?php endforeach; ?>
         </div>
-        <?php endforeach; ?>
     </div>
     <?php endif; ?>
 </div>
 
-<!-- Timeline of pointages -->
-<div class="bg-white rounded-xl shadow-sm overflow-hidden">
-    <div class="px-4 py-3 border-b font-semibold text-sm flex items-center gap-2">
-        <i class="bi bi-list-ul text-asel"></i> 
-        Pointages du <?=date('d/m/Y', strtotime($pt_date))?>
-        <span class="ml-auto text-xs text-gray-400"><?=count($pointages_list)?> enregistrements</span>
+<!-- KPI CARDS (admin) -->
+<?php if(can('view_all_franchises')): ?>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-green-500">
+        <div class="text-[10px] text-gray-400 font-bold uppercase tracking-wider">En poste</div>
+        <div class="text-2xl font-black text-green-600"><?=$employes_en_poste?></div>
+        <div class="text-xs text-gray-400">actuellement</div>
     </div>
-    <?php if($pointages_list): ?>
-    <div class="divide-y">
-        <?php foreach($pointages_list as $pt): 
-            $type_cfg = match($pt['type_pointage']) {
-                'entree' => ['color'=>'bg-green-100 text-green-700', 'icon'=>'bi-box-arrow-in-right', 'label'=>'Entrée'],
-                'sortie' => ['color'=>'bg-red-100 text-red-700', 'icon'=>'bi-box-arrow-right', 'label'=>'Sortie'],
-                'pause_debut' => ['color'=>'bg-yellow-100 text-yellow-700', 'icon'=>'bi-cup-hot', 'label'=>'Pause'],
-                'pause_fin' => ['color'=>'bg-blue-100 text-blue-700', 'icon'=>'bi-play-circle', 'label'=>'Retour pause'],
-                default => ['color'=>'bg-gray-100 text-gray-700', 'icon'=>'bi-clock', 'label'=>$pt['type_pointage']],
-            };
-        ?>
-        <div class="flex items-center gap-4 px-4 py-3 hover:bg-gray-50">
-            <div class="text-lg font-black text-asel-dark w-12 text-center"><?=date('H:i', strtotime($pt['heure']))?></div>
-            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold <?=$type_cfg['color']?>">
-                <i class="bi <?=$type_cfg['icon']?>"></i> <?=$type_cfg['label']?>
-            </span>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-asel">
+        <div class="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Ont pointé</div>
+        <div class="text-2xl font-black text-asel-dark"><?=$total_employes_today?></div>
+        <div class="text-xs text-gray-400">aujourd'hui</div>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-amber-500">
+        <div class="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Absents</div>
+        <div class="text-2xl font-black <?=$employes_absents_count>0?'text-amber-600':'text-gray-300'?>"><?=$employes_absents_count?></div>
+        <div class="text-xs text-gray-400">sans pointage</div>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-purple-500">
+        <div class="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Heures totales</div>
+        <div class="text-2xl font-black text-asel-dark"><?=floor($total_heures_today/60)?>h<?=str_pad($total_heures_today%60,2,'0',STR_PAD_LEFT)?></div>
+        <div class="text-xs text-gray-400">cumulées</div>
+    </div>
+</div>
+<?php endif; ?>
+
+<!-- FILTER BAR -->
+<div class="bg-white rounded-xl shadow-sm p-4 mb-6">
+    <form class="flex flex-wrap gap-3 items-end">
+        <input type="hidden" name="page" value="pointage">
+        <div>
+            <label class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Date</label>
+            <div class="flex gap-1">
+                <a href="?page=pointage&date=<?=date('Y-m-d',strtotime('-1 day',$pt_date === $today ? time() : strtotime($pt_date)))?>" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm hover:border-asel hover:text-asel transition-colors" title="Jour précédent"><i class="bi bi-chevron-left"></i></a>
+                <input type="date" name="date" value="<?=e($pt_date)?>" class="border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm font-medium">
+                <a href="?page=pointage&date=<?=date('Y-m-d',strtotime('+1 day',$pt_date === $today ? time() : strtotime($pt_date)))?>" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm hover:border-asel hover:text-asel transition-colors <?=$pt_date >= $today ? 'opacity-30 pointer-events-none' : ''?>" title="Jour suivant"><i class="bi bi-chevron-right"></i></a>
+            </div>
+        </div>
+        <div class="flex gap-1">
+            <a href="?page=pointage&date=<?=date('Y-m-d')?>" class="px-3 py-1.5 rounded-lg text-xs font-bold <?=$pt_date===$today?'bg-asel text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'?>">Aujourd'hui</a>
+            <a href="?page=pointage&date=<?=date('Y-m-d',strtotime('-1 day'))?>" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-gray-100 text-gray-600 hover:bg-gray-200">Hier</a>
+        </div>
+        <?php if($employees_list): ?>
+        <div>
+            <label class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Employé</label>
+            <select name="uid" class="border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm">
+                <option value="">👥 Tous</option>
+                <?php foreach($employees_list as $emp): ?>
+                <option value="<?=$emp['id']?>" <?=$pt_user_filter==$emp['id']?'selected':''?>><?=e($emp['nom_complet'])?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <?php endif; ?>
+        <button class="bg-asel text-white px-4 py-1.5 rounded-lg text-sm font-bold"><i class="bi bi-funnel"></i> Filtrer</button>
+    </form>
+</div>
+
+<!-- EMPLOYEE CARDS — grouped by employee -->
+<?php if($heures_par_employe): ?>
+<div class="space-y-4 mb-6">
+    <div class="flex items-center justify-between">
+        <h2 class="font-bold text-lg text-asel-dark flex items-center gap-2">
+            <i class="bi bi-people text-asel"></i> 
+            Pointages du <?=date('d/m/Y', strtotime($pt_date))?>
+        </h2>
+        <span class="text-xs bg-gray-100 text-gray-600 font-bold px-3 py-1 rounded-full"><?=count($pointages_list)?> enregistrements</span>
+    </div>
+    
+    <?php foreach($heures_par_employe as $uid => $emp): 
+        $h = floor($emp['total_min'] / 60);
+        $m = $emp['total_min'] % 60;
+        $is_live = isset($emp['is_live']);
+        $first_in = $emp['entrees'] ? date('H:i', $emp['entrees'][0]) : '—';
+        $last_out = $emp['sorties'] ? date('H:i', end($emp['sorties'])) : ($is_live ? 'En cours' : '—');
+    ?>
+    <div class="bg-white rounded-2xl shadow-sm overflow-hidden border <?=$is_live?'border-green-200':'border-transparent'?>">
+        <!-- Employee header -->
+        <div class="px-5 py-4 flex flex-wrap items-center gap-4 <?=$is_live?'bg-green-50/50':''?>">
+            <!-- Avatar -->
+            <div class="w-12 h-12 rounded-xl flex items-center justify-center font-black text-base <?=$is_live?'bg-green-500 text-white':'bg-asel/10 text-asel'?> shrink-0">
+                <?=mb_strtoupper(mb_substr($emp['nom'],0,2))?>
+            </div>
+            <!-- Name & status -->
             <div class="flex-1 min-w-0">
-                <div class="font-semibold text-sm"><?=e($pt['nom_complet'])?></div>
-                <?php if($pt['adresse']): ?>
-                <div class="text-xs text-gray-400 flex items-center gap-1 truncate">
-                    <i class="bi bi-geo-alt text-asel"></i>
-                    <?=e(mb_substr($pt['adresse'],0,60))?>
-                    <?php if($pt['latitude']): ?>
-                    <a href="https://maps.google.com?q=<?=$pt['latitude']?>,<?=$pt['longitude']?>" target="_blank" class="text-asel hover:underline ml-1">[Carte]</a>
+                <div class="font-bold text-base text-asel-dark flex items-center gap-2">
+                    <?=e($emp['nom'])?>
+                    <?php if($is_live): ?>
+                    <span class="inline-flex items-center gap-1 bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                        <span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> En poste
+                    </span>
                     <?php endif; ?>
                 </div>
-                <?php endif; ?>
-                <?php if($pt['note']): ?><div class="text-xs text-gray-400"><?=e($pt['note'])?></div><?php endif; ?>
+                <div class="text-xs text-gray-400 flex items-center gap-3 mt-0.5">
+                    <?php if($emp['franchise']): ?><span><i class="bi bi-shop"></i> <?=e(shortF($emp['franchise']))?></span><?php endif; ?>
+                    <span><i class="bi bi-arrow-right-circle"></i> Arrivée: <b class="text-gray-600"><?=$first_in?></b></span>
+                    <span><i class="bi bi-arrow-left-circle"></i> Départ: <b class="text-gray-600"><?=$last_out?></b></span>
+                </div>
             </div>
-            <div class="text-xs text-gray-400 shrink-0"><?=e(shortF($pt['fnom']??''))?></div>
+            <!-- Hours badge -->
+            <div class="text-center shrink-0">
+                <div class="text-2xl font-black <?=$emp['total_min']>=480?'text-green-600':($emp['total_min']>=240?'text-asel':($emp['total_min']>0?'text-amber-600':'text-gray-300'))?>"><?=$h?>h<?=str_pad($m,2,'0',STR_PAD_LEFT)?></div>
+                <div class="text-[10px] text-gray-400 font-bold uppercase"><?=count($emp['entrees'])?> pointage<?=count($emp['entrees'])>1?'s':''?></div>
+            </div>
+            <!-- Progress bar (8h = 100%) -->
+            <div class="w-full mt-1">
+                <?php $pct = min(100, round($emp['total_min'] / 480 * 100)); ?>
+                <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full transition-all duration-500 <?=$pct>=100?'bg-green-500':($pct>=50?'bg-asel':'bg-amber-400')?>" style="width:<?=$pct?>%"></div>
+                </div>
+                <div class="flex justify-between text-[10px] text-gray-400 mt-0.5">
+                    <span><?=$pct?>% de 8h</span>
+                    <?php if($emp['total_min']<480 && $emp['total_min']>0): ?>
+                    <span>Reste: <?=floor((480-$emp['total_min'])/60)?>h<?=str_pad((480-$emp['total_min'])%60,2,'0',STR_PAD_LEFT)?></span>
+                    <?php endif; ?>
+                </div>
+            </div>
         </div>
-        <?php endforeach; ?>
+        
+        <!-- Employee timeline -->
+        <div class="border-t border-gray-100 px-5 py-3">
+            <div class="flex flex-wrap gap-2">
+                <?php foreach($emp['pointages'] as $pt): 
+                    $type_cfg = match($pt['type_pointage']) {
+                        'entree' => ['color'=>'bg-green-100 text-green-700 border-green-200', 'icon'=>'bi-box-arrow-in-right', 'label'=>'Entrée'],
+                        'sortie' => ['color'=>'bg-red-100 text-red-700 border-red-200', 'icon'=>'bi-box-arrow-right', 'label'=>'Sortie'],
+                        'pause_debut' => ['color'=>'bg-yellow-100 text-yellow-700 border-yellow-200', 'icon'=>'bi-cup-hot', 'label'=>'Pause'],
+                        'pause_fin' => ['color'=>'bg-blue-100 text-blue-700 border-blue-200', 'icon'=>'bi-play-circle', 'label'=>'Retour'],
+                        default => ['color'=>'bg-gray-100 text-gray-700 border-gray-200', 'icon'=>'bi-clock', 'label'=>$pt['type_pointage']],
+                    };
+                ?>
+                <div class="inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold <?=$type_cfg['color']?> hover:shadow-sm transition-shadow" title="<?=e($pt['adresse']??'')?>">
+                    <i class="bi <?=$type_cfg['icon']?> text-sm"></i>
+                    <div>
+                        <div class="font-black text-sm leading-none"><?=date('H:i', strtotime($pt['heure']))?></div>
+                        <div class="text-[10px] opacity-70 leading-tight"><?=$type_cfg['label']?></div>
+                    </div>
+                    <?php if($pt['latitude']): ?>
+                    <a href="https://maps.google.com?q=<?=$pt['latitude']?>,<?=$pt['longitude']?>" target="_blank" class="opacity-50 hover:opacity-100 ml-1" title="Voir sur carte"><i class="bi bi-geo-alt-fill text-xs"></i></a>
+                    <?php endif; ?>
+                </div>
+                <?php endforeach; ?>
+            </div>
+            <?php if($emp['pointages'][0]['note'] ?? ''): ?>
+            <div class="text-xs text-gray-400 mt-2"><i class="bi bi-chat-square-text"></i> <?=e($emp['pointages'][0]['note'])?></div>
+            <?php endif; ?>
+        </div>
     </div>
-    <?php else: ?>
-    <div class="px-4 py-10 text-center text-gray-400">
-        <i class="bi bi-clock text-3xl block mb-2 opacity-30"></i>
-        Aucun pointage ce jour
-    </div>
-    <?php endif; ?>
+    <?php endforeach; ?>
 </div>
+<?php else: ?>
+<div class="bg-white rounded-2xl shadow-sm p-10 text-center mb-6">
+    <i class="bi bi-clock text-5xl text-gray-200 block mb-3"></i>
+    <p class="text-gray-400 font-medium">Aucun pointage pour le <?=date('d/m/Y', strtotime($pt_date))?></p>
+    <p class="text-xs text-gray-300 mt-1">Les employés peuvent pointer en haut de cette page</p>
+</div>
+<?php endif; ?>
 
-<!-- Monthly summary (admin only) -->
+<!-- MONTHLY SUMMARY TABLE (admin only) -->
 <?php if(can('view_all_franchises')): ?>
 <?php
 $pt_mois = $_GET['mois'] ?? date('Y-m');
 try {
-    $monthly_summary = query("SELECT u.nom_complet, u.id,
+    $monthly_summary = query("SELECT u.nom_complet, u.id, u.role,
         COUNT(CASE WHEN p.type_pointage='entree' THEN 1 END) as nb_entrees,
         COUNT(CASE WHEN p.type_pointage='sortie' THEN 1 END) as nb_sorties,
-        COUNT(DISTINCT DATE(p.heure)) as jours_travailles
+        COUNT(DISTINCT DATE(p.heure)) as jours_travailles,
+        MIN(TIME(p.heure)) as premiere_arrivee,
+        MAX(CASE WHEN p.type_pointage='sortie' THEN TIME(p.heure) END) as dernier_depart
         FROM pointages p JOIN utilisateurs u ON p.utilisateur_id=u.id
         WHERE DATE_FORMAT(p.heure,'%Y-%m')=?
-        GROUP BY u.id, u.nom_complet ORDER BY u.nom_complet", [$pt_mois]);
+        GROUP BY u.id, u.nom_complet, u.role ORDER BY u.nom_complet", [$pt_mois]);
     
     // Calculate hours worked per employee for the month
     $monthly_hours = [];
@@ -5944,41 +6085,91 @@ try {
     } catch(Exception $e) { $monthly_hours = []; }
 } catch(Exception $e) { $monthly_summary = []; $monthly_hours = []; }
 ?>
-<?php if($monthly_summary): ?>
-<div class="bg-white rounded-xl shadow-sm overflow-hidden mt-4">
-    <div class="px-4 py-3 border-b flex items-center justify-between">
-        <h3 class="font-semibold text-sm flex items-center gap-2"><i class="bi bi-calendar-month text-asel"></i> Récap mensuel</h3>
-        <div class="flex gap-2 items-center">
-            <a href="api.php?action=export_pointage&mois=<?=e($pt_mois)?>" class="text-xs text-gray-400 hover:text-asel"><i class="bi bi-download"></i> CSV</a>
-        <form class="flex gap-2 items-center">
-            <input type="hidden" name="page" value="pointage">
-            <input type="month" name="mois" value="<?=e($pt_mois)?>" class="border-2 border-gray-200 rounded-lg px-2 py-1 text-sm">
-            <button class="bg-asel text-white px-3 py-1 rounded-lg text-sm font-bold"><i class="bi bi-funnel"></i></button>
-        </form>
+<div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+    <div class="px-5 py-4 border-b flex flex-wrap items-center justify-between gap-3">
+        <h3 class="font-bold text-base text-asel-dark flex items-center gap-2"><i class="bi bi-calendar-month text-asel"></i> Récap mensuel</h3>
+        <div class="flex gap-3 items-center">
+            <a href="api.php?action=export_pointage&mois=<?=e($pt_mois)?>" class="text-xs text-gray-400 hover:text-asel font-semibold"><i class="bi bi-download"></i> Export CSV</a>
+            <form class="flex gap-2 items-center">
+                <input type="hidden" name="page" value="pointage">
+                <input type="month" name="mois" value="<?=e($pt_mois)?>" class="border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm font-medium">
+                <button class="bg-asel text-white px-3 py-1.5 rounded-lg text-sm font-bold"><i class="bi bi-funnel"></i></button>
+            </form>
         </div>
     </div>
+    <?php if($monthly_summary): ?>
+    <div class="overflow-x-auto">
     <table class="w-full text-sm">
-        <thead><tr class="bg-gray-50 text-xs uppercase font-semibold text-gray-500"><th class="px-4 py-2 text-left">Employé</th><th class="px-4 py-2 text-center">Jours</th><th class="px-4 py-2 text-center">Heures</th><th class="px-4 py-2 text-center">Entrées</th><th class="px-4 py-2 text-center">Sorties</th></tr></thead>
+        <thead><tr class="bg-gray-50 text-[10px] uppercase font-bold text-gray-400 tracking-wider">
+            <th class="px-5 py-3 text-left">Employé</th>
+            <th class="px-4 py-3 text-center">Jours</th>
+            <th class="px-4 py-3 text-center">Heures totales</th>
+            <th class="px-4 py-3 text-center hidden sm:table-cell">Moy/jour</th>
+            <th class="px-4 py-3 text-center hidden md:table-cell">Entrées</th>
+            <th class="px-4 py-3 text-center hidden md:table-cell">Sorties</th>
+            <th class="px-4 py-3 text-center hidden lg:table-cell">1ère arrivée</th>
+            <th class="px-4 py-3 text-center">Progression</th>
+        </tr></thead>
         <tbody class="divide-y">
         <?php foreach($monthly_summary as $ms): 
             $tm = $monthly_hours[$ms['id']] ?? 0;
             $th = floor($tm/60); $tmin = $tm%60;
+            $moy_h = $ms['jours_travailles'] > 0 ? round($tm / $ms['jours_travailles']) : 0;
+            $moy_hh = floor($moy_h/60); $moy_mm = $moy_h%60;
+            // Target: ~22 working days, 8h/day = 176h
+            $target_h = 176 * 60; // minutes
+            $progress = $target_h > 0 ? min(100, round($tm / $target_h * 100)) : 0;
         ?>
         <tr class="hover:bg-gray-50">
-            <td class="px-4 py-2 font-medium"><?=e($ms['nom_complet'])?></td>
-            <td class="px-4 py-2 text-center"><span class="inline-flex px-2 py-0.5 rounded-full text-xs font-bold <?=$ms['jours_travailles']>=22?'bg-green-100 text-green-800':($ms['jours_travailles']>=15?'bg-yellow-100 text-yellow-800':'bg-gray-100 text-gray-700')?>"><?=$ms['jours_travailles']?> j</span></td>
-            <td class="px-4 py-2 text-center">
-                <?php if($tm>0): ?><span class="text-sm font-bold <?=$th>=160?'text-green-600':($th>=80?'text-asel':'text-gray-500')?>"><?=$th?>h<?=$tmin>0?str_pad($tmin,2,'0',STR_PAD_LEFT):'00'?></span><?php else: ?><span class="text-gray-300">—</span><?php endif; ?>
+            <td class="px-5 py-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-lg bg-asel/10 flex items-center justify-center font-black text-asel text-xs shrink-0"><?=mb_strtoupper(mb_substr($ms['nom_complet'],0,2))?></div>
+                    <div>
+                        <div class="font-semibold text-asel-dark"><?=e($ms['nom_complet'])?></div>
+                        <div class="text-[10px] text-gray-400"><?=roleBadge($ms['role'])?></div>
+                    </div>
+                </div>
             </td>
-            <td class="px-4 py-2 text-center"><?=$ms['nb_entrees']?></td>
-            <td class="px-4 py-2 text-center <?=$ms['nb_entrees']!=$ms['nb_sorties']?'text-red-500 font-bold':''?>"><?=$ms['nb_sorties']?></td>
+            <td class="px-4 py-3 text-center">
+                <span class="inline-flex px-2.5 py-1 rounded-lg text-xs font-bold <?=$ms['jours_travailles']>=22?'bg-green-100 text-green-700':($ms['jours_travailles']>=15?'bg-yellow-100 text-yellow-700':'bg-gray-100 text-gray-600')?>"><?=$ms['jours_travailles']?> j</span>
+            </td>
+            <td class="px-4 py-3 text-center">
+                <?php if($tm>0): ?>
+                <span class="text-base font-black <?=$th>=160?'text-green-600':($th>=80?'text-asel':'text-amber-600')?>"><?=$th?>h<?=$tmin>0?str_pad($tmin,2,'0',STR_PAD_LEFT):''?></span>
+                <?php else: ?><span class="text-gray-300">—</span><?php endif; ?>
+            </td>
+            <td class="px-4 py-3 text-center hidden sm:table-cell">
+                <?php if($moy_h>0): ?>
+                <span class="text-xs font-semibold <?=$moy_hh>=8?'text-green-600':($moy_hh>=6?'text-asel':'text-amber-600')?>"><?=$moy_hh?>h<?=$moy_mm>0?str_pad($moy_mm,2,'0',STR_PAD_LEFT):''?></span>
+                <?php else: ?><span class="text-gray-300 text-xs">—</span><?php endif; ?>
+            </td>
+            <td class="px-4 py-3 text-center hidden md:table-cell text-xs"><?=$ms['nb_entrees']?></td>
+            <td class="px-4 py-3 text-center hidden md:table-cell text-xs <?=$ms['nb_entrees']!=$ms['nb_sorties']?'text-red-500 font-bold':''?>"><?=$ms['nb_sorties']?> <?=$ms['nb_entrees']!=$ms['nb_sorties']?'⚠️':''?></td>
+            <td class="px-4 py-3 text-center hidden lg:table-cell text-xs text-gray-500"><?=$ms['premiere_arrivee']?substr($ms['premiere_arrivee'],0,5):'—'?></td>
+            <td class="px-4 py-3">
+                <div class="flex items-center gap-2">
+                    <div class="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div class="h-full rounded-full <?=$progress>=90?'bg-green-500':($progress>=50?'bg-asel':'bg-amber-400')?>" style="width:<?=$progress?>%"></div>
+                    </div>
+                    <span class="text-[10px] font-bold text-gray-400 w-8 text-right"><?=$progress?>%</span>
+                </div>
+            </td>
         </tr>
         <?php endforeach; ?>
         </tbody>
     </table>
+    </div>
+    <?php else: ?>
+    <div class="px-5 py-10 text-center text-gray-400">
+        <i class="bi bi-calendar-x text-3xl block mb-2 opacity-30"></i>
+        Aucun pointage pour <?=e($pt_mois)?>
+    </div>
+    <?php endif; ?>
 </div>
 <?php endif; ?>
-<?php endif; ?>
+
+<?php endif; // pointage page ?>
+
 </main>
 
 <!-- Footer -->
@@ -5986,8 +6177,7 @@ try {
     <span>&copy; <?=date('Y')?> ASEL Mobile</span> &middot; 
     <a href="map.php" class="text-asel hover:underline"><i class="bi bi-map"></i> Carte</a> &middot; 
     <button onclick="showShortcuts()" class="text-gray-400 hover:text-asel">Raccourcis <kbd class="bg-gray-100 px-1 rounded text-[10px]">?</kbd></button> &middot;
-    <span>v15.3</span>
-    <span>v14.0</span>
+    <span>v15.4</span>
 </footer>
 
 <?php if (can('pos')): ?>
@@ -6012,9 +6202,6 @@ try {
 function toggleFab(){const a=document.getElementById('fabActions');const i=document.getElementById('fabIcon');a.classList.toggle('hidden');a.classList.toggle('flex');i.style.transform=a.classList.contains('hidden')?'':'rotate(45deg)';}
 function closeFab(){document.getElementById('fabActions').classList.add('hidden');document.getElementById('fabActions').classList.remove('flex');document.getElementById('fabIcon').style.transform='';}
 </script>
-<?php endif; ?>
-
-
 <?php endif; ?>
 
 <script>
@@ -6066,7 +6253,6 @@ function submitPunch() {
     document.getElementById('pointageForm').submit();
 }
 </script>
-<?php endif; ?>
     <div class="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
         <div class="bg-asel-dark text-white px-4 py-3 flex justify-between items-center">
             <span class="font-bold text-sm"><i class="bi bi-upc-scan"></i> Scanner code-barres</span>
