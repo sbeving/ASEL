@@ -3400,17 +3400,22 @@ elseif ($page === 'transferts'):
 </div>
 
 <?php elseif ($page === 'cloture'): $cl_fid=$fid?:(currentFranchise()?:($franchises[0]['id']??1));
-    $sys = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COALESCE(SUM(quantite),0) as a FROM ventes WHERE franchise_id=? AND date_vente=CURDATE()", [$cl_fid]);
+    $today = date('Y-m-d');
+    $sys = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COALESCE(SUM(quantite),0) as a FROM ventes WHERE franchise_id=? AND DATE(date_vente)=?", [$cl_fid, $today]);
+    
+    // Cash breakdown
+    $especes_ventes = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t FROM ventes v JOIN factures f ON v.facture_id=f.id WHERE v.franchise_id=? AND DATE(v.date_vente)=? AND f.mode_paiement='especes'", [$cl_fid, $today])['t'] ?? 0;
+    $carte_ventes = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t FROM ventes v JOIN factures f ON v.facture_id=f.id WHERE v.franchise_id=? AND DATE(v.date_vente)=? AND f.mode_paiement='carte'", [$cl_fid, $today])['t'] ?? 0;
+    $avances_lots = queryOne("SELECT COALESCE(SUM(f.montant_recu),0) as t FROM factures f WHERE f.franchise_id=? AND DATE(f.date_facture)=? AND f.mode_paiement='echeance' AND f.montant_recu > 0", [$cl_fid, $today])['t'] ?? 0;
+    $echeances_payees = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM echeances WHERE franchise_id=? AND statut='payee' AND DATE(date_paiement)=?", [$cl_fid, $today])['t'] ?? 0;
+    $total_especes_caisse = $especes_ventes + $avances_lots + $echeances_payees;
+    
     $recent_clotures = query("SELECT cl.*,f.nom as fnom,u.nom_complet as par FROM clotures cl JOIN franchises f ON cl.franchise_id=f.id LEFT JOIN utilisateurs u ON cl.utilisateur_id=u.id WHERE cl.franchise_id=? ORDER BY cl.date_cloture DESC LIMIT 10", [$cl_fid]);
-    // Trésorerie today (requires migration v8)
     try {
-        $tr_today_enc = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE franchise_id=? AND type_mouvement='encaissement' AND date_mouvement=CURDATE()", [$cl_fid])['t'];
-        $tr_today_dec = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE franchise_id=? AND type_mouvement='decaissement' AND date_mouvement=CURDATE()", [$cl_fid])['t'];
+        $tr_today_enc = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE franchise_id=? AND type_mouvement='encaissement' AND DATE(date_mouvement)=?", [$cl_fid, $today])['t'];
+        $tr_today_dec = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE franchise_id=? AND type_mouvement='decaissement' AND DATE(date_mouvement)=?", [$cl_fid, $today])['t'];
     } catch(Exception $e) { $tr_today_enc = $tr_today_dec = 0; }
-    $tr_solde = $tr_today_enc - $tr_today_dec;
-    $ecart_tresorerie = $tr_today_enc - $sys['t'];
-    // Already closed today?
-    $already_closed = queryOne("SELECT id FROM clotures WHERE franchise_id=? AND date_cloture=CURDATE()", [$cl_fid]);
+    $already_closed = queryOne("SELECT id FROM clotures WHERE franchise_id=? AND date_cloture=?", [$cl_fid, $today]);
 ?>
 <div class="flex justify-between items-center mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-calendar-check text-asel"></i> Clôture journalière</h1>
@@ -3420,45 +3425,77 @@ elseif ($page === 'transferts'):
     </button>
     <?php endif; ?>
 </div>
-<!-- Today's overview -->
+
+<!-- Cash breakdown -->
+<div class="bg-white rounded-2xl shadow-sm border-2 border-asel/20 p-5 mb-4">
+    <h3 class="font-bold text-asel-dark text-sm mb-3 flex items-center gap-2"><i class="bi bi-cash-stack text-asel"></i> Détail des encaissements du jour</h3>
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div class="bg-green-50 rounded-xl p-3 text-center">
+            <div class="text-[10px] text-green-600 font-bold uppercase">💵 Espèces (ventes)</div>
+            <div class="text-lg font-black text-green-700"><?=number_format($especes_ventes,2)?></div>
+        </div>
+        <div class="bg-blue-50 rounded-xl p-3 text-center">
+            <div class="text-[10px] text-blue-600 font-bold uppercase">💳 Carte</div>
+            <div class="text-lg font-black text-blue-700"><?=number_format($carte_ventes,2)?></div>
+        </div>
+        <div class="bg-amber-50 rounded-xl p-3 text-center">
+            <div class="text-[10px] text-amber-600 font-bold uppercase">💰 Avances (lots)</div>
+            <div class="text-lg font-black text-amber-700"><?=number_format($avances_lots,2)?></div>
+        </div>
+        <div class="bg-purple-50 rounded-xl p-3 text-center">
+            <div class="text-[10px] text-purple-600 font-bold uppercase">✅ Échéances payées</div>
+            <div class="text-lg font-black text-purple-700"><?=number_format($echeances_payees,2)?></div>
+        </div>
+        <div class="bg-asel/10 rounded-xl p-3 text-center border-2 border-asel/30">
+            <div class="text-[10px] text-asel font-bold uppercase">🏦 Total en caisse</div>
+            <div class="text-xl font-black text-asel-dark"><?=number_format($total_especes_caisse,2)?></div>
+            <div class="text-[9px] text-gray-400">espèces uniquement</div>
+        </div>
+    </div>
+</div>
+
+<!-- System totals -->
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
     <div class="bg-asel/10 border-2 border-asel/20 rounded-xl p-4">
-        <div class="text-[10px] text-asel font-bold uppercase">Ventes système</div>
+        <div class="text-[10px] text-asel font-bold uppercase">CA Système</div>
         <div class="text-xl font-black text-asel-dark"><?=number_format($sys['t'],2)?> <span class="text-xs text-gray-400">DT</span></div>
         <div class="text-xs text-gray-400"><?=number_format($sys['a'])?> articles</div>
     </div>
     <div class="bg-green-50 border-2 border-green-200 rounded-xl p-4">
-        <div class="text-[10px] text-green-600 font-bold uppercase">Encaissements</div>
+        <div class="text-[10px] text-green-600 font-bold uppercase">Encaissements tréso</div>
         <div class="text-xl font-black text-green-700"><?=number_format($tr_today_enc,2)?> <span class="text-xs text-gray-400">DT</span></div>
-        <div class="text-xs text-gray-400">Mouvements trésorerie</div>
     </div>
     <div class="bg-red-50 border-2 border-red-200 rounded-xl p-4">
         <div class="text-[10px] text-red-600 font-bold uppercase">Décaissements</div>
         <div class="text-xl font-black text-red-700"><?=number_format($tr_today_dec,2)?> <span class="text-xs text-gray-400">DT</span></div>
     </div>
-    <div class="<?=abs($ecart_tresorerie)<1?'bg-green-50 border-green-200':'bg-red-50 border-red-200'?> border-2 rounded-xl p-4">
-        <div class="text-[10px] font-bold uppercase <?=abs($ecart_tresorerie)<1?'text-green-600':'text-red-600'?>">Écart (Enc. - Ventes)</div>
-        <div class="text-xl font-black <?=abs($ecart_tresorerie)<1?'text-green-700':'text-red-700'?>"><?=$ecart_tresorerie>0?'+':''?><?=number_format($ecart_tresorerie,2)?> DT</div>
-        <?php if(abs($ecart_tresorerie)>=1): ?><div class="text-xs text-red-600 font-bold">⚠️ Vérifier la caisse</div><?php endif; ?>
+    <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-4">
+        <div class="text-[10px] text-gray-500 font-bold uppercase">Solde théorique</div>
+        <div class="text-xl font-black text-asel-dark"><?=number_format($total_especes_caisse - $tr_today_dec,2)?> <span class="text-xs text-gray-400">DT</span></div>
+        <div class="text-[9px] text-gray-400">caisse - décaissements</div>
     </div>
 </div>
 <?php if($already_closed): ?>
 <div class="bg-green-50 border-2 border-green-300 rounded-xl p-4 mb-4 flex items-center gap-3">
     <i class="bi bi-check-circle-fill text-green-500 text-2xl"></i>
-    <div><div class="font-bold text-green-700">Clôture du jour déjà soumise</div><div class="text-xs text-green-600">Vous pouvez soumettre une nouvelle clôture pour une autre date.</div></div>
+    <div><div class="font-bold text-green-700">Clôture du jour déjà soumise</div></div>
 </div>
 <?php endif; ?>
 <div class="grid lg:grid-cols-2 gap-6">
 <div class="form-card">
     <h3><i class="bi bi-calendar-check text-asel"></i> Soumettre la clôture</h3>
     <form method="POST" class="space-y-3"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="cloture_submit"><input type="hidden" name="franchise_id" value="<?=$cl_fid?>">
-        <div><label class="form-label">Date</label><input type="date" name="date_cloture" value="<?=date('Y-m-d')?>" class="form-input"></div>
+        <div><label class="form-label">Date</label><input type="date" name="date_cloture" value="<?=$today?>" class="form-input"></div>
         <div class="form-row form-row-2">
-            <div><label class="form-label">Total caisse déclaré (DT)</label><input name="total_declare" type="number" step="0.01" class="form-input text-center text-lg font-bold" required placeholder="0.00" value="<?=number_format($sys['t'],2)?>"></div>
+            <div><label class="form-label">Total caisse déclaré (DT)</label><input name="total_declare" type="number" step="0.01" class="form-input text-center text-lg font-bold" required placeholder="0.00" value="<?=number_format($total_especes_caisse,2,'.','')?>"></div>
             <div><label class="form-label">Nb articles déclaré</label><input name="articles_declare" type="number" class="form-input text-center text-lg font-bold" required placeholder="0" value="<?=$sys['a']?>"></div>
         </div>
-        <div class="bg-blue-50 rounded-xl p-3 text-xs text-blue-700">
-            <b>ℹ️ Système:</b> <?=number_format($sys['t'],2)?> DT · <?=$sys['a']?> articles
+        <div class="bg-blue-50 rounded-xl p-3 text-xs text-blue-700 space-y-1">
+            <div><b>💵 Espèces ventes:</b> <?=number_format($especes_ventes,2)?> DT</div>
+            <div><b>💰 Avances lots:</b> <?=number_format($avances_lots,2)?> DT</div>
+            <div><b>✅ Échéances payées:</b> <?=number_format($echeances_payees,2)?> DT</div>
+            <div><b>💳 Carte:</b> <?=number_format($carte_ventes,2)?> DT</div>
+            <div class="border-t pt-1 mt-1"><b>🏦 Total théorique caisse:</b> <?=number_format($total_especes_caisse,2)?> DT</div>
         </div>
         <div><label class="form-label">Commentaire</label><textarea name="commentaire" class="form-input" rows="2" placeholder="Notes sur la journée, anomalies..."></textarea></div>
         <button type="submit" class="btn-submit"><i class="bi bi-calendar-check"></i> Soumettre la clôture</button>
@@ -3466,8 +3503,8 @@ elseif ($page === 'transferts'):
 </div>
 <script>
 function quickCloture() {
-    const sysCA = <?=number_format($sys['t'],2,'.','')?>;
-    const sysArt = <?=intval($sys['a'])?>;
+    var sysCA = <?=number_format($total_especes_caisse,2,'.','')?>;
+    var sysArt = <?=intval($sys['a'])?>;
     openModal(
         modalHeader('bi-lightning-charge-fill','Clôture rapide','Confirmer les totaux système') +
         `<div class="p-6 space-y-4">
