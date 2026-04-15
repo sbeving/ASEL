@@ -331,8 +331,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     elseif ($action === 'add_client') {
         $cfid = can('view_all_franchises') ? ($_POST['franchise_id'] ?? null) : currentFranchise();
-        execute("INSERT INTO clients (nom,prenom,telephone,email,type_client,entreprise,matricule_fiscal,franchise_id,adresse,notes) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            [$_POST['nom'], $_POST['prenom'] ?? '', $_POST['telephone'] ?? '', $_POST['email'] ?? '', $_POST['type_client'] ?? 'passager', $_POST['entreprise'] ?? '', $_POST['matricule_fiscal'] ?? '', $cfid, strParam('adresse'), strParam('notes',1000)]);
+        execute("INSERT INTO clients (nom,prenom,telephone,telephone2,email,type_client,entreprise,matricule_fiscal,cin,franchise_id,adresse,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            [$_POST['nom'], $_POST['prenom'] ?? '', $_POST['telephone'] ?? '', $_POST['telephone2'] ?? '', $_POST['email'] ?? '', $_POST['type_client'] ?? 'passager', $_POST['entreprise'] ?? '', $_POST['matricule_fiscal'] ?? '', $_POST['cin'] ?? '', $cfid, strParam('adresse'), strParam('notes',1000)]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Client ajouté!'];
         auditLog('add_client', 'client', db()->lastInsertId(), ['nom'=>$_POST['nom'], 'type'=>$_POST['type_client']??'passager']);
     }
@@ -438,11 +438,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif ($action === 'edit_client') {
         $upd_fid = can('view_all_franchises') ? ($_POST['franchise_id'] ?? null) : null;
         if ($upd_fid) {
-            execute("UPDATE clients SET nom=?,prenom=?,telephone=?,email=?,type_client=?,entreprise=?,matricule_fiscal=?,actif=?,notes=?,adresse=?,franchise_id=? WHERE id=?",
-                [$_POST['nom'], $_POST['prenom']??'', $_POST['telephone']??'', $_POST['email']??'', $_POST['type_client']??'passager', $_POST['entreprise']??'', $_POST['matricule_fiscal']??'', $_POST['actif']??1, strParam('notes',1000), strParam('adresse'), $upd_fid, $_POST['client_id']]);
+            execute("UPDATE clients SET nom=?,prenom=?,telephone=?,telephone2=?,email=?,type_client=?,entreprise=?,matricule_fiscal=?,cin=?,actif=?,notes=?,adresse=?,franchise_id=? WHERE id=?",
+                [$_POST['nom'], $_POST['prenom']??'', $_POST['telephone']??'', $_POST['telephone2']??'', $_POST['email']??'', $_POST['type_client']??'passager', $_POST['entreprise']??'', $_POST['matricule_fiscal']??'', $_POST['cin']??'', $_POST['actif']??1, strParam('notes',1000), strParam('adresse'), $upd_fid, $_POST['client_id']]);
         } else {
-            execute("UPDATE clients SET nom=?,prenom=?,telephone=?,email=?,type_client=?,entreprise=?,matricule_fiscal=?,actif=?,notes=?,adresse=? WHERE id=?",
-                [$_POST['nom'], $_POST['prenom']??'', $_POST['telephone']??'', $_POST['email']??'', $_POST['type_client']??'passager', $_POST['entreprise']??'', $_POST['matricule_fiscal']??'', $_POST['actif']??1, strParam('notes',1000), strParam('adresse'), $_POST['client_id']]);
+            execute("UPDATE clients SET nom=?,prenom=?,telephone=?,telephone2=?,email=?,type_client=?,entreprise=?,matricule_fiscal=?,cin=?,actif=?,notes=?,adresse=? WHERE id=?",
+                [$_POST['nom'], $_POST['prenom']??'', $_POST['telephone']??'', $_POST['telephone2']??'', $_POST['email']??'', $_POST['type_client']??'passager', $_POST['entreprise']??'', $_POST['matricule_fiscal']??'', $_POST['cin']??'', $_POST['actif']??1, strParam('notes',1000), strParam('adresse'), $_POST['client_id']]);
         }
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Client mis à jour!'];
         auditLog('edit_client', 'client', $_POST['client_id'], ['nom'=>$_POST['nom']]);
@@ -746,15 +746,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: index.php?page=produits"); exit;
     }
     elseif ($action === 'add_fournisseur' && can('add_fournisseur')) {
-        execute("INSERT INTO fournisseurs (nom,telephone,email,adresse,ice) VALUES (?,?,?,?,?)",
-            [strParam('nom'), strParam('telephone',50), strParam('email',100), strParam('adresse'), strParam('ice',50)]);
+        execute("INSERT INTO fournisseurs (nom,telephone,telephone2,email,adresse,ice) VALUES (?,?,?,?,?,?)",
+            [strParam('nom'), strParam('telephone',50), strParam('telephone2',50), strParam('email',100), strParam('adresse'), strParam('ice',50)]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Fournisseur ajouté!'];
         auditLog('add_fournisseur', 'fournisseur', db()->lastInsertId());
         $page = 'fournisseurs';
     }
     elseif ($action === 'edit_fournisseur' && can('edit_fournisseur')) {
-        execute("UPDATE fournisseurs SET nom=?,telephone=?,email=?,adresse=?,ice=?,actif=? WHERE id=?",
-            [strParam('nom'), strParam('telephone',50), strParam('email',100), strParam('adresse'), strParam('ice',50), intval($_POST['actif'] ?? 1), intval($_POST['id'])]);
+        execute("UPDATE fournisseurs SET nom=?,telephone=?,telephone2=?,email=?,adresse=?,ice=?,actif=? WHERE id=?",
+            [strParam('nom'), strParam('telephone',50), strParam('telephone2',50), strParam('email',100), strParam('adresse'), strParam('ice',50), intval($_POST['actif'] ?? 1), intval($_POST['id'])]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Fournisseur mis à jour!'];
         $page = 'fournisseurs';
     }
@@ -4129,13 +4129,17 @@ elseif ($page === 'clients'):
         </div>
         <div class="grid grid-cols-2 gap-3">
             <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">📞 Téléphone</label><input name="telephone" type="tel" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="+216 XX XXX XXX"></div>
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">📞 Tél 2 (optionnel)</label><input name="telephone2" type="tel" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="2ème numéro"></div>
+        </div>
+        <div class="grid grid-cols-3 gap-3">
             <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">✉️ Email</label><input name="email" type="email" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="email@exemple.com"></div>
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">🪪 CIN</label><input name="cin" type="text" maxlength="8" pattern="[0-9]{8}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="12345678"></div>
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">📋 Matricule fiscal</label><input name="matricule_fiscal" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="0000000/X/X/X/000"></div>
         </div>
         <div class="grid grid-cols-2 gap-3">
             <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">🏢 Entreprise</label><input name="entreprise" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="Nom entreprise"></div>
-            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">📋 Matricule fiscal</label><input name="matricule_fiscal" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="0000000/X/X/X/000"></div>
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">📍 Adresse</label><input name="adresse" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="Adresse complète"></div>
         </div>
-        <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">📍 Adresse</label><input name="adresse" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="Adresse complète"></div>
         <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">📝 Notes</label><textarea name="notes" rows="2" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="Notes internes..."></textarea></div>
         <button type="submit" class="w-full py-2.5 rounded-xl bg-asel hover:bg-asel-dark text-white font-bold text-sm transition-colors"><i class="bi bi-check-circle"></i> Ajouter le client</button>
     </form>
@@ -4200,9 +4204,11 @@ elseif ($page === 'clients'):
                             <div><label class="text-[10px] font-bold text-gray-400">Nom</label><input name="nom" value="<?=e($c['nom'])?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
                             <div><label class="text-[10px] font-bold text-gray-400">Prénom</label><input name="prenom" value="<?=e($c['prenom']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
                             <div><label class="text-[10px] font-bold text-gray-400">Téléphone</label><input name="telephone" value="<?=e($c['telephone']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
-                            <div><label class="text-[10px] font-bold text-gray-400">Email</label><input name="email" value="<?=e($c['email']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
+                            <div><label class="text-[10px] font-bold text-gray-400">Tél 2</label><input name="telephone2" value="<?=e($c['telephone2']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
                         </div>
-                        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        <div class="grid grid-cols-2 sm:grid-cols-6 gap-2">
+                            <div><label class="text-[10px] font-bold text-gray-400">Email</label><input name="email" value="<?=e($c['email']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
+                            <div><label class="text-[10px] font-bold text-gray-400">🪪 CIN</label><input name="cin" value="<?=e($c['cin']??'')?>" maxlength="8" pattern="[0-9]{8}" class="w-full border rounded-lg px-2 py-1.5 text-sm" placeholder="12345678"></div>
                             <div><label class="text-[10px] font-bold text-gray-400">Type</label>
                                 <select name="type_client" class="w-full border rounded-lg px-2 py-1.5 text-sm">
                                     <option value="passager" <?=$c['type_client']==='passager'?'selected':''?>>Passager</option>
@@ -4212,7 +4218,6 @@ elseif ($page === 'clients'):
                             </div>
                             <div><label class="text-[10px] font-bold text-gray-400">Entreprise</label><input name="entreprise" value="<?=e($c['entreprise']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
                             <div><label class="text-[10px] font-bold text-gray-400">MF</label><input name="matricule_fiscal" value="<?=e($c['matricule_fiscal']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
-                            <div><label class="text-[10px] font-bold text-gray-400">Adresse</label><input name="adresse" value="<?=e($c['adresse']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
                             <div><label class="text-[10px] font-bold text-gray-400">Actif</label>
                                 <select name="actif" class="w-full border rounded-lg px-2 py-1.5 text-sm">
                                     <option value="1" <?=$c['actif']?'selected':''?>>Oui</option>
@@ -4220,6 +4225,7 @@ elseif ($page === 'clients'):
                                 </select>
                             </div>
                         </div>
+                        <div><label class="text-[10px] font-bold text-gray-400">Adresse</label><input name="adresse" value="<?=e($c['adresse']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
                         <div class="flex gap-2">
                             <button type="submit" class="bg-asel text-white px-4 py-1.5 rounded-lg text-xs font-bold"><i class="bi bi-check-circle"></i> Enregistrer</button>
                             <button type="button" onclick="document.getElementById('editRow<?=$c['id']?>').classList.add('hidden')" class="bg-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-bold">Annuler</button>
