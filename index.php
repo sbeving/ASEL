@@ -4067,10 +4067,6 @@ document.addEventListener('keydown', e => {
 // CLIENTS
 // =====================================================
 elseif ($page === 'clients'):
-    // Handle add client
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_client') {
-        // Already handled above
-    }
     $cl_where = "";
     $cl_params = [];
     if (!can('view_all_franchises')) {
@@ -4084,6 +4080,7 @@ elseif ($page === 'clients'):
         COALESCE((SELECT SUM(prix_total) FROM ventes WHERE client_id=c.id),0) as total_achats,
         COALESCE((SELECT SUM(montant) FROM echeances WHERE client_id=c.id AND statut IN ('en_attente','en_retard')),0) as solde_du
         FROM clients c LEFT JOIN franchises f ON c.franchise_id=f.id $cl_where ORDER BY c.date_creation DESC LIMIT 200", $cl_params);
+    $en_retard = query("SELECT e.*,c.nom as client_nom,c.prenom as client_prenom,c.telephone as client_tel FROM echeances e JOIN clients c ON e.client_id=c.id WHERE e.statut='en_retard' ORDER BY e.date_echeance ASC LIMIT 20") ?? [];
 ?>
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-person-lines-fill text-asel"></i> Clients <span class="text-sm font-normal text-gray-400">(<?=count($clients)?>)</span></h1>
@@ -4092,32 +4089,80 @@ elseif ($page === 'clients'):
         <form class="flex gap-2 items-center">
             <input type="hidden" name="page" value="clients">
             <select name="fid" class="border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm" onchange="this.form.submit()">
-                <option value="">👥 Tous les clients</option>
+                <option value="">👥 Tous</option>
                 <?php foreach($allFranchises as $af): ?>
                 <option value="<?=$af['id']?>" <?=$fid==$af['id']?'selected':''?>><?=shortF($af['nom'])?></option>
                 <?php endforeach; ?>
             </select>
         </form>
         <?php endif; ?>
-        <button onclick="openQuickAddClient()" class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-bold"><i class="bi bi-person-plus"></i> Nouveau client</button>
-        <a href="api.php?action=export_clients" class="bg-white border-2 border-asel text-asel font-semibold px-3 py-1.5 rounded-lg text-xs hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export</a>
+        <button onclick="document.getElementById('addClientForm').classList.toggle('hidden')" class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-bold"><i class="bi bi-person-plus"></i> Nouveau client</button>
     </div>
 </div>
-<!-- Client search -->
+
+<!-- ADD CLIENT FORM (toggle, no JS modal needed) -->
+<div id="addClientForm" class="hidden mb-4 bg-white rounded-2xl shadow-sm border-2 border-asel/30 overflow-hidden">
+    <div class="bg-gradient-to-r from-asel-dark to-asel text-white px-5 py-3 flex justify-between items-center">
+        <h3 class="font-bold flex items-center gap-2"><i class="bi bi-person-plus"></i> Nouveau client</h3>
+        <button onclick="document.getElementById('addClientForm').classList.add('hidden')" class="text-white/70 hover:text-white text-xl">&times;</button>
+    </div>
+    <form method="POST" class="p-5 space-y-3">
+        <input type="hidden" name="_csrf" value="<?=$csrf?>">
+        <input type="hidden" name="action" value="add_client">
+        <?php if(can('view_all_franchises')): ?>
+        <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Franchise</label>
+            <select name="franchise_id" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel">
+                <?php foreach($allFranchises as $af): ?><option value="<?=$af['id']?>"><?=shortF($af['nom'])?></option><?php endforeach; ?>
+            </select>
+        </div>
+        <?php endif; ?>
+        <div class="grid grid-cols-2 gap-3">
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Nom *</label><input name="nom" required class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="Nom de famille"></div>
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Prénom</label><input name="prenom" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="Prénom"></div>
+        </div>
+        <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Type</label>
+            <select name="type_client" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel">
+                <option value="passager">🚶 Passager</option><option value="boutique">🏪 Client boutique</option><option value="entreprise">🏢 Entreprise</option>
+            </select>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">📞 Téléphone</label><input name="telephone" type="tel" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="+216 XX XXX XXX"></div>
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">✉️ Email</label><input name="email" type="email" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="email@exemple.com"></div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">🏢 Entreprise</label><input name="entreprise" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="Nom entreprise"></div>
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">📋 Matricule fiscal</label><input name="matricule_fiscal" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="0000000/X/X/X/000"></div>
+        </div>
+        <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">📍 Adresse</label><input name="adresse" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="Adresse complète"></div>
+        <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">📝 Notes</label><textarea name="notes" rows="2" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="Notes internes..."></textarea></div>
+        <button type="submit" class="w-full py-2.5 rounded-xl bg-asel hover:bg-asel-dark text-white font-bold text-sm transition-colors"><i class="bi bi-check-circle"></i> Ajouter le client</button>
+    </form>
+</div>
+
+<!-- Search -->
 <div class="relative mb-4">
     <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
     <input type="text" id="clientSearch" class="w-full pl-10 pr-4 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:border-asel" placeholder="Rechercher nom, téléphone, email, entreprise..." oninput="filterClients()">
     <span id="clientCount" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400"></span>
 </div>
 
+<!-- Client table -->
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <div class="overflow-x-auto"><table class="w-full text-sm">
-        <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Nom</th><th class="px-3 py-3 hidden sm:table-cell">Tél</th><th class="px-3 py-3">Type</th><?php if(can('view_all_franchises')): ?><th class="px-3 py-3 hidden md:table-cell">Franchise</th><?php endif; ?><th class="px-3 py-3 hidden md:table-cell">Entreprise</th><th class="px-3 py-3 text-right hidden sm:table-cell">Total achats</th><th class="px-3 py-3 text-right hidden sm:table-cell">Solde dû</th><th class="px-3 py-3">Date</th><th class="px-3 py-3">Actions</th></tr></thead>
-        <tbody class="divide-y"><?php foreach ($clients as $c): $tb=['passager'=>'bg-gray-100','boutique'=>'bg-blue-100 text-blue-800','entreprise'=>'bg-purple-100 text-purple-800']; ?>
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider">
+            <th class="px-3 py-3 text-left">Nom</th>
+            <th class="px-3 py-3 hidden sm:table-cell">Tél</th>
+            <th class="px-3 py-3">Type</th>
+            <?php if(can('view_all_franchises')): ?><th class="px-3 py-3 hidden md:table-cell">Franchise</th><?php endif; ?>
+            <th class="px-3 py-3 hidden md:table-cell">Entreprise</th>
+            <th class="px-3 py-3 text-right hidden sm:table-cell">Achats</th>
+            <th class="px-3 py-3 text-right hidden sm:table-cell">Solde dû</th>
+            <th class="px-3 py-3">Actions</th>
+        </tr></thead>
+        <tbody class="divide-y">
+        <?php foreach ($clients as $c): $tb=['passager'=>'bg-gray-100','boutique'=>'bg-blue-100 text-blue-800','entreprise'=>'bg-purple-100 text-purple-800']; ?>
             <tr class="hover:bg-gray-50 client-row" data-search="<?=e(strtolower($c['nom'].' '.($c['prenom']??'').' '.$c['telephone'].' '.$c['email'].' '.($c['entreprise']??'').' '.$c['type_client']))?>">
-                <td class="px-3 py-2 font-medium">
-                    <button onclick="openClientProfile(<?=$c['id']?>,'<?=ejs($c['nom'].' '.($c['prenom']??''))?>')" class="text-left hover:text-asel font-medium"><?=e($c['nom'].' '.($c['prenom']??''))?></button>
-                </td>
+                <td class="px-3 py-2 font-medium"><?=e($c['nom'].' '.($c['prenom']??''))?></td>
                 <td class="px-3 py-2 hidden sm:table-cell"><a href="tel:<?=e($c['telephone'])?>" class="text-asel"><?=e($c['telephone'])?></a></td>
                 <td class="px-3 py-2"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?=$tb[$c['type_client']]??''?>"><?=$c['type_client']?></span></td>
                 <?php if(can('view_all_franchises')): ?><td class="px-3 py-2 text-xs hidden md:table-cell"><?=e(shortF($c['fnom']??'—'))?></td><?php endif; ?>
@@ -4126,193 +4171,68 @@ elseif ($page === 'clients'):
                 <td class="px-3 py-2 text-right text-xs hidden sm:table-cell">
                     <?php if($c['solde_du']>0): ?><span class="font-bold text-red-600"><?=number_format($c['solde_du'],2)?> DT</span><?php else: ?><span class="text-green-500">✓</span><?php endif; ?>
                 </td>
-                <td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m/Y',strtotime($c['date_creation']))?></td>
                 <td class="px-3 py-2 flex gap-1">
-                    <button onclick="openClientProfile(<?=$c['id']?>,'<?=ejs($c['nom'].' '.($c['prenom']??''))?>')" class="text-gray-400 hover:text-asel p-1" title="Profil"><i class="bi bi-person-lines-fill text-sm"></i></button>
-                    <button class="text-gray-400 hover:text-asel p-1 edit-client-btn" title="Modifier"
-                        data-id="<?=$c['id']?>"
-                        data-nom="<?=e($c['nom'])?>"
-                        data-prenom="<?=e($c['prenom']??'')?>"
-                        data-tel="<?=e($c['telephone']??'')?>"
-                        data-email="<?=e($c['email']??'')?>"
-                        data-type="<?=$c['type_client']?>"
-                        data-entreprise="<?=e($c['entreprise']??'')?>"
-                        data-mf="<?=e($c['matricule_fiscal']??'')?>"
-                        data-adresse="<?=e($c['adresse']??'')?>"
-                        data-notes="<?=e($c['notes']??'')?>"
-                        data-actif="<?=$c['actif']?>"
-                    ><i class="bi bi-pencil text-sm"></i></button>
+                    <button onclick="document.getElementById('editRow<?=$c['id']?>').classList.toggle('hidden')" class="text-gray-400 hover:text-asel p-1" title="Modifier"><i class="bi bi-pencil text-sm"></i></button>
                 </td>
             </tr>
-        <?php endforeach; ?></tbody>
+            <!-- INLINE EDIT ROW -->
+            <tr id="editRow<?=$c['id']?>" class="hidden bg-gradient-to-r from-blue-50 to-white">
+                <td colspan="<?=can('view_all_franchises')?'8':'7'?>" class="px-4 py-3">
+                    <form method="POST" class="space-y-2">
+                        <input type="hidden" name="_csrf" value="<?=$csrf?>">
+                        <input type="hidden" name="action" value="edit_client">
+                        <input type="hidden" name="client_id" value="<?=$c['id']?>">
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <div><label class="text-[10px] font-bold text-gray-400">Nom</label><input name="nom" value="<?=e($c['nom'])?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
+                            <div><label class="text-[10px] font-bold text-gray-400">Prénom</label><input name="prenom" value="<?=e($c['prenom']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
+                            <div><label class="text-[10px] font-bold text-gray-400">Téléphone</label><input name="telephone" value="<?=e($c['telephone']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
+                            <div><label class="text-[10px] font-bold text-gray-400">Email</label><input name="email" value="<?=e($c['email']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
+                        </div>
+                        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                            <div><label class="text-[10px] font-bold text-gray-400">Type</label>
+                                <select name="type_client" class="w-full border rounded-lg px-2 py-1.5 text-sm">
+                                    <option value="passager" <?=$c['type_client']==='passager'?'selected':''?>>Passager</option>
+                                    <option value="boutique" <?=$c['type_client']==='boutique'?'selected':''?>>Boutique</option>
+                                    <option value="entreprise" <?=$c['type_client']==='entreprise'?'selected':''?>>Entreprise</option>
+                                </select>
+                            </div>
+                            <div><label class="text-[10px] font-bold text-gray-400">Entreprise</label><input name="entreprise" value="<?=e($c['entreprise']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
+                            <div><label class="text-[10px] font-bold text-gray-400">MF</label><input name="matricule_fiscal" value="<?=e($c['matricule_fiscal']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
+                            <div><label class="text-[10px] font-bold text-gray-400">Adresse</label><input name="adresse" value="<?=e($c['adresse']??'')?>" class="w-full border rounded-lg px-2 py-1.5 text-sm"></div>
+                            <div><label class="text-[10px] font-bold text-gray-400">Actif</label>
+                                <select name="actif" class="w-full border rounded-lg px-2 py-1.5 text-sm">
+                                    <option value="1" <?=$c['actif']?'selected':''?>>Oui</option>
+                                    <option value="0" <?=!$c['actif']?'selected':''?>>Non</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex gap-2">
+                            <button type="submit" class="bg-asel text-white px-4 py-1.5 rounded-lg text-xs font-bold"><i class="bi bi-check-circle"></i> Enregistrer</button>
+                            <button type="button" onclick="document.getElementById('editRow<?=$c['id']?>').classList.add('hidden')" class="bg-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-bold">Annuler</button>
+                        </div>
+                    </form>
+                </td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody>
     </table></div>
 </div>
 
-<script>function filterClients(){const q=document.getElementById('clientSearch').value.toLowerCase();const rows=document.querySelectorAll('.client-row');let v=0;rows.forEach(r=>{const m=!q||r.dataset.search.includes(q);r.style.display=m?'':'none';const er=r.nextElementSibling;if(er&&er.id&&er.id.startsWith('ec')&&!m)er.style.display='none';if(m)v++;});document.getElementById('clientCount').textContent=q?v+'/'+rows.length:'';}
-
-function bulkWhatsAppReminder() {
-    const overdue = <?=json_encode(array_map(fn($e) => [
-        'nom' => $e['client_nom'].' '.($e['client_prenom']??''),
-        'tel' => $e['client_tel'],
-        'montant' => number_format($e['montant'],2),
-        'date' => date('d/m/Y', strtotime($e['date_echeance']))
-    ], array_values($en_retard)))?>;
-    
-    if(!overdue.length) { showToast('Aucun en retard', 'info'); return; }
-    
-    let rows = overdue.map((e, i) => 
-        `<div class="flex items-center gap-2 py-1.5 border-b text-sm">
-            <span class="flex-1 font-medium">${e.nom}</span>
-            <span class="text-red-600 font-bold">${e.montant} DT</span>
-            ${e.tel ? `<a href="https://wa.me/${e.tel.replace(/[^0-9]/g,'')}?text=${encodeURIComponent('Bonjour '+e.nom+', votre versement de '+e.montant+' DT était dû le '+e.date+'. Merci de régulariser — ASEL Mobile')}" target="_blank" class="bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-lg"><i class="bi bi-whatsapp"></i></a>` : '<span class="text-gray-300 text-xs">Sans tél.</span>'}
-        </div>`
-    ).join('');
-    
-    openModal(modalHeader('bi-whatsapp','Rappels en retard','Envoyer via WhatsApp') +
-        `<div class="p-5">${rows}
-        <p class="text-xs text-gray-400 mt-3">Cliquez sur le bouton vert pour ouvrir WhatsApp avec le message pré-rempli.</p>
-        <button onclick="closeModal()" class="w-full mt-4 py-2.5 rounded-xl bg-gray-200 font-semibold text-sm">Fermer</button>
-        </div>`,
-        {size: 'max-w-md'}
-    );
-}
-
-function openClientProfile(cid, nom) {
-    openModal(modalHeader('bi-person-lines-fill', nom, 'Profil client & historique') +
-        `<div class="p-5" id="clientProfileContent"><div class="text-center py-8 text-gray-400"><i class="bi bi-hourglass-split text-2xl animate-spin block mb-2"></i>Chargement...</div></div>`,
-        {size: 'max-w-lg'}
-    );
-    fetch('api.php?action=client_profile&id=' + cid)
-        .then(r => r.json())
-        .then(d => {
-            if(!d.client) return;
-            const c = d.client;
-            const du = d.echeances_pending?.reduce((s,e)=>s+parseFloat(e.montant),0) || 0;
-            let ecHtml = d.echeances_pending?.length ? d.echeances_pending.map(e =>
-                `<div class="flex justify-between py-1.5 border-b text-sm"><span>${e.date_label} <span class="text-xs text-gray-400">${e.note||''}</span></span><span class="font-bold text-red-600">${parseFloat(e.montant).toFixed(2)} DT</span></div>`
-            ).join('') : '<div class="text-gray-400 text-sm py-2 text-center">Aucune échéance en attente ✅</div>';
-            let ventesHtml = d.ventes?.length ? d.ventes.slice(0,5).map(v =>
-                `<div class="flex justify-between py-1.5 border-b text-sm"><span class="text-gray-600">${v.date_label}</span><span class="font-bold">${parseFloat(v.total).toFixed(2)} DT</span></div>`
-            ).join('') : '<div class="text-gray-400 text-sm py-2 text-center">Aucun achat enregistré</div>';
-            
-            document.getElementById('clientProfileContent').innerHTML = `
-                <div class="grid grid-cols-2 gap-3 mb-4">
-                    <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-400">Téléphone</div><a href="tel:${c.telephone}" class="font-bold text-asel">${c.telephone||'—'}</a></div>
-                    <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-400">Type</div><span class="font-bold">${c.type_client}</span></div>
-                    ${c.entreprise?`<div class="bg-gray-50 rounded-lg p-3 col-span-2"><div class="text-xs text-gray-400">Entreprise · MF</div><span class="font-bold">${c.entreprise}</span> ${c.matricule_fiscal?`<span class="text-xs font-mono text-gray-500">· ${c.matricule_fiscal}</span>`:''}  </div>`:''}
-                </div>
-                ${du > 0 ? `<div class="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 flex justify-between items-center"><span class="font-bold text-red-700">💰 Solde dû</span><span class="text-xl font-black text-red-600">${du.toFixed(2)} DT</span></div>` : ''}
-                <div class="mb-4"><div class="font-bold text-sm mb-2 text-gray-700">Échéances en attente</div>${ecHtml}</div>
-                <div><div class="font-bold text-sm mb-2 text-gray-700">Derniers achats</div>${ventesHtml}</div>
-                <a href="?page=echeances" class="mt-4 w-full flex items-center justify-center gap-2 py-2 rounded-xl border-2 border-asel text-asel font-bold text-sm hover:bg-asel hover:text-white transition-colors"><i class="bi bi-credit-card"></i> Voir toutes les échéances</a>
-                ${d.client.notes ? `<div class="mt-3 bg-yellow-50 rounded-xl p-3 text-sm text-gray-700"><i class="bi bi-sticky text-yellow-500"></i> <b>Notes:</b> ${d.client.notes}</div>` : ''}
-            `;
-        })
-        .catch(() => document.getElementById('clientProfileContent').innerHTML = '<div class="p-4 text-red-500 text-sm text-center">Erreur lors du chargement</div>');
-}
-
-function openQuickAddClientLocal() {
-    const csrf = '<?=$csrf?>';
-    const isAdmin = <?=can('view_all_franchises')?'true':'false'?>;
-    const franchises = <?=json_encode(array_map(fn($f)=>['value'=>$f['id'],'label'=>shortF($f['nom'])], $allFranchises ?? []))?>;
-    
-    let ff = '';
-    if (isAdmin && typeof modalField === 'function') {
-        ff = modalField('Franchise', 'franchise_id', 'select', '', '', franchises);
-    }
-    
-    if (typeof openModal !== 'function') {
-        alert('Erreur: système de modals non chargé. Rechargez la page.');
-        return;
-    }
-    
-    openModal(
-        modalHeader('bi-person-plus', 'Nouveau client', 'Ajouter un client') +
-        `<form method="POST" class="p-6 space-y-4" onsubmit="this.querySelector('button[type=submit]').disabled=true">
-        <input type="hidden" name="_csrf" value="${csrf}">
-        <input type="hidden" name="action" value="add_client">
-        ${ff}
-        <div class="grid grid-cols-2 gap-3">
-            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Nom *</label><input name="nom" required class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="Nom"></div>
-            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Prénom</label><input name="prenom" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="Prénom"></div>
-        </div>
-        <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Type</label>
-            <select name="type_client" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel">
-                <option value="passager">Passager</option><option value="boutique">Client boutique</option><option value="entreprise">Entreprise</option>
-            </select>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Téléphone</label><input name="telephone" type="tel" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="+216"></div>
-            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Email</label><input name="email" type="email" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="email@..."></div>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Entreprise</label><input name="entreprise" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
-            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Matricule fiscal</label><input name="matricule_fiscal" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
-        </div>
-        <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Adresse</label><input name="adresse" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
-        <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Notes</label><textarea name="notes" rows="2" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></textarea></div>
-        <div class="flex gap-3 pt-2">
-            <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm">Annuler</button>
-            <button type="submit" class="flex-1 py-2.5 rounded-xl bg-asel text-white font-semibold text-sm">✅ Ajouter</button>
-        </div></form>`
-    );
-}
-
-// Override global function name for this page
-window.openQuickAddClient = openQuickAddClientLocal;
-
-// Edit client via data attributes
-document.querySelectorAll('.edit-client-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-        const d = this.dataset;
-        if (typeof openModal !== 'function') { alert('Rechargez la page'); return; }
-        openModal(
-            modalHeader('bi-pencil-square', 'Modifier client', d.nom + ' ' + d.prenom) +
-            `<form method="POST" class="p-6 space-y-4" onsubmit="this.querySelector('button[type=submit]').disabled=true">
-            <input type="hidden" name="_csrf" value="<?=$csrf?>">
-            <input type="hidden" name="action" value="edit_client">
-            <input type="hidden" name="client_id" value="${d.id}">
-            <div class="grid grid-cols-2 gap-3">
-                <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Nom *</label><input name="nom" value="${d.nom}" required class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
-                <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Prénom</label><input name="prenom" value="${d.prenom}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
-            </div>
-            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Type</label>
-                <select name="type_client" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel">
-                    <option value="passager" ${d.type==='passager'?'selected':''}>Passager</option>
-                    <option value="boutique" ${d.type==='boutique'?'selected':''}>Client boutique</option>
-                    <option value="entreprise" ${d.type==='entreprise'?'selected':''}>Entreprise</option>
-                </select>
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-                <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Téléphone</label><input name="telephone" value="${d.tel}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
-                <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Email</label><input name="email" value="${d.email}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-                <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Entreprise</label><input name="entreprise" value="${d.entreprise}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
-                <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Matricule fiscal</label><input name="matricule_fiscal" value="${d.mf}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
-            </div>
-            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Adresse</label><input name="adresse" value="${d.adresse}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
-            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Notes</label><textarea name="notes" rows="2" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel">${d.notes}</textarea></div>
-            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Actif</label>
-                <select name="actif" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel">
-                    <option value="1" ${d.actif=='1'?'selected':''}>Oui</option>
-                    <option value="0" ${d.actif=='0'?'selected':''}>Non</option>
-                </select>
-            </div>
-            <div class="flex gap-3 pt-2">
-                <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm">Annuler</button>
-                <button type="submit" class="flex-1 py-2.5 rounded-xl bg-asel text-white font-semibold text-sm">💾 Enregistrer</button>
-            </div></form>`,
-            {size: 'max-w-lg'}
-        );
+<script>
+function filterClients(){
+    const q=document.getElementById('clientSearch').value.toLowerCase();
+    const rows=document.querySelectorAll('.client-row');
+    let v=0;
+    rows.forEach(r=>{
+        const m=!q||r.dataset.search.includes(q);
+        r.style.display=m?'':'none';
+        if(m)v++;
     });
-});
+    document.getElementById('clientCount').textContent=q?v+'/'+rows.length:'';
+}
 </script>
 
 <?php
-// =====================================================
-// SERVICES
-// =====================================================
 elseif ($page === 'services'):
     $services = query("SELECT * FROM services WHERE actif=1 ORDER BY categorie_service,nom");
     $prestations = query("SELECT p.*,s.nom as snom,f.nom as fnom,u.nom_complet as technicien FROM prestations p JOIN services s ON p.service_id=s.id JOIN franchises f ON p.franchise_id=f.id LEFT JOIN utilisateurs u ON p.utilisateur_id=u.id ORDER BY p.date_prestation DESC LIMIT 30");
