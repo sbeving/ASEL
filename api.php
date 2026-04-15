@@ -330,6 +330,15 @@ case 'global_search':
     echo json_encode(['results'=>array_slice($results, 0, 10)]);
     exit;
 
+case 'get_product_image':
+    $pid = intval($_GET['id'] ?? 0);
+    if (!$pid) { echo json_encode(['error'=>'no id']); exit; }
+    try {
+        $img = queryOne("SELECT image_base64 FROM produits WHERE id=?", [$pid]);
+        echo json_encode(['image' => $img['image_base64'] ?? null]);
+    } catch(Exception $e) { echo json_encode(['image'=>null]); }
+    exit;
+
 case 'get_product_fournisseurs':
     $pid = intval($_GET['produit_id'] ?? 0);
     if (!$pid) { echo json_encode([]); exit; }

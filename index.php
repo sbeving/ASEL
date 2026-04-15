@@ -281,10 +281,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pv_ht = floatval($_POST['prix_vente_ht'] ?? 0);
         $pa_ttc = $pa_ht > 0 ? round($pa_ht * (1 + $tva/100), 2) : floatval($_POST['prix_achat']);
         $pv_ttc = $pv_ht > 0 ? round($pv_ht * (1 + $tva/100), 2) : floatval($_POST['prix_vente']);
-        execute("UPDATE produits SET nom=?,categorie_id=?,prix_achat=?,prix_vente=?,prix_achat_ht=?,prix_achat_ttc=?,prix_vente_ht=?,prix_vente_ttc=?,tva_rate=?,reference=?,code_barre=?,marque=?,seuil_alerte=?,description=? WHERE id=?",
-            [$nom, intval($_POST['categorie_id']), $pa_ttc, $pv_ttc, $pa_ht, $pa_ttc, $pv_ht, $pv_ttc, $tva,
+        
+        // Handle image upload
+        $image_sql = '';
+        $image_params = [];
+        if (!empty($_FILES['product_image']['tmp_name']) && is_uploaded_file($_FILES['product_image']['tmp_name'])) {
+            $allowed = ['image/jpeg','image/png','image/webp','image/gif'];
+            $ftype = $_FILES['product_image']['type'];
+            if (in_array($ftype, $allowed) && $_FILES['product_image']['size'] <= 2 * 1024 * 1024) {
+                $imgdata = file_get_contents($_FILES['product_image']['tmp_name']);
+                $b64 = 'data:' . $ftype . ';base64,' . base64_encode($imgdata);
+                $image_sql = ',image_base64=?';
+                $image_params = [$b64];
+            }
+        }
+        // Handle image removal
+        if (isset($_POST['remove_image']) && $_POST['remove_image'] === '1') {
+            $image_sql = ',image_base64=NULL';
+        }
+        
+        execute("UPDATE produits SET nom=?,categorie_id=?,prix_achat=?,prix_vente=?,prix_achat_ht=?,prix_achat_ttc=?,prix_vente_ht=?,prix_vente_ttc=?,tva_rate=?,reference=?,code_barre=?,marque=?,seuil_alerte=?,description=?$image_sql WHERE id=?",
+            array_merge([$nom, intval($_POST['categorie_id']), $pa_ttc, $pv_ttc, $pa_ht, $pa_ttc, $pv_ht, $pv_ttc, $tva,
              strParam('reference',50), strParam('code_barre',50), strParam('marque',50),
-             intval($_POST['seuil'] ?? 3), strParam('description',500), intval($_POST['produit_id'])]);
+             intval($_POST['seuil'] ?? 3), strParam('description',500)], $image_params, [intval($_POST['produit_id'])]));
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Produit mis à jour!'];
         auditLog('edit_produit', 'produit', intval($_POST['produit_id']), ['nom'=>$nom, 'pv_ttc'=>$pv_ttc]);
     }
@@ -958,9 +977,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pa_ttc = round($pa_ht * (1 + $tva_rate/100), 2);
         $pv_ttc = round($pv_ht * (1 + $tva_rate/100), 2);
         $scid = intval($_POST['sous_categorie_id']) ?: null;
-        execute("INSERT INTO produits (nom,categorie_id,sous_categorie_id,prix_achat,prix_vente,prix_achat_ht,prix_achat_ttc,prix_vente_ht,prix_vente_ttc,tva_rate,reference,code_barre,marque,fournisseur_id,description,seuil_alerte) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        
+        // Handle image
+        $img_b64 = null;
+        if (!empty($_FILES['product_image']['tmp_name']) && is_uploaded_file($_FILES['product_image']['tmp_name'])) {
+            $allowed = ['image/jpeg','image/png','image/webp','image/gif'];
+            if (in_array($_FILES['product_image']['type'], $allowed) && $_FILES['product_image']['size'] <= 2*1024*1024) {
+                $img_b64 = 'data:'.$_FILES['product_image']['type'].';base64,'.base64_encode(file_get_contents($_FILES['product_image']['tmp_name']));
+            }
+        }
+        execute("INSERT INTO produits (nom,categorie_id,sous_categorie_id,prix_achat,prix_vente,prix_achat_ht,prix_achat_ttc,prix_vente_ht,prix_vente_ttc,tva_rate,reference,code_barre,marque,fournisseur_id,description,seuil_alerte,image_base64) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [strParam('nom',150), intval($_POST['categorie_id']), $scid, $pa_ttc, $pv_ttc, $pa_ht, $pa_ttc, $pv_ht, $pv_ttc, $tva_rate,
-             strParam('reference',50), strParam('code_barre',50), strParam('marque',50), intval($_POST['fournisseur_id']) ?: null, strParam('description',500), intval($_POST['seuil_alerte'] ?? 3)]);
+             strParam('reference',50), strParam('code_barre',50), strParam('marque',50), intval($_POST['fournisseur_id']) ?: null, strParam('description',500), intval($_POST['seuil_alerte'] ?? 3), $img_b64]);
         $new_pid = db()->lastInsertId();
         // Create zero-stock entry for all active franchises
         foreach (query("SELECT id FROM franchises WHERE actif=1") as $f) {
@@ -3794,7 +3822,12 @@ function submitQuickCloture(ca, art) {
             ?>
                 <tr class="hover:bg-gray-50 prod-row" data-pid="<?=$p['id']?>" data-search="<?=e(strtolower($p['nom'].' '.$p['reference'].' '.$p['marque'].' '.$p['code_barre'].' '.$p['cat_nom']))?>">
                     <td class="px-2 py-1.5">
-                        <div class="font-medium text-sm"><?=e($p['nom'])?></div>
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 text-gray-300 overflow-hidden border" id="pimg<?=$p['id']?>">
+                                <i class="bi bi-image text-xs"></i>
+                            </div>
+                            <div class="font-medium text-sm"><?=e($p['nom'])?></div>
+                        </div>
                     </td>
                     <td class="px-2 py-1.5 text-xs font-mono text-gray-500"><?=e($p['reference'])?:'-'?></td>
                     <td class="px-2 py-1.5 text-xs hidden sm:table-cell"><span class="inline-flex px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px]"><?=e($p['cat_nom'])?></span></td>
@@ -7475,7 +7508,7 @@ function openQuickAddProduct(returnPage) {
     
     openModal(
         modalHeader('bi-plus-circle', 'Nouveau produit', 'Avec prix HT / TVA / TTC') +
-        `<form method=post class="p-6 space-y-3">
+        `<form method="POST" enctype="multipart/form-data" class="p-6 space-y-3">
         <input type=hidden name=_csrf value="${csrf}">
         <input type=hidden name=action value=add_produit_v2>
         <input type=hidden name=return_page value="${returnPage||'produits'}">
@@ -7921,7 +7954,7 @@ function openEditProduct(id, nom, catId, marque, ref, code, pa, pv, seuil, pa_ht
     
     openModal(
         modalHeader('bi-pencil', 'Modifier le produit', nom) +
-        `<form method="POST" class="p-5 space-y-3" id="editProdForm_${id}">
+        `<form method="POST" enctype="multipart/form-data" class="p-5 space-y-3" id="editProdForm_${id}">
             <input type="hidden" name="_csrf" value="${csrf}">
             <input type="hidden" name="action" value="edit_produit">
             <input type="hidden" name="produit_id" value="${id}">
@@ -7972,6 +8005,19 @@ function openEditProduct(id, nom, catId, marque, ref, code, pa, pv, seuil, pa_ht
                 modalField('Seuil alerte', 'seuil', 'number', seuil, '3'),
                 modalField('Description', 'description', 'text', description, 'Optionnel'),
             ])}
+            <div class="bg-gray-50 rounded-xl p-3 border">
+                <label class="text-[10px] font-bold text-gray-400 uppercase block mb-1">📸 Image produit</label>
+                <div class="flex items-center gap-3">
+                    <div id="ep_img_preview_${id}" class="w-16 h-16 rounded-lg bg-gray-200 flex items-center justify-center text-gray-400 text-2xl overflow-hidden shrink-0">
+                        ${window._prodImages && window._prodImages[id] ? '<img src="'+window._prodImages[id]+'" class="w-full h-full object-cover">' : '<i class="bi bi-image"></i>'}
+                    </div>
+                    <div class="flex-1">
+                        <input type="file" name="product_image" accept="image/jpeg,image/png,image/webp" class="text-xs w-full" onchange="previewImg(this, 'ep_img_preview_${id}')">
+                        <div class="text-[9px] text-gray-400 mt-1">Max 2MB · JPG, PNG, WebP</div>
+                    </div>
+                    ${window._prodImages && window._prodImages[id] ? '<label class="text-xs text-red-400 cursor-pointer"><input type="checkbox" name="remove_image" value="1" class="mr-1">Supprimer</label>' : ''}
+                </div>
+            </div>
             <div class="flex gap-3 pt-2">
                 <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm">Annuler</button>
                 <button type="submit" class="flex-1 py-2.5 rounded-xl bg-asel hover:bg-asel-dark text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors">
@@ -8029,6 +8075,30 @@ function epUpdateMarge(id, pa_ht, pv_ht, pa_ttc, pv_ttc) {
 
 // Legacy compat
 function epRecalc(id) { epRecalcFromHT(id); }
+
+// Image preview for file inputs
+function previewImg(input, previewId) {
+    var preview = document.getElementById(previewId);
+    if (!preview) return;
+    if (input.files && input.files[0]) {
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            preview.innerHTML = '<img src="' + e.target.result + '" class="w-full h-full object-cover">';
+        };
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+
+// Product images — loaded on demand via API
+window._prodImages = {};
+function loadProductImage(pid, callback) {
+    if (window._prodImages[pid]) { callback(window._prodImages[pid]); return; }
+    fetch('api.php?action=get_product_image&id=' + pid)
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+            if (d.image) { window._prodImages[pid] = d.image; callback(d.image); }
+        }).catch(function(){});
+}
 
 // === ADD USER MODAL ===
 function openAddUser() {
