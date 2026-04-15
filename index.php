@@ -119,11 +119,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $reste_a_etaler = max(0, $prix_lot - $especes_versees);
             
-            // Update facture total to reflect lot price if different
-            if (abs($prix_lot - $total_ttc) > 0.01) {
-                execute("UPDATE factures SET total_ttc=?,total_ht=?,remise_totale=?,montant_recu=?,monnaie=0 WHERE id=?",
-                    [$prix_lot, $prix_lot, 0, $especes_versees, $facture_id]);
-            }
+            // Always update facture with lot price and avance
+            execute("UPDATE factures SET total_ttc=?,total_ht=?,montant_recu=?,monnaie=0,mode_paiement='echeance' WHERE id=?",
+                [$prix_lot, $prix_lot, $especes_versees, $facture_id]);
             
             $montant_par = $nb_ech > 0 ? round($reste_a_etaler / $nb_ech, 2) : 0;
             $reste = round($reste_a_etaler - ($montant_par * ($nb_ech - 1)), 2);
@@ -1430,7 +1428,7 @@ if ($page === 'dashboard'):
     $vj = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t, COUNT(*) as n, COALESCE(SUM(v.quantite*p.prix_achat),0) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente=CURDATE() $wf");
     // Cash from echeance payments today + avances on lot sales today
     $echeances_cash_today = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM echeances WHERE statut='payee' AND DATE(date_paiement)=CURDATE() $wf_ech")['t'] ?? 0;
-    $avances_today = queryOne("SELECT COALESCE(SUM(f.montant_recu),0) as t FROM factures f WHERE f.mode_paiement='echeance' AND DATE(f.date_facture)=CURDATE() AND f.montant_recu > 0 $wf_fac")['t'] ?? 0;
+    $avances_today = queryOne("SELECT COALESCE(SUM(f.montant_recu),0) as t FROM factures f WHERE f.mode_paiement='echeance' AND DATE(f.date_facture)=? AND f.montant_recu > 0 $wf_fac", [date('Y-m-d')])['t'] ?? 0;
     $total_cash_today = $vj['t'] + $echeances_cash_today;
     $vm = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t, COUNT(*) as n, COALESCE(SUM(v.quantite*p.prix_achat),0) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE MONTH(v.date_vente)=MONTH(CURDATE()) AND YEAR(v.date_vente)=YEAR(CURDATE()) $wf");
     $vh = queryOne("SELECT COALESCE(SUM(prix_total),0) as t FROM ventes WHERE date_vente=DATE_SUB(CURDATE(), INTERVAL 1 DAY) $wf");
