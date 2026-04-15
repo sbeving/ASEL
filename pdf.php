@@ -131,15 +131,33 @@ if ($type === 'facture' && $id) {
     </div>
     
     <div class="payment-info">
-        <div><strong>Paiement:</strong> <?=$f['mode_paiement']?></div>
+        <div><strong>Paiement:</strong> <?=ucfirst(match($f['mode_paiement']){'especes'=>'Espèces','carte'=>'Carte bancaire','virement'=>'Virement','cheque'=>'Chèque','echeance'=>'Paiement par lot (échéances)',default=>$f['mode_paiement']})?></div>
         <?php if ($f['mode_paiement'] === 'especes'): ?>
         <div><strong>Reçu:</strong> <?=number_format($f['montant_recu'],2)?> DT</div>
-        <div><strong>Monnaie:</strong> <?=number_format($f['monnaie'],2)?> DT</div>
+        <?php if($f['monnaie']>0): ?><div><strong>Monnaie:</strong> <?=number_format($f['monnaie'],2)?> DT</div><?php endif; ?>
+        <?php elseif ($f['mode_paiement'] === 'echeance'): ?>
+        <?php if($f['montant_recu']>0): ?>
+        <div><strong>💰 Avance versée:</strong> <?=number_format($f['montant_recu'],2)?> DT</div>
+        <div><strong>Reste à payer:</strong> <?=number_format($f['total_ttc'] - $f['montant_recu'],2)?> DT</div>
+        <?php endif; ?>
+        <?php
+        $pdf_echeances = query("SELECT * FROM echeances WHERE facture_id=? ORDER BY date_echeance", [$id]);
+        if($pdf_echeances): ?>
+        <div style="margin-top:5px;font-weight:bold;font-size:10px">ÉCHÉANCIER:</div>
+        <table style="width:100%;font-size:9px;border-collapse:collapse;margin-top:3px">
+            <tr style="background:#f0f0f0"><th style="padding:2px 5px;text-align:left">N°</th><th style="padding:2px 5px;text-align:left">Date</th><th style="padding:2px 5px;text-align:right">Montant</th><th style="padding:2px 5px;text-align:center">Statut</th></tr>
+            <?php foreach($pdf_echeances as $i=>$ech): 
+                $ech_color = match($ech['statut']){'payee'=>'#059669','en_retard'=>'#DC2626',default=>'#D97706'};
+            ?>
+            <tr><td style="padding:2px 5px">Lot <?=($i+1)?></td><td style="padding:2px 5px"><?=date('d/m/Y',strtotime($ech['date_echeance']))?></td><td style="padding:2px 5px;text-align:right;font-weight:bold"><?=number_format($ech['montant'],2)?> DT</td><td style="padding:2px 5px;text-align:center;color:<?=$ech_color?>"><?=ucfirst(str_replace('_',' ',$ech['statut']))?></td></tr>
+            <?php endforeach; ?>
+        </table>
+        <?php endif; ?>
         <?php endif; ?>
     </div>
     
     <div class="footer">
-        <p>ASEL Mobile — <?=$f['franchise_nom']?> — <?=$f['franchise_adresse']?></p>
+        <p><?=str_replace('ASEL Mobile — ','',$f['franchise_nom'])?> — <?=$f['franchise_adresse']?></p>
         <p>Merci de votre confiance! 📱</p>
     </div>
 </body>
