@@ -7359,17 +7359,17 @@ function openQuickAddProduct(returnPage) {
         <div class="bg-blue-50 rounded-xl p-3 border border-blue-200">
             <div class="text-xs font-bold text-blue-700 mb-2"><i class="bi bi-calculator"></i> Prix d'achat</div>
             <div class="grid grid-cols-3 gap-2">
-                ${modalField('HT (DT)', 'prix_achat_ht', 'number', '', '0.00')}
+                <div><label class="text-xs font-bold text-gray-500">TTC (DT) *</label><input name="prix_achat_ttc_input" type="number" step="0.01" placeholder="0.00" class="w-full border-2 border-blue-300 rounded-xl px-3 py-2 text-sm font-bold focus:border-asel" id="pa_ttc_input"></div>
                 ${modalField('TVA %', 'tva_rate', 'number', '19', '')}
-                <div><label class="text-xs font-bold text-gray-500">TTC (DT)</label><input name=prix_achat_ttc_display id=pa_ttc_display readonly class="w-full border-2 border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-100 font-bold"></div>
+                <div><label class="text-xs font-bold text-gray-500">HT (auto)</label><input name="prix_achat_ht" id="pa_ht_display" readonly class="w-full border-2 border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-100"></div>
             </div>
         </div>
         <div class="bg-green-50 rounded-xl p-3 border border-green-200">
             <div class="text-xs font-bold text-green-700 mb-2"><i class="bi bi-tag"></i> Prix de vente</div>
             <div class="grid grid-cols-3 gap-2">
-                ${modalField('HT (DT)', 'prix_vente_ht', 'number', '', '0.00')}
-                <div><label class="text-xs font-bold text-gray-500">TVA %</label><input readonly class="w-full border-2 border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-100" id=tva_display></div>
-                <div><label class="text-xs font-bold text-gray-500">TTC (DT)</label><input name=prix_vente_ttc_display id=pv_ttc_display readonly class="w-full border-2 border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-100 font-bold text-green-700"></div>
+                <div><label class="text-xs font-bold text-gray-500">TTC (DT) *</label><input name="prix_vente_ttc_input" type="number" step="0.01" placeholder="0.00" class="w-full border-2 border-green-300 rounded-xl px-3 py-2 text-sm font-bold text-green-700 focus:border-asel" id="pv_ttc_input"></div>
+                <div><label class="text-xs font-bold text-gray-500">TVA %</label><input readonly class="w-full border-2 border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-100" id="tva_display"></div>
+                <div><label class="text-xs font-bold text-gray-500">HT (auto)</label><input name="prix_vente_ht" id="pv_ht_display" readonly class="w-full border-2 border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-100"></div>
             </div>
         </div>
         ${modalRow([
@@ -7388,18 +7388,20 @@ function openQuickAddProduct(returnPage) {
         {size: 'max-w-lg'}
     );
     
-    // Auto-calc TTC from HT + TVA
+    // Auto-calc HT from TTC + TVA
     function recalcPrices(){
         const tva = parseFloat(document.querySelector('[name=tva_rate]')?.value || 19);
-        const pa_ht = parseFloat(document.querySelector('[name=prix_achat_ht]')?.value || 0);
-        const pv_ht = parseFloat(document.querySelector('[name=prix_vente_ht]')?.value || 0);
-        document.getElementById('pa_ttc_display').value = (pa_ht * (1 + tva/100)).toFixed(2);
-        document.getElementById('pv_ttc_display').value = (pv_ht * (1 + tva/100)).toFixed(2);
+        const pa_ttc = parseFloat(document.getElementById('pa_ttc_input')?.value || 0);
+        const pv_ttc = parseFloat(document.getElementById('pv_ttc_input')?.value || 0);
+        const pa_ht = (pa_ttc / (1 + tva/100)).toFixed(2);
+        const pv_ht = (pv_ttc / (1 + tva/100)).toFixed(2);
+        document.getElementById('pa_ht_display').value = pa_ht;
+        document.getElementById('pv_ht_display').value = pv_ht;
         document.getElementById('tva_display').value = tva + '%';
     }
     setTimeout(()=>{
-        document.querySelector('[name=prix_achat_ht]')?.addEventListener('input', recalcPrices);
-        document.querySelector('[name=prix_vente_ht]')?.addEventListener('input', recalcPrices);
+        document.getElementById('pa_ttc_input')?.addEventListener('input', recalcPrices);
+        document.getElementById('pv_ttc_input')?.addEventListener('input', recalcPrices);
         document.querySelector('[name=tva_rate]')?.addEventListener('input', recalcPrices);
         recalcPrices();
     }, 100);

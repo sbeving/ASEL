@@ -33,7 +33,7 @@ define('PERMISSIONS', [
         'pointage', 'pointage_admin', 'import_phones',
         // Actions
         'vente', 'entree_stock', 'entree_multi_stock', 'transfert', 'transfert_valider',
-        'retour', 'cloture_submit', 'add_produit', 'edit_produit',
+        'retour', 'cloture_submit', 'add_produit', 'add_produit_v2', 'edit_produit',
         'demande_produit', 'traiter_demande', 'edit_user', 'add_user',
         'dispatch', 'export', 'add_client', 'edit_client', 'add_service',
         'edit_service', 'add_asel_product', 'edit_asel_product',
@@ -46,7 +46,7 @@ define('PERMISSIONS', [
         'points_reseau', 'add_point', 'edit_point', 'delete_point',
         'add_pointage', 'validate_pointage',
         'fournisseurs', 'add_fournisseur', 'edit_fournisseur',
-        'bons_reception', 'create_bon_reception', 'valider_bon_reception', 'validate_bon_reception', 'delete_bon_reception',
+        'bons_reception', 'create_bon_reception', 'edit_bon_reception', 'valider_bon_reception', 'validate_bon_reception', 'delete_bon_reception',
         'tresorerie', 'add_tresorerie', 'cloture_mensuelle',
         'familles_categories', 'add_famille', 'add_sous_categorie',
         // Scope
