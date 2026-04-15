@@ -829,6 +829,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $page = 'bons_reception';
     }
+    // === EDIT DRAFT BON DE RECEPTION ===
+    elseif ($action === 'edit_bon_reception' && can('create_bon_reception')) {
+        $bon_id = intval($_POST['bon_id']);
+        $bon = queryOne("SELECT * FROM bons_reception WHERE id=? AND statut='brouillon'", [$bon_id]);
+        if ($bon) {
+            $br_fid = can('view_all_franchises') ? intval($_POST['franchise_id']) : $bon['franchise_id'];
+            $br_fourn = intval($_POST['fournisseur_id']) ?: null;
+            $lignes = json_decode($_POST['lignes'], true);
+            $is_draft = ($_POST['save_as'] ?? '') === 'brouillon';
+            $total_ht = 0; $total_tva = 0; $total_ttc = 0;
+            foreach ($lignes as $l) {
+                $lht = floatval($l['prix_ht']) * intval($l['qty']);
+                $ltva = $lht * floatval($l['tva_rate'] ?? 19) / 100;
+                $total_ht += $lht; $total_tva += $ltva; $total_ttc += $lht + $ltva;
+            }
+            $statut = $is_draft ? 'brouillon' : 'valide';
+            // Update the bon
+            execute("UPDATE bons_reception SET franchise_id=?, fournisseur_id=?, total_ht=?, tva=?, total_ttc=?, statut=?, note=? WHERE id=?",
+                [$br_fid, $br_fourn, round($total_ht,2), round($total_tva,2), round($total_ttc,2), $statut, strParam('note'), $bon_id]);
+            // Delete old lines and insert new
+            execute("DELETE FROM bon_reception_lignes WHERE bon_id=?", [$bon_id]);
+            foreach ($lignes as $l) {
+                $pid = intval($l['produit_id']); $qty = intval($l['qty']);
+                $prix_ht = floatval($l['prix_ht']); $tva_r = floatval($l['tva_rate'] ?? 19);
+                $prix_ttc = round($prix_ht * (1 + $tva_r/100), 2);
+                execute("INSERT INTO bon_reception_lignes (bon_id,produit_id,quantite,prix_unitaire_ht,tva_rate,prix_unitaire_ttc,total_ht,total_ttc) VALUES (?,?,?,?,?,?,?,?)",
+                    [$bon_id, $pid, $qty, $prix_ht, $tva_r, $prix_ttc, round($prix_ht*$qty,2), round($prix_ttc*$qty,2)]);
+                if (!$is_draft) {
+                    execute("INSERT INTO stock (franchise_id,produit_id,quantite) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantite=quantite+VALUES(quantite)", [$br_fid, $pid, $qty]);
+                    execute("INSERT INTO mouvements (franchise_id,produit_id,type_mouvement,quantite,prix_unitaire,note,utilisateur_id) VALUES (?,?,'entree',?,?,?,?)",
+                        [$br_fid, $pid, $qty, $prix_ht, "BR ".$bon['numero']." (modifié)", $user['id']]);
+                }
+            }
+            if ($is_draft) {
+                $_SESSION['flash'] = ['type'=>'info','msg'=>"📝 Brouillon ".$bon['numero']." mis à jour."];
+            } else {
+                $_SESSION['flash'] = ['type'=>'success','msg'=>"✅ Bon ".$bon['numero']." validé! Stock mis à jour."];
+            }
+            auditLog('edit_bon', 'bon', $bon_id, ['numero'=>$bon['numero'], 'statut'=>$statut]);
+        } else {
+            $_SESSION['flash'] = ['type'=>'danger','msg'=>"Bon introuvable ou déjà validé."];
+        }
+        $page = 'bons_reception';
+    }
     // === TRESORERIE ===
     elseif ($action === 'add_tresorerie' && can('add_tresorerie')) {
         $tr_fid = can('view_all_franchises') ? intval($_POST['franchise_id']) : currentFranchise();
@@ -4025,43 +4069,16 @@ elseif ($page === 'clients'):
 ?>
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-person-lines-fill text-asel"></i> Clients <span class="text-sm font-normal text-gray-400">(<?=count($clients)?>)</span></h1>
-    <a href="api.php?action=export_clients" class="bg-white border-2 border-asel text-asel font-semibold px-3 py-1.5 rounded-lg text-xs hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export</a>
+    <div class="flex gap-2">
+        <button onclick="openQuickAddClient()" class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-bold"><i class="bi bi-person-plus"></i> Nouveau client</button>
+        <a href="api.php?action=export_clients" class="bg-white border-2 border-asel text-asel font-semibold px-3 py-1.5 rounded-lg text-xs hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export</a>
+    </div>
 </div>
-<!-- Instant search -->
+<!-- Client search -->
 <div class="relative mb-4">
     <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
     <input type="text" id="clientSearch" class="w-full pl-10 pr-4 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:border-asel" placeholder="Rechercher nom, téléphone, email, entreprise..." oninput="filterClients()">
     <span id="clientCount" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400"></span>
-</div>
-
-<div class="form-card mb-4">
-    <h3><i class="bi bi-person-plus text-asel"></i> Nouveau client</h3>
-    <form method="POST">
-        <input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="add_client">
-        <div class="form-row form-row-3">
-            <div><label class="form-label">Nom *</label><input name="nom" class="form-input" placeholder="Nom de famille" required></div>
-            <div><label class="form-label">Prénom</label><input name="prenom" class="form-input" placeholder="Prénom"></div>
-            <div><label class="form-label">Type de client</label>
-                <select name="type_client" class="form-input" onchange="toggleEntreprise(this.value)">
-                    <option value="passager">🚶 Passager</option>
-                    <option value="boutique">🏪 Client boutique</option>
-                    <option value="entreprise">🏢 Entreprise</option>
-                </select>
-            </div>
-        </div>
-        <div class="form-row form-row-2">
-            <div><label class="form-label">📞 Téléphone</label><input name="telephone" class="form-input" placeholder="+216 XX XXX XXX" type="tel"></div>
-            <div><label class="form-label">✉️ Email</label><input name="email" class="form-input" placeholder="email@exemple.com" type="email"></div>
-        </div>
-        <div class="form-row form-row-2" id="entrepriseFields" style="display:none">
-            <div><label class="form-label">🏢 Nom entreprise</label><input name="entreprise" class="form-input" placeholder="Nom de l'entreprise"></div>
-            <div><label class="form-label">📋 Matricule fiscal</label><input name="matricule_fiscal" class="form-input" placeholder="0000000/X/X/X/000"></div>
-        </div>
-        <div><label class="form-label">📝 Adresse</label><input name="adresse" class="form-input" placeholder="Adresse complète"></div>
-        <div><label class="form-label">📋 Notes internes</label><textarea name="notes" class="form-input" rows="2" placeholder="Notes confidentielles sur ce client..."></textarea></div>
-        <div class="mt-4"><button type="submit" class="btn-submit"><i class="bi bi-check-circle"></i> Ajouter le client</button></div>
-    </form>
-    <script>function toggleEntreprise(v){document.getElementById('entrepriseFields').style.display=(v==='entreprise'||v==='boutique')?'grid':'none';}</script>
 </div>
 
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -4082,22 +4099,10 @@ elseif ($page === 'clients'):
                 </td>
                 <td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m/Y',strtotime($c['date_creation']))?></td>
                 <td class="px-3 py-2 flex gap-1">
-                    <button onclick="openClientProfile(<?=$c['id']?>,'<?=ejs($c['nom'].' '.($c['prenom']??''))?>')" class="text-gray-400 hover:text-asel p-1" title="Profil & balance"><i class="bi bi-person-lines-fill text-sm"></i></button>
-                    <button onclick="document.getElementById('ec<?=$c['id']?>').classList.toggle('hidden')" class="text-gray-400 hover:text-asel p-1" title="Modifier"><i class="bi bi-pencil text-sm"></i></button>
+                    <button onclick="openClientProfile(<?=$c['id']?>,'<?=ejs($c['nom'].' '.($c['prenom']??''))?>')" class="text-gray-400 hover:text-asel p-1" title="Profil"><i class="bi bi-person-lines-fill text-sm"></i></button>
+                    <button onclick="openEditClient(<?=$c['id']?>,'<?=ejs($c['nom'])?>','<?=ejs($c['prenom']??'')?>','<?=ejs($c['telephone']??'')?>','<?=ejs($c['email']??'')?>','<?=$c['type_client']?>','<?=ejs($c['entreprise']??'')?>','<?=ejs($c['matricule_fiscal']??'')?>','<?=ejs($c['adresse']??'')?>','<?=ejs($c['notes']??'')?>',<?=$c['actif']?>)" class="text-gray-400 hover:text-asel p-1" title="Modifier"><i class="bi bi-pencil text-sm"></i></button>
                 </td>
             </tr>
-            <tr id="ec<?=$c['id']?>" class="hidden bg-blue-50"><td colspan="7" class="px-4 py-3">
-                <form method="POST" class="flex flex-wrap gap-2 items-end"><input type="hidden" name="_csrf" value="<?=$csrf?>"><input type="hidden" name="action" value="edit_client"><input type="hidden" name="client_id" value="<?=$c['id']?>">
-                <div><label class="text-xs font-bold">Nom</label><input name="nom" value="<?=htmlspecialchars($c['nom'])?>" class="border rounded px-2 py-1 text-sm w-28"></div>
-                <div><label class="text-xs font-bold">Prénom</label><input name="prenom" value="<?=htmlspecialchars($c['prenom']??'')?>" class="border rounded px-2 py-1 text-sm w-28"></div>
-                <div><label class="text-xs font-bold">Tél</label><input name="telephone" value="<?=$c['telephone']?>" class="border rounded px-2 py-1 text-sm w-28"></div>
-                <div><label class="text-xs font-bold">Email</label><input name="email" value="<?=$c['email']?>" class="border rounded px-2 py-1 text-sm w-36"></div>
-                <div><label class="text-xs font-bold">Type</label><select name="type_client" class="border rounded px-2 py-1 text-sm"><option value="passager" <?=$c['type_client']==='passager'?'selected':''?>>Passager</option><option value="boutique" <?=$c['type_client']==='boutique'?'selected':''?>>Boutique</option><option value="entreprise" <?=$c['type_client']==='entreprise'?'selected':''?>>Entreprise</option></select></div>
-                <div><label class="text-xs font-bold">Entreprise</label><input name="entreprise" value="<?=htmlspecialchars($c['entreprise']??'')?>" class="border rounded px-2 py-1 text-sm w-28"></div>
-                <div><label class="text-xs font-bold">MF</label><input name="matricule_fiscal" value="<?=$c['matricule_fiscal']?>" class="border rounded px-2 py-1 text-sm w-28"></div>
-                <div><label class="text-xs font-bold">Actif</label><select name="actif" class="border rounded px-2 py-1 text-sm"><option value="1" <?=$c['actif']?'selected':''?>>Oui</option><option value="0" <?=!$c['actif']?'selected':''?>>Non</option></select></div>
-                <button class="bg-asel text-white px-3 py-1 rounded text-sm font-bold">💾</button></form>
-            </td></tr>
         <?php endforeach; ?></tbody>
     </table></div>
 </div>
@@ -5753,6 +5758,7 @@ $bons_ce_mois = count(array_filter($bons, fn($b) => date('Y-m', strtotime($b['da
                         class="text-asel hover:text-asel-dark p-1" title="Voir détails"><i class="bi bi-eye text-sm"></i></button>
                     <a href="pdf.php?type=bon_reception&id=<?=$b['id']?>" target="_blank" class="text-gray-400 hover:text-asel p-1" title="Imprimer"><i class="bi bi-printer text-sm"></i></a>
                     <?php if($is_draft): ?>
+                    <button onclick="editBonReception(<?=$b['id']?>)" class="text-asel hover:text-asel-dark p-1" title="Modifier brouillon"><i class="bi bi-pencil text-sm"></i></button>
                     <form method="POST" class="inline" onsubmit="return confirm('Valider ce bon et mettre à jour le stock?')">
                         <input type="hidden" name="_csrf" value="<?=$csrf?>">
                         <input type="hidden" name="action" value="validate_bon_reception">
@@ -6066,6 +6072,74 @@ function openBonReception() {
         filterBRProducts();
         document.getElementById('brSearch').focus();
     };
+}
+
+function editBonReception(bonId) {
+    // Fetch bon lines from API, then open the modal pre-filled
+    fetch('api.php?action=get_bon_lines&bon_id=' + bonId)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { showToast(data.error, 'error'); return; }
+            
+            // Open the bon creation modal
+            openBonReception();
+            
+            // Wait for modal to render, then pre-fill with existing data
+            setTimeout(() => {
+                // Set franchise
+                const franchiseSelect = document.querySelector('select[name="franchise_id"]');
+                if (franchiseSelect && data.franchise_id) franchiseSelect.value = data.franchise_id;
+                
+                // Set fournisseur
+                const fournSelect = document.querySelector('select[name="fournisseur_id"]');
+                if (fournSelect && data.fournisseur_id) fournSelect.value = data.fournisseur_id;
+                
+                // Set note
+                const noteInput = document.querySelector('input[name="note"]');
+                if (noteInput && data.note) noteInput.value = data.note;
+                
+                // Add existing lines
+                window._brLignes = [];
+                if (data.lignes) {
+                    data.lignes.forEach(l => {
+                        window._brLignes.push({
+                            produit_id: l.produit_id,
+                            nom: l.produit_nom || 'Produit #' + l.produit_id,
+                            ref: l.reference || '',
+                            marque: l.marque || '',
+                            qty: l.quantite,
+                            prix_ht: l.prix_unitaire_ht,
+                            tva_rate: l.tva_rate || 19
+                        });
+                    });
+                    renderBR();
+                }
+                
+                // Change form action to update instead of create
+                const actionInput = document.querySelector('input[name="action"]');
+                if (actionInput) actionInput.value = 'edit_bon_reception';
+                
+                // Add bon_id hidden field
+                const form = actionInput.closest('form');
+                if (form && !form.querySelector('input[name="bon_id"]')) {
+                    const hiddenId = document.createElement('input');
+                    hiddenId.type = 'hidden';
+                    hiddenId.name = 'bon_id';
+                    hiddenId.value = bonId;
+                    form.appendChild(hiddenId);
+                }
+                
+                // Update button text
+                const submitBtns = form.querySelectorAll('button[type="submit"], button[onclick*="brSaveAs"]');
+                submitBtns.forEach(btn => {
+                    if (btn.textContent.includes('Valider')) btn.innerHTML = '<i class="bi bi-check-circle"></i> Mettre à jour & stock';
+                    if (btn.textContent.includes('brouillon')) btn.innerHTML = '<i class="bi bi-pencil-square"></i> Sauvegarder les modifications';
+                });
+                
+                showToast('Brouillon chargé — ' + data.lignes.length + ' produit(s)', 'info');
+            }, 300);
+        })
+        .catch(e => showToast('Erreur: ' + e.message, 'error'));
 }
 </script>
 <?php endif; ?>
@@ -7211,9 +7285,56 @@ function openQuickAddClient() {
             modalRow([
                 modalField('Téléphone', 'telephone', 'tel', '', '+216 XX XXX XXX'),
                 modalField('Email', 'email', 'email', '', 'email@exemple.com'),
-            ]),
+            ]) +
+            modalRow([
+                modalField('Entreprise', 'entreprise', 'text', '', 'Nom entreprise'),
+                modalField('Matricule fiscal', 'matricule_fiscal', 'text', '', '0000000/X/X/X/000'),
+            ]) +
+            modalField('Adresse', 'adresse', 'text', '', 'Adresse complète') +
+            modalField('Notes', 'notes', 'textarea', '', 'Notes internes...'),
             'Ajouter le client'
         )
+    );
+}
+
+function openEditClient(id, nom, prenom, tel, email, type, entreprise, mf, adresse, notes, actif) {
+    const csrf = '<?=$csrf?>';
+    openModal(
+        modalHeader('bi-pencil-square', 'Modifier client', nom + ' ' + prenom) +
+        `<form method="POST" class="p-6 space-y-4" onsubmit="this.querySelector('button[type=submit]').disabled=true">
+        <input type="hidden" name="_csrf" value="${csrf}">
+        <input type="hidden" name="action" value="edit_client">
+        <input type="hidden" name="client_id" value="${id}">` +
+        modalRow([
+            modalField('Nom *', 'nom', 'text', nom, ''),
+            modalField('Prénom', 'prenom', 'text', prenom, ''),
+        ]) +
+        modalField('Type', 'type_client', 'select', '', '', [
+            {value: 'passager', label: 'Passager', selected: type==='passager'},
+            {value: 'boutique', label: 'Client boutique', selected: type==='boutique'},
+            {value: 'entreprise', label: 'Entreprise', selected: type==='entreprise'},
+        ]) +
+        modalRow([
+            modalField('Téléphone', 'telephone', 'tel', tel, ''),
+            modalField('Email', 'email', 'email', email, ''),
+        ]) +
+        modalRow([
+            modalField('Entreprise', 'entreprise', 'text', entreprise, ''),
+            modalField('Matricule fiscal', 'matricule_fiscal', 'text', mf, ''),
+        ]) +
+        modalField('Adresse', 'adresse', 'text', adresse, '') +
+        modalField('Notes', 'notes', 'textarea', notes, '') +
+        modalField('Actif', 'actif', 'select', '', '', [
+            {value: '1', label: 'Oui', selected: actif==1},
+            {value: '0', label: 'Non', selected: actif==0},
+        ]) +
+        `<div class="flex gap-3 pt-2">
+            <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50">Annuler</button>
+            <button type="submit" class="flex-1 py-2.5 rounded-xl bg-asel hover:bg-asel-dark text-white font-semibold text-sm flex items-center justify-center gap-2">
+                <i class="bi bi-check-circle"></i> Enregistrer
+            </button>
+        </div></form>`,
+        {size: 'max-w-lg'}
     );
 }
 

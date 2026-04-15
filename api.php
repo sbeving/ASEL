@@ -332,11 +332,21 @@ case 'global_search':
 
 case 'get_bon_lines':
     $bon_id = intval($_GET['bon_id'] ?? 0);
-    if (!$bon_id) { echo json_encode([]); exit; }
+    if (!$bon_id) { echo json_encode(['error'=>'Invalid bon ID']); exit; }
     try {
-        $lines = query("SELECT bl.*, p.nom as produit_nom FROM bon_reception_lignes bl LEFT JOIN produits p ON bl.produit_id=p.id WHERE bl.bon_id=?", [$bon_id]);
-        echo json_encode($lines);
-    } catch(Exception $e) { echo json_encode([]); }
+        $bon = queryOne("SELECT * FROM bons_reception WHERE id=?", [$bon_id]);
+        if (!$bon) { echo json_encode(['error'=>'Bon not found']); exit; }
+        $lines = query("SELECT bl.*, p.nom as produit_nom, p.reference, p.marque FROM bon_reception_lignes bl LEFT JOIN produits p ON bl.produit_id=p.id WHERE bl.bon_id=?", [$bon_id]);
+        echo json_encode([
+            'id' => $bon['id'],
+            'numero' => $bon['numero'],
+            'franchise_id' => $bon['franchise_id'],
+            'fournisseur_id' => $bon['fournisseur_id'],
+            'note' => $bon['note'] ?? '',
+            'statut' => $bon['statut'],
+            'lignes' => $lines
+        ]);
+    } catch(Exception $e) { echo json_encode(['error'=>$e->getMessage()]); }
     exit;
 
 case 'client_profile':
