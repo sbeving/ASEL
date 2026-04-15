@@ -4026,7 +4026,7 @@ function generateLabels() {
         '.label .ref { font-size: ' + (parseInt(fontSize)-1) + 'px; color: #888; margin-bottom: 2px; }' +
         '.label .prix { font-size: ' + priceFontSize + '; font-weight: 900; color: #1B3A5C; }' +
         '.label .code { font-family: monospace; font-size: ' + (parseInt(fontSize)-1) + 'px; color: #666; margin-top: 2px; letter-spacing: 1px; }' +
-        '.label .brand { font-size: 7px; color: #2AABE2; margin-top: 2px; }' +
+        '.label .brand { font-size: 7px; color: #2AABE2; margin-top: 2px; } .label .barcode { width: 100%; max-height: 35px; }' +
         '</style></head><body>' +
         '<div class="no-print" style="padding:10px;text-align:center;margin-bottom:10px">' +
         '<button onclick="window.print()" style="padding:10px 30px;background:#2AABE2;color:white;border:none;border-radius:8px;font-weight:bold;font-size:14px;cursor:pointer">🖨️ Imprimer</button>' +
@@ -4038,13 +4038,16 @@ function generateLabels() {
         html += '<div class="nom">' + l.nom + '</div>';
         if (showRef && l.ref) html += '<div class="ref">' + l.ref + '</div>';
         if (showPrice) html += '<div class="prix">' + l.prix + ' DT</div>';
-        if (showBarcode && l.code) html += '<div class="code">' + l.code + '</div>';
+        if (showBarcode && l.code) html += '<svg class="barcode" data-code="' + l.code + '"></svg>';
         html += '<div class="brand">ASEL Mobile</div>';
         html += '</div>';
     });
     
     html += '</div></body></html>';
     
+    // Add barcode rendering
+    html = html.replace('</head>', '<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script></head>');
+    html = html.replace('</body>', '<script>document.querySelectorAll(".barcode").forEach(function(svg){var code=svg.getAttribute("data-code");if(code){try{JsBarcode(svg,code,{format:"CODE128",width:1,height:30,displayValue:true,fontSize:8,margin:2,textMargin:1});}catch(e){svg.outerHTML="<div style=\'font-family:monospace;font-size:8px;color:#666\'>"+code+"</div>";}}});<\/script></body>');
     var w = window.open('', '_blank');
     w.document.write(html);
     w.document.close();
@@ -4065,10 +4068,10 @@ function doDirectLabelPrint(products) {
         html += '<div class="label"><div class="nom">' + l.nom + '</div>';
         if (l.ref) html += '<div class="ref">' + l.ref + '</div>';
         html += '<div class="prix">' + l.prix + ' DT</div>';
-        if (l.code) html += '<div class="ref">' + l.code + '</div>';
+        if (l.code) html += '<svg class="barcode" data-code="' + l.code + '"></svg>';
         html += '<div class="brand">ASEL Mobile</div></div>';
     });
-    html += '</div><script>window.print()<\/script></body></html>';
+    html += '</div><script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script><script>document.querySelectorAll(".barcode").forEach(function(svg){var code=svg.getAttribute("data-code");if(code){try{JsBarcode(svg,code,{format:"CODE128",width:1,height:30,displayValue:true,fontSize:8,margin:2});}catch(e){}}});setTimeout(function(){window.print()},500);<\/script></body></html>';
     var w = window.open('', '_blank');
     w.document.write(html);
     w.document.close();
