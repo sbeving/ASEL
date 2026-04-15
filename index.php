@@ -1140,7 +1140,7 @@ try {
     <!-- Logo -->
     <div class="px-6 py-5 border-b border-white/10">
         <div class="text-2xl font-black tracking-wider"><span class="bg-gradient-to-r from-red-400 via-yellow-300 via-green-400 to-blue-400 bg-clip-text text-transparent">A</span>SEL MOBILE</div>
-        <div class="text-[10px] text-white/30 mt-0.5">Gestion de Stock v15.3</div>
+        <div class="text-[10px] text-white/30 mt-0.5">Gestion de Stock v15.5</div>
     </div>
     
     <!-- User -->
@@ -6796,7 +6796,7 @@ try {
     <span>&copy; <?=date('Y')?> ASEL Mobile</span> &middot; 
     <a href="map.php" class="text-asel hover:underline"><i class="bi bi-map"></i> Carte</a> &middot; 
     <button onclick="showShortcuts()" class="text-gray-400 hover:text-asel">Raccourcis <kbd class="bg-gray-100 px-1 rounded text-[10px]">?</kbd></button> &middot;
-    <span>v15.4</span>
+    <span>v15.5</span>
 </footer>
 
 <?php if (can('pos')): ?>
