@@ -22,10 +22,12 @@ $retailFranchises = getRetailFranchises();
 // === RBAC: Check page permission ===
 // Special admin tools via ?tool= parameter (no page permission needed)
 if (isset($_GET['tool']) && $_GET['tool'] === 'import_phones' && isAdmin()) {
-    // Run inline — see import code below
     $page = '__import_phones__';
 }
-if ($page !== '__import_phones__') {
+if (isset($_GET['tool']) && $_GET['tool'] === 'add_invoice_products' && isAdmin()) {
+    $page = '__add_invoice_products__';
+}
+if ($page !== '__import_phones__' && $page !== '__add_invoice_products__') {
     requirePermission($page);
 }
 
@@ -6510,6 +6512,84 @@ function editBonReception(bonId) {
     <a href="?page=dashboard" class="bg-white border-2 border-gray-200 text-gray-600 font-bold px-4 py-2 rounded-xl text-sm hover:border-asel hover:text-asel transition-colors"><i class="bi bi-house"></i> Dashboard</a>
 </div>
 
+<?php endif; ?>
+
+<!-- ====================== ADD INVOICE PRODUCTS ====================== -->
+<?php if ($page === '__add_invoice_products__'):
+    $fourn = queryOne("SELECT id FROM fournisseurs WHERE nom LIKE '%Infogenie%' OR nom LIKE '%infogenie%' LIMIT 1");
+    if (!$fourn) { execute("INSERT INTO fournisseurs (nom, telephone, adresse) VALUES ('Infogenie', '+216 53 193 192', 'Galerie Soula Parc Lafayette, Tunis')"); $fourn_id = db()->lastInsertId(); }
+    else { $fourn_id = $fourn['id']; }
+    
+    $cat_row = queryOne("SELECT id FROM categories WHERE nom LIKE '%phone%' OR nom LIKE '%Télé%' LIMIT 1");
+    $cat_id = $cat_row ? $cat_row['id'] : 1;
+    $all_fids = array_column(query("SELECT id FROM franchises WHERE actif=1"), 'id');
+    
+    $products = [
+        ['Tecno Lion AL', 'Tecno', 36.975, 19],
+        ['Lava Power 1L', 'Lava', 47.899, 19],
+        ['Lava A1 Vibe', 'Lava', 27.731, 19],
+        ['iPro A1', 'iPro', 27.731, 19],
+        ['Nokia A6', 'Nokia', 40.00, 19],
+        ['Centre Fone A1 Plus', 'Centre Fone', 27.731, 19],
+        ['Tablette Infinix 8/256', 'Infinix', 397.196, 7],
+        ['Vivo Y21D 8/256', 'Vivo', 420.168, 19],
+        ['Alcatel A31 Pro NC', 'Alcatel', 222.689, 19],
+        ['Itel A50', 'Itel', 201.681, 19],
+        ['Itel A50C 64G', 'Itel', 201.681, 19],
+    ];
+    
+    $results = []; $added = 0; $skipped = 0;
+    foreach ($products as $p) {
+        [$nom, $marque, $pa_ht, $tva] = $p;
+        $pa_ttc = round($pa_ht * (1 + $tva/100), 2);
+        $pv_ht = round($pa_ht * 1.15, 2);
+        $pv_ttc = round($pv_ht * (1 + $tva/100), 2);
+        
+        $existing = queryOne("SELECT id FROM produits WHERE LOWER(nom) LIKE ?", ['%'.strtolower($nom).'%']);
+        if ($existing) {
+            $results[] = ['nom'=>$nom,'marque'=>$marque,'pa_ttc'=>$pa_ttc,'pv_ttc'=>$pv_ttc,'status'=>'skip','id'=>$existing['id']];
+            $skipped++;
+        } else {
+            execute("INSERT INTO produits (nom, categorie_id, prix_achat, prix_vente, prix_achat_ht, prix_achat_ttc, prix_vente_ht, prix_vente_ttc, tva_rate, marque, fournisseur_id, seuil_alerte) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)",
+                [$nom, $cat_id, $pa_ttc, $pv_ttc, $pa_ht, $pa_ttc, $pv_ht, $pv_ttc, $tva, $marque, $fourn_id]);
+            $new_id = db()->lastInsertId();
+            foreach ($all_fids as $fid_s) execute("INSERT IGNORE INTO stock (franchise_id, produit_id, quantite) VALUES (?,?,0)", [$fid_s, $new_id]);
+            $results[] = ['nom'=>$nom,'marque'=>$marque,'pa_ttc'=>$pa_ttc,'pv_ttc'=>$pv_ttc,'status'=>'added','id'=>$new_id];
+            $added++;
+        }
+    }
+?>
+<h1 class="text-2xl font-bold text-asel-dark mb-4"><i class="bi bi-phone text-asel"></i> Import Factures Infogenie</h1>
+<div class="grid grid-cols-3 gap-3 mb-4">
+    <div class="bg-green-50 border-2 border-green-200 rounded-xl p-4 text-center"><div class="text-3xl font-black text-green-600"><?=$added?></div><div class="text-xs font-bold text-green-700">Créés</div></div>
+    <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-4 text-center"><div class="text-3xl font-black text-gray-500"><?=$skipped?></div><div class="text-xs font-bold text-gray-600">Existants</div></div>
+    <div class="bg-asel/10 border-2 border-asel/30 rounded-xl p-4 text-center"><div class="text-3xl font-black text-asel"><?=count($products)?></div><div class="text-xs font-bold text-asel-dark">Total</div></div>
+</div>
+<div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <table class="w-full text-sm">
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase"><th class="px-4 py-3 text-left">Produit</th><th class="px-4 py-3">Marque</th><th class="px-4 py-3 text-right">PA TTC</th><th class="px-4 py-3 text-right">PV TTC</th><th class="px-4 py-3 text-center">Statut</th></tr></thead>
+        <tbody class="divide-y">
+        <?php foreach ($results as $r):
+            $bg = $r['status']==='added' ? 'bg-green-50' : 'bg-gray-50/50';
+            $badge = $r['status']==='added' 
+                ? '<span class="bg-green-100 text-green-700 text-xs font-bold px-2 py-1 rounded-full">✅ Créé #'.$r['id'].'</span>'
+                : '<span class="bg-gray-100 text-gray-500 text-xs font-bold px-2 py-1 rounded-full">⏭️ Existe #'.$r['id'].'</span>';
+        ?>
+        <tr class="<?=$bg?>">
+            <td class="px-4 py-3 font-semibold"><?=e($r['nom'])?></td>
+            <td class="px-4 py-3 text-center text-xs"><?=e($r['marque'])?></td>
+            <td class="px-4 py-3 text-right font-mono"><?=number_format($r['pa_ttc'],2)?></td>
+            <td class="px-4 py-3 text-right font-mono font-bold"><?=number_format($r['pv_ttc'],2)?></td>
+            <td class="px-4 py-3 text-center"><?=$badge?></td>
+        </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+</div>
+<div class="mt-4 flex gap-3">
+    <a href="?page=bons_reception" class="bg-asel text-white font-bold px-5 py-2.5 rounded-xl text-sm"><i class="bi bi-receipt"></i> Créer bon de réception</a>
+    <a href="?page=produits" class="bg-white border-2 border-asel text-asel font-bold px-4 py-2 rounded-xl text-sm"><i class="bi bi-tags"></i> Produits</a>
+</div>
 <?php endif; ?>
 
 <!-- ====================== POINTAGE PAGE ====================== -->
