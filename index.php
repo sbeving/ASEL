@@ -4210,6 +4210,103 @@ function openClientProfile(cid, nom) {
         })
         .catch(() => document.getElementById('clientProfileContent').innerHTML = '<div class="p-4 text-red-500 text-sm text-center">Erreur lors du chargement</div>');
 }
+
+function openQuickAddClientLocal() {
+    const csrf = '<?=$csrf?>';
+    const isAdmin = <?=can('view_all_franchises')?'true':'false'?>;
+    const franchises = <?=json_encode(array_map(fn($f)=>['value'=>$f['id'],'label'=>shortF($f['nom'])], $allFranchises ?? []))?>;
+    
+    let ff = '';
+    if (isAdmin && typeof modalField === 'function') {
+        ff = modalField('Franchise', 'franchise_id', 'select', '', '', franchises);
+    }
+    
+    if (typeof openModal !== 'function') {
+        alert('Erreur: système de modals non chargé. Rechargez la page.');
+        return;
+    }
+    
+    openModal(
+        modalHeader('bi-person-plus', 'Nouveau client', 'Ajouter un client') +
+        `<form method="POST" class="p-6 space-y-4" onsubmit="this.querySelector('button[type=submit]').disabled=true">
+        <input type="hidden" name="_csrf" value="${csrf}">
+        <input type="hidden" name="action" value="add_client">
+        ${ff}
+        <div class="grid grid-cols-2 gap-3">
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Nom *</label><input name="nom" required class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="Nom"></div>
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Prénom</label><input name="prenom" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="Prénom"></div>
+        </div>
+        <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Type</label>
+            <select name="type_client" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel">
+                <option value="passager">Passager</option><option value="boutique">Client boutique</option><option value="entreprise">Entreprise</option>
+            </select>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Téléphone</label><input name="telephone" type="tel" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="+216"></div>
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Email</label><input name="email" type="email" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" placeholder="email@..."></div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Entreprise</label><input name="entreprise" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Matricule fiscal</label><input name="matricule_fiscal" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
+        </div>
+        <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Adresse</label><input name="adresse" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
+        <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Notes</label><textarea name="notes" rows="2" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></textarea></div>
+        <div class="flex gap-3 pt-2">
+            <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm">Annuler</button>
+            <button type="submit" class="flex-1 py-2.5 rounded-xl bg-asel text-white font-semibold text-sm">✅ Ajouter</button>
+        </div></form>`
+    );
+}
+
+// Override global function name for this page
+window.openQuickAddClient = openQuickAddClientLocal;
+
+// Edit client via data attributes
+document.querySelectorAll('.edit-client-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const d = this.dataset;
+        if (typeof openModal !== 'function') { alert('Rechargez la page'); return; }
+        openModal(
+            modalHeader('bi-pencil-square', 'Modifier client', d.nom + ' ' + d.prenom) +
+            `<form method="POST" class="p-6 space-y-4" onsubmit="this.querySelector('button[type=submit]').disabled=true">
+            <input type="hidden" name="_csrf" value="<?=$csrf?>">
+            <input type="hidden" name="action" value="edit_client">
+            <input type="hidden" name="client_id" value="${d.id}">
+            <div class="grid grid-cols-2 gap-3">
+                <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Nom *</label><input name="nom" value="${d.nom}" required class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
+                <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Prénom</label><input name="prenom" value="${d.prenom}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
+            </div>
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Type</label>
+                <select name="type_client" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel">
+                    <option value="passager" ${d.type==='passager'?'selected':''}>Passager</option>
+                    <option value="boutique" ${d.type==='boutique'?'selected':''}>Client boutique</option>
+                    <option value="entreprise" ${d.type==='entreprise'?'selected':''}>Entreprise</option>
+                </select>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Téléphone</label><input name="telephone" value="${d.tel}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
+                <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Email</label><input name="email" value="${d.email}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Entreprise</label><input name="entreprise" value="${d.entreprise}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
+                <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Matricule fiscal</label><input name="matricule_fiscal" value="${d.mf}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
+            </div>
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Adresse</label><input name="adresse" value="${d.adresse}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Notes</label><textarea name="notes" rows="2" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel">${d.notes}</textarea></div>
+            <div><label class="text-xs font-bold text-gray-500 uppercase block mb-1">Actif</label>
+                <select name="actif" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel">
+                    <option value="1" ${d.actif=='1'?'selected':''}>Oui</option>
+                    <option value="0" ${d.actif=='0'?'selected':''}>Non</option>
+                </select>
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm">Annuler</button>
+                <button type="submit" class="flex-1 py-2.5 rounded-xl bg-asel text-white font-semibold text-sm">💾 Enregistrer</button>
+            </div></form>`,
+            {size: 'max-w-lg'}
+        );
+    });
+});
 </script>
 
 <?php
