@@ -4096,7 +4096,7 @@ elseif ($page === 'clients'):
             </select>
         </form>
         <?php endif; ?>
-        <button onclick="document.getElementById('addClientForm').classList.toggle('hidden')" class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-bold"><i class="bi bi-person-plus"></i> Nouveau client</button>
+        <button onclick="openAddClientModal()" class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-bold"><i class="bi bi-person-plus"></i> Nouveau client</button>
     </div>
 </div>
 
@@ -4172,7 +4172,19 @@ elseif ($page === 'clients'):
                     <?php if($c['solde_du']>0): ?><span class="font-bold text-red-600"><?=number_format($c['solde_du'],2)?> DT</span><?php else: ?><span class="text-green-500">✓</span><?php endif; ?>
                 </td>
                 <td class="px-3 py-2 flex gap-1">
-                    <button onclick="document.getElementById('editRow<?=$c['id']?>').classList.toggle('hidden')" class="text-gray-400 hover:text-asel p-1" title="Modifier"><i class="bi bi-pencil text-sm"></i></button>
+                    <button onclick="openEditClientModal(this)" class="text-gray-400 hover:text-asel p-1" title="Modifier"
+                        data-id="<?=$c['id']?>"
+                        data-nom="<?=e($c['nom'])?>"
+                        data-prenom="<?=e($c['prenom']??'')?>"
+                        data-tel="<?=e($c['telephone']??'')?>"
+                        data-email="<?=e($c['email']??'')?>"
+                        data-type="<?=$c['type_client']?>"
+                        data-entreprise="<?=e($c['entreprise']??'')?>"
+                        data-mf="<?=e($c['matricule_fiscal']??'')?>"
+                        data-adresse="<?=e($c['adresse']??'')?>"
+                        data-notes="<?=e($c['notes']??'')?>"
+                        data-actif="<?=$c['actif']?>"
+                    ><i class="bi bi-pencil text-sm"></i></button>
                 </td>
             </tr>
             <!-- INLINE EDIT ROW -->
@@ -4220,15 +4232,75 @@ elseif ($page === 'clients'):
 
 <script>
 function filterClients(){
-    const q=document.getElementById('clientSearch').value.toLowerCase();
-    const rows=document.querySelectorAll('.client-row');
-    let v=0;
-    rows.forEach(r=>{
-        const m=!q||r.dataset.search.includes(q);
+    var q=document.getElementById('clientSearch').value.toLowerCase();
+    var rows=document.querySelectorAll('.client-row');
+    var v=0;
+    rows.forEach(function(r){
+        var m=!q||r.dataset.search.includes(q);
         r.style.display=m?'':'none';
         if(m)v++;
     });
     document.getElementById('clientCount').textContent=q?v+'/'+rows.length:'';
+}
+
+function openAddClientModal() {
+    if (typeof openModal !== 'function') {
+        // Fallback: show inline form
+        document.getElementById('addClientForm').classList.remove('hidden');
+        document.getElementById('addClientForm').scrollIntoView({behavior:'smooth'});
+        return;
+    }
+    openModal(
+        modalHeader('bi-person-plus', 'Nouveau client', 'Ajouter un client') +
+        document.getElementById('addClientForm').querySelector('form').outerHTML
+    );
+    // Remove the hidden class from the form inside the modal
+    document.getElementById('modal').querySelector('form').style.display = '';
+}
+
+function openEditClientModal(btn) {
+    var d = btn.dataset;
+    if (typeof openModal !== 'function') {
+        // Fallback: show inline edit row
+        var row = document.getElementById('editRow' + d.id);
+        if (row) row.classList.toggle('hidden');
+        return;
+    }
+    openModal(
+        modalHeader('bi-pencil-square', 'Modifier ' + d.nom, d.prenom || '') +
+        '<form method="POST" class="p-5 space-y-3">' +
+        '<input type="hidden" name="_csrf" value="<?=$csrf?>">' +
+        '<input type="hidden" name="action" value="edit_client">' +
+        '<input type="hidden" name="client_id" value="' + d.id + '">' +
+        modalRow([
+            modalField('Nom *', 'nom', 'text', d.nom, ''),
+            modalField('Prénom', 'prenom', 'text', d.prenom, ''),
+        ]) +
+        modalField('Type', 'type_client', 'select', '', '', [
+            {value:'passager', label:'Passager', selected: d.type==='passager'},
+            {value:'boutique', label:'Client boutique', selected: d.type==='boutique'},
+            {value:'entreprise', label:'Entreprise', selected: d.type==='entreprise'},
+        ]) +
+        modalRow([
+            modalField('Téléphone', 'telephone', 'tel', d.tel, ''),
+            modalField('Email', 'email', 'email', d.email, ''),
+        ]) +
+        modalRow([
+            modalField('Entreprise', 'entreprise', 'text', d.entreprise, ''),
+            modalField('Matricule fiscal', 'matricule_fiscal', 'text', d.mf, ''),
+        ]) +
+        modalField('Adresse', 'adresse', 'text', d.adresse, '') +
+        modalField('Notes', 'notes', 'textarea', d.notes, '') +
+        modalField('Actif', 'actif', 'select', '', '', [
+            {value:'1', label:'Oui', selected: d.actif==='1'},
+            {value:'0', label:'Non', selected: d.actif==='0'},
+        ]) +
+        '<div class="flex gap-3 pt-2">' +
+        '<button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm">Annuler</button>' +
+        '<button type="submit" class="flex-1 py-2.5 rounded-xl bg-asel text-white font-semibold text-sm">💾 Enregistrer</button>' +
+        '</div></form>',
+        {size: 'max-w-lg'}
+    );
 }
 </script>
 
@@ -7137,41 +7209,46 @@ setTimeout(initTomSelect, 500);
 </div>
 
 <script>
-// === MODAL SYSTEM ===
-function openModal(html, options = {}) {
-    const modal = document.getElementById('modal');
-    const content = document.getElementById('modalContent');
+// === CORE MODAL SYSTEM (isolated) ===
+function openModal(html, options) {
+    options = options || {};
+    var modal = document.getElementById('modal');
+    var content = document.getElementById('modalContent');
+    if (!modal || !content) { alert('Modal system error'); return; }
     content.innerHTML = html;
-    content.className = `bg-white rounded-2xl shadow-2xl w-full ${options.size || 'max-w-lg'} max-h-[90vh] overflow-y-auto pointer-events-auto transform transition-all duration-200`;
+    content.className = 'bg-white rounded-2xl shadow-2xl w-full ' + (options.size || 'max-w-lg') + ' max-h-[90vh] overflow-y-auto pointer-events-auto';
     modal.classList.remove('hidden');
-    requestAnimationFrame(() => {
-        content.classList.remove('scale-95', 'opacity-0');
-        content.classList.add('scale-100', 'opacity-100');
-    });
-    // Focus first input
-    setTimeout(() => {
-        const firstInput = content.querySelector('input:not([type=hidden]), select, textarea');
-        if (firstInput) firstInput.focus();
-    }, 200);
-    // Init Tom Select in modal
-    setTimeout(() => {
-        content.querySelectorAll('.ts-select-modal').forEach(el => {
-            new TomSelect(el, { create: false, maxOptions: 50 });
-        });
-    }, 100);
     document.body.style.overflow = 'hidden';
+    setTimeout(function(){ var fi = content.querySelector('input:not([type=hidden]), select, textarea'); if(fi) fi.focus(); }, 200);
 }
-
 function closeModal() {
-    const modal = document.getElementById('modal');
-    const content = document.getElementById('modalContent');
-    content.classList.remove('scale-100', 'opacity-100');
-    content.classList.add('scale-95', 'opacity-0');
-    setTimeout(() => { modal.classList.add('hidden'); document.body.style.overflow = ''; }, 200);
+    var modal = document.getElementById('modal');
+    if(modal) modal.classList.add('hidden');
+    document.body.style.overflow = '';
 }
+function modalHeader(icon, title, subtitle) {
+    return '<div class="bg-gradient-to-r from-asel-dark to-asel text-white px-6 py-4 rounded-t-2xl"><h3 class="font-bold text-lg flex items-center gap-2"><i class="bi ' + icon + '"></i> ' + title + '</h3>' + (subtitle ? '<p class="text-white/60 text-xs mt-0.5">' + subtitle + '</p>' : '') + '</div>';
+}
+function modalField(label, name, type, value, placeholder, options) {
+    if (type === 'select' && options) {
+        var opts = options.map(function(o){ return '<option value="' + o.value + '"' + (o.selected ? ' selected' : '') + '>' + o.label + '</option>'; }).join('');
+        return '<div><label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">' + label + '</label><select name="' + name + '" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel">' + opts + '</select></div>';
+    }
+    if (type === 'textarea') {
+        return '<div><label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">' + label + '</label><textarea name="' + name + '" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" rows="3" placeholder="' + (placeholder || '') + '">' + (value || '') + '</textarea></div>';
+    }
+    return '<div><label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">' + label + '</label><input type="' + (type || 'text') + '" name="' + name + '" value="' + (value || '') + '" placeholder="' + (placeholder || '') + '" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>';
+}
+function modalRow(cols) { return '<div class="grid grid-cols-' + cols.length + ' gap-3">' + cols.join('') + '</div>'; }
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeModal(); });
+window._modalReady = true;
+</script>
 
-// Close on Escape
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeConfirm(); } });
+<script>
+// === EXTENDED MODAL SYSTEM + BUSINESS LOGIC ===
+
+// Close on Escape (backup)
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); if(typeof closeConfirm==='function') closeConfirm(); } });
 
 // === CONFIRM DIALOG ===
 let confirmCallback = null;
@@ -7203,45 +7280,9 @@ function closeConfirm() {
     confirmCallback = null;
 }
 
-// === MODAL HELPERS ===
-function modalHeader(icon, title, subtitle) {
-    return `<div class="bg-gradient-to-r from-asel-dark to-asel text-white px-6 py-4 rounded-t-2xl">
-        <h3 class="font-bold text-lg flex items-center gap-2"><i class="bi ${icon}"></i> ${title}</h3>
-        ${subtitle ? `<p class="text-white/60 text-xs mt-0.5">${subtitle}</p>` : ''}
-    </div>`;
-}
-
+// modalForm helper (extends the core modal system)
 function modalForm(action, csrf, fields, submitText, submitColor) {
-    return `<form method="POST" class="p-6 space-y-4" onsubmit="this.querySelector('button[type=submit]').disabled=true;this.querySelector('button[type=submit]').innerHTML='<i class=\\'bi bi-hourglass-split\\'></i> Traitement...';">
-        <input type="hidden" name="_csrf" value="${csrf}">
-        <input type="hidden" name="action" value="${action}">
-        ${fields}
-        <div class="flex gap-3 pt-2">
-            <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50">Annuler</button>
-            <button type="submit" class="flex-1 py-2.5 rounded-xl text-white font-semibold text-sm ${submitColor || 'bg-asel hover:bg-asel-dark'} flex items-center justify-center gap-2">
-                <i class="bi bi-check-circle"></i> ${submitText || 'Enregistrer'}
-            </button>
-        </div>
-    </form>`;
-}
-
-function modalField(label, name, type, value, placeholder, options) {
-    if (type === 'select' && options) {
-        const opts = options.map(o => `<option value="${o.value}" ${o.selected ? 'selected' : ''}>${o.label}</option>`).join('');
-        return `<div><label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">${label}</label>
-            <select name="${name}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel">${opts}</select></div>`;
-    }
-    if (type === 'textarea') {
-        return `<div><label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">${label}</label>
-            <textarea name="${name}" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel" rows="3" placeholder="${placeholder || ''}">${value || ''}</textarea></div>`;
-    }
-    return `<div><label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">${label}</label>
-        <input type="${type || 'text'}" name="${name}" value="${value || ''}" placeholder="${placeholder || ''}" 
-        class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel ${type === 'number' ? 'text-center font-bold' : ''}" ${type === 'number' ? 'min="0"' : ''}></div>`;
-}
-
-function modalRow(cols) {
-    return `<div class="grid grid-cols-${cols.length} gap-3">${cols.join('')}</div>`;
+    return '<form method="POST" class="p-6 space-y-4" onsubmit="this.querySelector(\'button[type=submit]\').disabled=true"><input type="hidden" name="_csrf" value="' + csrf + '"><input type="hidden" name="action" value="' + action + '">' + fields + '<div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50">Annuler</button><button type="submit" class="flex-1 py-2.5 rounded-xl text-white font-semibold text-sm ' + (submitColor || 'bg-asel hover:bg-asel-dark') + ' flex items-center justify-center gap-2"><i class="bi bi-check-circle"></i> ' + (submitText || 'Enregistrer') + '</button></div></form>';
 }
 
 // === BUSINESS LOGIC HELPERS ===
