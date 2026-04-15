@@ -7941,27 +7941,29 @@ function openEditProduct(id, nom, catId, marque, ref, code, pa, pv, seuil, pa_ht
                     </button>
                 </div></div>`
             ])}
-            <!-- Prix avec HT/TVA/TTC -->
+            <!-- Prix avec HT/TVA/TTC — both editable -->
             <div class="grid grid-cols-3 gap-2 bg-blue-50 rounded-xl p-3 border border-blue-200">
                 <div class="col-span-3 text-xs font-bold text-blue-700 mb-1"><i class="bi bi-calculator"></i> Prix d'achat</div>
                 <div><label class="text-[10px] font-bold text-gray-400">HT (DT)</label>
                     <input type="number" name="prix_achat_ht" id="ep_pa_ht_${id}" value="${pa_ht}" step="0.01" min="0"
-                        class="w-full border-2 border-gray-200 rounded-lg px-2 py-2 text-sm focus:border-asel outline-none" oninput="epRecalc(${id})"></div>
+                        class="w-full border-2 border-gray-200 rounded-lg px-2 py-2 text-sm focus:border-asel outline-none" oninput="epRecalcFromHT(${id})"></div>
                 <div><label class="text-[10px] font-bold text-gray-400">TVA %</label>
                     <input type="number" name="tva_rate" id="ep_tva_${id}" value="${tva_rate}" step="0.01" min="0"
-                        class="w-full border-2 border-gray-200 rounded-lg px-2 py-2 text-sm focus:border-asel outline-none" oninput="epRecalc(${id})"></div>
+                        class="w-full border-2 border-gray-200 rounded-lg px-2 py-2 text-sm focus:border-asel outline-none" oninput="epRecalcFromHT(${id})"></div>
                 <div><label class="text-[10px] font-bold text-gray-400">TTC (DT)</label>
-                    <input id="ep_pa_ttc_${id}" readonly class="w-full border-2 border-gray-100 bg-gray-50 rounded-lg px-2 py-2 text-sm font-bold text-blue-700"></div>
+                    <input type="number" id="ep_pa_ttc_${id}" step="0.01" min="0" value="${(pa_ht * (1 + tva_rate/100)).toFixed(2)}"
+                        class="w-full border-2 border-blue-300 rounded-lg px-2 py-2 text-sm font-bold text-blue-700 focus:border-asel outline-none" oninput="epRecalcFromTTC(${id},'pa')"></div>
             </div>
             <div class="grid grid-cols-3 gap-2 bg-green-50 rounded-xl p-3 border border-green-200">
                 <div class="col-span-3 text-xs font-bold text-green-700 mb-1"><i class="bi bi-tag"></i> Prix de vente</div>
                 <div><label class="text-[10px] font-bold text-gray-400">HT (DT)</label>
                     <input type="number" name="prix_vente_ht" id="ep_pv_ht_${id}" value="${pv_ht}" step="0.01" min="0"
-                        class="w-full border-2 border-gray-200 rounded-lg px-2 py-2 text-sm focus:border-asel outline-none" oninput="epRecalc(${id})"></div>
+                        class="w-full border-2 border-gray-200 rounded-lg px-2 py-2 text-sm focus:border-asel outline-none" oninput="epRecalcFromHT(${id})"></div>
                 <div><label class="text-[10px] font-bold text-gray-400">Marge</label>
                     <div id="ep_marge_${id}" class="w-full border-2 border-gray-100 bg-gray-50 rounded-lg px-2 py-2 text-sm font-bold text-center text-green-700 mt-0">—</div></div>
                 <div><label class="text-[10px] font-bold text-gray-400">TTC (DT)</label>
-                    <input id="ep_pv_ttc_${id}" readonly class="w-full border-2 border-gray-100 bg-gray-50 rounded-lg px-2 py-2 text-sm font-bold text-green-700"></div>
+                    <input type="number" id="ep_pv_ttc_${id}" step="0.01" min="0" value="${(pv_ht * (1 + tva_rate/100)).toFixed(2)}"
+                        class="w-full border-2 border-green-300 rounded-lg px-2 py-2 text-sm font-bold text-green-700 focus:border-asel outline-none" oninput="epRecalcFromTTC(${id},'pv')"></div>
             </div>
             <!-- Hidden fields for compat -->
             <input type="hidden" name="prix_achat" id="ep_pa_${id}" value="${pa}">
@@ -7984,26 +7986,49 @@ function openEditProduct(id, nom, catId, marque, ref, code, pa, pv, seuil, pa_ht
     setTimeout(() => { epRecalc(id); }, 50);
 }
 
-function epRecalc(id) {
-    const pa_ht = parseFloat(document.getElementById('ep_pa_ht_'+id)?.value || 0);
-    const pv_ht = parseFloat(document.getElementById('ep_pv_ht_'+id)?.value || 0);
-    const tva = parseFloat(document.getElementById('ep_tva_'+id)?.value || 19);
-    const pa_ttc = (pa_ht * (1 + tva/100)).toFixed(2);
-    const pv_ttc = (pv_ht * (1 + tva/100)).toFixed(2);
-    const marge = pv_ht > 0 ? Math.round((pv_ht - pa_ht) / pv_ht * 100) : 0;
-    
-    const pa_ttc_el = document.getElementById('ep_pa_ttc_'+id);
-    const pv_ttc_el = document.getElementById('ep_pv_ttc_'+id);
-    const marge_el = document.getElementById('ep_marge_'+id);
-    const pa_el = document.getElementById('ep_pa_'+id);
-    const pv_el = document.getElementById('ep_pv_'+id);
-    
-    if(pa_ttc_el) pa_ttc_el.value = pa_ttc;
-    if(pv_ttc_el) pv_ttc_el.value = pv_ttc;
+// Recalc TTC from HT (user edited HT)
+function epRecalcFromHT(id) {
+    var pa_ht = parseFloat(document.getElementById('ep_pa_ht_'+id).value || 0);
+    var pv_ht = parseFloat(document.getElementById('ep_pv_ht_'+id).value || 0);
+    var tva = parseFloat(document.getElementById('ep_tva_'+id).value || 19);
+    var pa_ttc = (pa_ht * (1 + tva/100)).toFixed(2);
+    var pv_ttc = (pv_ht * (1 + tva/100)).toFixed(2);
+    document.getElementById('ep_pa_ttc_'+id).value = pa_ttc;
+    document.getElementById('ep_pv_ttc_'+id).value = pv_ttc;
+    epUpdateMarge(id, pa_ht, pv_ht, pa_ttc, pv_ttc);
+}
+
+// Recalc HT from TTC (user edited TTC)
+function epRecalcFromTTC(id, which) {
+    var tva = parseFloat(document.getElementById('ep_tva_'+id).value || 19);
+    if (which === 'pa') {
+        var pa_ttc = parseFloat(document.getElementById('ep_pa_ttc_'+id).value || 0);
+        var pa_ht = (pa_ttc / (1 + tva/100)).toFixed(2);
+        document.getElementById('ep_pa_ht_'+id).value = pa_ht;
+    } else {
+        var pv_ttc = parseFloat(document.getElementById('ep_pv_ttc_'+id).value || 0);
+        var pv_ht = (pv_ttc / (1 + tva/100)).toFixed(2);
+        document.getElementById('ep_pv_ht_'+id).value = pv_ht;
+    }
+    var pa_ht_f = parseFloat(document.getElementById('ep_pa_ht_'+id).value || 0);
+    var pv_ht_f = parseFloat(document.getElementById('ep_pv_ht_'+id).value || 0);
+    var pa_ttc_f = parseFloat(document.getElementById('ep_pa_ttc_'+id).value || 0);
+    var pv_ttc_f = parseFloat(document.getElementById('ep_pv_ttc_'+id).value || 0);
+    epUpdateMarge(id, pa_ht_f, pv_ht_f, pa_ttc_f, pv_ttc_f);
+}
+
+function epUpdateMarge(id, pa_ht, pv_ht, pa_ttc, pv_ttc) {
+    var marge = pv_ht > 0 ? Math.round((pv_ht - pa_ht) / pv_ht * 100) : 0;
+    var marge_el = document.getElementById('ep_marge_'+id);
+    var pa_el = document.getElementById('ep_pa_'+id);
+    var pv_el = document.getElementById('ep_pv_'+id);
     if(marge_el) { marge_el.textContent = marge + '%'; marge_el.className = 'w-full border-2 border-gray-100 bg-gray-50 rounded-lg px-2 py-2 text-sm font-bold text-center mt-0 ' + (marge >= 20 ? 'text-green-700' : marge >= 10 ? 'text-yellow-600' : 'text-red-600'); }
     if(pa_el) pa_el.value = pa_ttc;
     if(pv_el) pv_el.value = pv_ttc;
 }
+
+// Legacy compat
+function epRecalc(id) { epRecalcFromHT(id); }
 
 // === ADD USER MODAL ===
 function openAddUser() {
