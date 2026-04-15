@@ -434,8 +434,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['flash'] = ['type'=>'success','msg'=>"$nb_echeances échéances créées pour " . ($client['nom']??'client') . "!"];
     }
     elseif ($action === 'edit_client') {
-        execute("UPDATE clients SET nom=?,prenom=?,telephone=?,email=?,type_client=?,entreprise=?,matricule_fiscal=?,actif=?,notes=? WHERE id=?",
-            [$_POST['nom'], $_POST['prenom']??'', $_POST['telephone']??'', $_POST['email']??'', $_POST['type_client']??'passager', $_POST['entreprise']??'', $_POST['matricule_fiscal']??'', $_POST['actif']??1, strParam('notes',1000), $_POST['client_id']]);
+        $upd_fid = can('view_all_franchises') ? ($_POST['franchise_id'] ?? null) : null;
+        if ($upd_fid) {
+            execute("UPDATE clients SET nom=?,prenom=?,telephone=?,email=?,type_client=?,entreprise=?,matricule_fiscal=?,actif=?,notes=?,adresse=?,franchise_id=? WHERE id=?",
+                [$_POST['nom'], $_POST['prenom']??'', $_POST['telephone']??'', $_POST['email']??'', $_POST['type_client']??'passager', $_POST['entreprise']??'', $_POST['matricule_fiscal']??'', $_POST['actif']??1, strParam('notes',1000), strParam('adresse'), $upd_fid, $_POST['client_id']]);
+        } else {
+            execute("UPDATE clients SET nom=?,prenom=?,telephone=?,email=?,type_client=?,entreprise=?,matricule_fiscal=?,actif=?,notes=?,adresse=? WHERE id=?",
+                [$_POST['nom'], $_POST['prenom']??'', $_POST['telephone']??'', $_POST['email']??'', $_POST['type_client']??'passager', $_POST['entreprise']??'', $_POST['matricule_fiscal']??'', $_POST['actif']??1, strParam('notes',1000), strParam('adresse'), $_POST['client_id']]);
+        }
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Client mis à jour!'];
         auditLog('edit_client', 'client', $_POST['client_id'], ['nom'=>$_POST['nom']]);
     }
@@ -1909,7 +1915,10 @@ elseif ($page === 'pos'):
                 <div class="flex gap-1 mb-2">
                     <select id="clientSelect" class="ts-select flex-1 text-sm" data-placeholder="Rechercher un client..." onchange="document.getElementById('formClientId').value=this.value;toggleEcheance();loadClientInfo(this.value)">
                         <option value="" data-type="passager">Client passager</option>
-                        <?php $pos_clients=query("SELECT * FROM clients WHERE actif=1 ORDER BY type_client,nom"); foreach($pos_clients as $pc): $ico=match($pc['type_client']){'boutique'=>'🏪','entreprise'=>'🏢',default=>'👤'}; ?>
+                        <?php 
+                        $pos_cl_where = can('view_all_franchises') ? "" : "AND (franchise_id=".intval(currentFranchise())." OR franchise_id IS NULL)";
+                        $pos_clients=query("SELECT * FROM clients WHERE actif=1 $pos_cl_where ORDER BY type_client,nom"); 
+                        foreach($pos_clients as $pc): $ico=match($pc['type_client']){'boutique'=>'🏪','entreprise'=>'🏢',default=>'👤'}; ?>
                         <option value="<?=$pc['id']?>" data-type="<?=$pc['type_client']?>"><?=$ico?> <?=htmlspecialchars($pc['nom'].' '.($pc['prenom']??''))?></option>
                         <?php endforeach; ?>
                     </select>
@@ -4062,14 +4071,34 @@ elseif ($page === 'clients'):
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_client') {
         // Already handled above
     }
+    $cl_where = "";
+    $cl_params = [];
+    if (!can('view_all_franchises')) {
+        $cl_where = "WHERE c.franchise_id=?";
+        $cl_params = [currentFranchise()];
+    } elseif ($fid) {
+        $cl_where = "WHERE c.franchise_id=?";
+        $cl_params = [$fid];
+    }
     $clients = query("SELECT c.*,f.nom as fnom,
         COALESCE((SELECT SUM(prix_total) FROM ventes WHERE client_id=c.id),0) as total_achats,
         COALESCE((SELECT SUM(montant) FROM echeances WHERE client_id=c.id AND statut IN ('en_attente','en_retard')),0) as solde_du
-        FROM clients c LEFT JOIN franchises f ON c.franchise_id=f.id ORDER BY c.date_creation DESC LIMIT 100");
+        FROM clients c LEFT JOIN franchises f ON c.franchise_id=f.id $cl_where ORDER BY c.date_creation DESC LIMIT 200", $cl_params);
 ?>
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-person-lines-fill text-asel"></i> Clients <span class="text-sm font-normal text-gray-400">(<?=count($clients)?>)</span></h1>
-    <div class="flex gap-2">
+    <div class="flex gap-2 items-center">
+        <?php if(can('view_all_franchises')): ?>
+        <form class="flex gap-2 items-center">
+            <input type="hidden" name="page" value="clients">
+            <select name="fid" class="border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm" onchange="this.form.submit()">
+                <option value="">👥 Tous les clients</option>
+                <?php foreach($allFranchises as $af): ?>
+                <option value="<?=$af['id']?>" <?=$fid==$af['id']?'selected':''?>><?=shortF($af['nom'])?></option>
+                <?php endforeach; ?>
+            </select>
+        </form>
+        <?php endif; ?>
         <button onclick="openQuickAddClient()" class="bg-asel text-white px-4 py-2 rounded-xl text-sm font-bold"><i class="bi bi-person-plus"></i> Nouveau client</button>
         <a href="api.php?action=export_clients" class="bg-white border-2 border-asel text-asel font-semibold px-3 py-1.5 rounded-lg text-xs hover:bg-asel hover:text-white transition-colors"><i class="bi bi-download"></i> Export</a>
     </div>
@@ -4083,7 +4112,7 @@ elseif ($page === 'clients'):
 
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <div class="overflow-x-auto"><table class="w-full text-sm">
-        <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Nom</th><th class="px-3 py-3 hidden sm:table-cell">Tél</th><th class="px-3 py-3">Type</th><th class="px-3 py-3 hidden md:table-cell">Entreprise</th><th class="px-3 py-3 text-right hidden sm:table-cell">Total achats</th><th class="px-3 py-3 text-right hidden sm:table-cell">Solde dû</th><th class="px-3 py-3">Date</th><th class="px-3 py-3">Actions</th></tr></thead>
+        <thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Nom</th><th class="px-3 py-3 hidden sm:table-cell">Tél</th><th class="px-3 py-3">Type</th><?php if(can('view_all_franchises')): ?><th class="px-3 py-3 hidden md:table-cell">Franchise</th><?php endif; ?><th class="px-3 py-3 hidden md:table-cell">Entreprise</th><th class="px-3 py-3 text-right hidden sm:table-cell">Total achats</th><th class="px-3 py-3 text-right hidden sm:table-cell">Solde dû</th><th class="px-3 py-3">Date</th><th class="px-3 py-3">Actions</th></tr></thead>
         <tbody class="divide-y"><?php foreach ($clients as $c): $tb=['passager'=>'bg-gray-100','boutique'=>'bg-blue-100 text-blue-800','entreprise'=>'bg-purple-100 text-purple-800']; ?>
             <tr class="hover:bg-gray-50 client-row" data-search="<?=e(strtolower($c['nom'].' '.($c['prenom']??'').' '.$c['telephone'].' '.$c['email'].' '.($c['entreprise']??'').' '.$c['type_client']))?>">
                 <td class="px-3 py-2 font-medium">
@@ -4091,8 +4120,8 @@ elseif ($page === 'clients'):
                 </td>
                 <td class="px-3 py-2 hidden sm:table-cell"><a href="tel:<?=e($c['telephone'])?>" class="text-asel"><?=e($c['telephone'])?></a></td>
                 <td class="px-3 py-2"><span class="inline-flex px-2 py-0.5 rounded text-xs font-medium <?=$tb[$c['type_client']]??''?>"><?=$c['type_client']?></span></td>
+                <?php if(can('view_all_franchises')): ?><td class="px-3 py-2 text-xs hidden md:table-cell"><?=e(shortF($c['fnom']??'—'))?></td><?php endif; ?>
                 <td class="px-3 py-2 text-xs hidden md:table-cell"><?=e($c['entreprise']??'')?></td>
-                <td class="px-3 py-2 text-xs font-mono hidden md:table-cell"><?=e($c['matricule_fiscal']??'')?></td>
                 <td class="px-3 py-2 text-right text-xs font-bold text-asel hidden sm:table-cell"><?=$c['total_achats']>0?number_format($c['total_achats'],2).' DT':'—'?></td>
                 <td class="px-3 py-2 text-right text-xs hidden sm:table-cell">
                     <?php if($c['solde_du']>0): ?><span class="font-bold text-red-600"><?=number_format($c['solde_du'],2)?> DT</span><?php else: ?><span class="text-green-500">✓</span><?php endif; ?>
@@ -7270,9 +7299,18 @@ function openQuickAddProduct(returnPage) {
 // Quick client add modal
 function openQuickAddClient() {
     const csrf = '<?=$csrf?>';
+    const isAdmin = <?=can('view_all_franchises')?'true':'false'?>;
+    const franchises = <?=json_encode(array_map(fn($f)=>['value'=>$f['id'],'label'=>shortF($f['nom'])], $allFranchises))?>;
+    
+    let franchiseField = '';
+    if (isAdmin) {
+        franchiseField = modalField('Franchise', 'franchise_id', 'select', '', '', franchises);
+    }
+    
     openModal(
         modalHeader('bi-person-plus', 'Nouveau client', 'Ajouter un client au répertoire') +
         modalForm('add_client', csrf,
+            franchiseField +
             modalRow([
                 modalField('Nom *', 'nom', 'text', '', 'Nom de famille'),
                 modalField('Prénom', 'prenom', 'text', '', 'Prénom'),
