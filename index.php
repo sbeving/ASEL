@@ -1423,9 +1423,15 @@ try {
 // =====================================================
 if ($page === 'dashboard'):
     $wf = $fid ? "AND franchise_id=".intval($fid) : "";
+    $wf_ech = $fid ? "AND franchise_id=".intval($fid) : "";
+    $wf_fac = $fid ? "AND f.franchise_id=".intval($fid) : "";
     $wfs = $fid ? "AND s.franchise_id=".intval($fid) : "";
     $st = queryOne("SELECT COALESCE(SUM(s.quantite),0) as total, COALESCE(SUM(s.quantite*p.prix_vente),0) as valeur, COALESCE(SUM(s.quantite*p.prix_achat),0) as cout FROM stock s JOIN produits p ON s.produit_id=p.id WHERE 1=1 $wfs");
     $vj = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t, COUNT(*) as n, COALESCE(SUM(v.quantite*p.prix_achat),0) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente=CURDATE() $wf");
+    // Cash from echeance payments today + avances on lot sales today
+    $echeances_cash_today = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM echeances WHERE statut='payee' AND DATE(date_paiement)=CURDATE() $wf_ech")['t'] ?? 0;
+    $avances_today = queryOne("SELECT COALESCE(SUM(f.montant_recu),0) as t FROM factures f WHERE f.mode_paiement='echeance' AND DATE(f.date_facture)=CURDATE() AND f.montant_recu > 0 $wf_fac")['t'] ?? 0;
+    $total_cash_today = $vj['t'] + $echeances_cash_today;
     $vm = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t, COUNT(*) as n, COALESCE(SUM(v.quantite*p.prix_achat),0) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE MONTH(v.date_vente)=MONTH(CURDATE()) AND YEAR(v.date_vente)=YEAR(CURDATE()) $wf");
     $vh = queryOne("SELECT COALESCE(SUM(prix_total),0) as t FROM ventes WHERE date_vente=DATE_SUB(CURDATE(), INTERVAL 1 DAY) $wf");
     // Last month comparison
@@ -1474,6 +1480,13 @@ if ($page === 'dashboard'):
         <div class="text-xs text-white/60 font-bold uppercase">CA Aujourd'hui</div>
         <div class="text-3xl font-black"><?=number_format($vj['t'],2)?> <span class="text-base font-normal text-white/70">DT</span></div>
         <?php if($trend != 0): ?><div class="text-xs text-white/70 mt-0.5"><?=$trend>0?'↑ +':'↓ '?><?=abs($trend)?>% vs hier</div><?php endif; ?>
+        <?php if($echeances_cash_today > 0 || $avances_today > 0): ?>
+        <div class="text-[10px] text-white/50 mt-1">
+            <?php if($avances_today > 0): ?>💰 Avances: <?=number_format($avances_today,2)?> DT<?php endif; ?>
+            <?php if($echeances_cash_today > 0): ?> | ✅ Échéances payées: <?=number_format($echeances_cash_today,2)?> DT<?php endif; ?>
+        </div>
+        <div class="text-xs text-green-300 font-bold mt-0.5">Total encaissé: <?=number_format($total_cash_today,2)?> DT</div>
+        <?php endif; ?>
     </div>
     <div class="w-px bg-white/20 h-12 hidden sm:block"></div>
     <div class="text-center">
@@ -4666,7 +4679,7 @@ elseif ($page === 'factures'):
 </div>
 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
     <div class="overflow-x-auto"><table class="w-full text-sm">
-        <thead class="sticky-thead"><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3">N°</th><th class="px-3 py-3">Date</th><th class="px-3 py-3 hidden sm:table-cell">Franchise</th><th class="px-3 py-3">Client</th><th class="px-3 py-3">Type</th><th class="px-3 py-3 text-right">Total</th><th class="px-3 py-3">Statut</th><th class="px-3 py-3">Actions</th></tr></thead>
+        <thead class="sticky-thead"><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3">N°</th><th class="px-3 py-3">Date</th><th class="px-3 py-3 hidden sm:table-cell">Franchise</th><th class="px-3 py-3">Client</th><th class="px-3 py-3">Type</th><th class="px-3 py-3 text-right">Total</th><th class="px-3 py-3">Paiement</th><th class="px-3 py-3">Statut</th><th class="px-3 py-3">Actions</th></tr></thead>
         <tbody class="divide-y"><?php foreach ($factures as $f): $type_b=['ticket'=>'bg-gray-100','facture'=>'bg-blue-100 text-blue-800','devis'=>'bg-yellow-100 text-yellow-800']; $stat_b=['payee'=>'bg-green-100 text-green-800','en_attente'=>'bg-yellow-100 text-yellow-800','annulee'=>'bg-red-100 text-red-800']; ?>
             <tr class="hover:bg-gray-50 fact-row <?=$f['statut']==='annulee'?'opacity-50':''?>" data-search="<?=e(strtolower($f['numero'].' '.($f['client_nom']??'').' '.shortF($f['fnom'])))?>">
                 <td class="px-3 py-2 font-mono text-xs font-bold"><?=e($f['numero'])?></td>
@@ -4675,6 +4688,31 @@ elseif ($page === 'factures'):
                 <td class="px-3 py-2 text-sm"><?=$f['client_nom'] ? e($f['client_nom'].' '.($f['client_prenom']??'')) : '<span class="text-gray-400 text-xs">Passager</span>'?></td>
                 <td class="px-3 py-2"><span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium <?=$type_b[$f['type_facture']]??''?>"><?=$f['type_facture']?></span></td>
                 <td class="px-3 py-2 text-right font-bold"><?=number_format($f['total_ttc'],2)?></td>
+                <td class="px-3 py-2 text-xs">
+                    <?php if($f['mode_paiement'] === 'echeance'): 
+                        $f_echs = query("SELECT id,montant,date_echeance,statut FROM echeances WHERE facture_id=? ORDER BY date_echeance", [$f['id']]);
+                        $avance = floatval($f['montant_recu'] ?? 0);
+                        $nb_ech = count($f_echs);
+                        $payees = count(array_filter($f_echs, fn($e)=>$e['statut']==='payee'));
+                    ?>
+                        <div class="space-y-0.5">
+                            <?php if($avance > 0): ?>
+                            <div class="text-green-600 font-semibold">💰 Avance: <?=number_format($avance,2)?> DT</div>
+                            <?php endif; ?>
+                            <div class="text-amber-600">📅 <?=$payees?>/<?=$nb_ech?> échéances</div>
+                            <?php foreach($f_echs as $ech): 
+                                $ech_color = match($ech['statut']){'payee'=>'text-green-600','en_retard'=>'text-red-600',default=>'text-gray-500'};
+                                $ech_icon = match($ech['statut']){'payee'=>'✅','en_retard'=>'⚠️',default=>'⏳'};
+                            ?>
+                            <div class="text-[9px] <?=$ech_color?>"><?=$ech_icon?> <?=number_format($ech['montant'],2)?> DT — <?=date('d/m',strtotime($ech['date_echeance']))?></div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100">
+                            <?=match($f['mode_paiement']){'especes'=>'💵 Espèces','carte'=>'💳 Carte','virement'=>'🏦 Virement','cheque'=>'📝 Chèque','mixte'=>'🔀 Mixte',default=>$f['mode_paiement']}?>
+                        </span>
+                    <?php endif; ?>
+                </td>
                 <td class="px-3 py-2"><span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium <?=$stat_b[$f['statut']]??''?>"><?=$f['statut']?></span></td>
                 <td class="px-3 py-2">
                     <div class="flex gap-1 items-center">
