@@ -7309,6 +7309,8 @@ function openQuickAddProduct(returnPage) {
 }
 
 // Quick client add modal
+</script>
+<script>
 function openQuickAddClient() {
     const csrf = '<?=$csrf?>';
     const isAdmin = <?=can('view_all_franchises')?'true':'false'?>;
@@ -7399,7 +7401,8 @@ function openEditClient(id, nom, prenom, tel, email, type, entreprise, mf, adres
         {size: 'max-w-lg'}
     );
 }
-
+</script>
+<script>
 // Quick stock entry modal
 function openQuickDispatch(produitId, produitNom) {
     const csrf = '<?=$csrf?>';
