@@ -948,11 +948,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // === Load data ===
-$franchises = getRetailFranchises();
-$allFranchises = query("SELECT * FROM franchises WHERE actif=1 ORDER BY nom");
-$categories = query("SELECT * FROM categories ORDER BY nom");
-$produits = query("SELECT p.*,c.nom as cat_nom FROM produits p JOIN categories c ON p.categorie_id=c.id WHERE p.actif=1 ORDER BY c.nom,p.nom");
-$fournisseurs = query("SELECT * FROM fournisseurs WHERE actif=1 ORDER BY nom");
+$franchises = getRetailFranchises() ?? [];
+$allFranchises = query("SELECT * FROM franchises WHERE actif=1 ORDER BY nom") ?? [];
+$categories = query("SELECT * FROM categories ORDER BY nom") ?? [];
+$produits = query("SELECT p.*,c.nom as cat_nom FROM produits p JOIN categories c ON p.categorie_id=c.id WHERE p.actif=1 ORDER BY c.nom,p.nom") ?? [];
+$fournisseurs = query("SELECT * FROM fournisseurs WHERE actif=1 ORDER BY nom") ?? [];
 try { $familles = query("SELECT * FROM familles WHERE actif=1 ORDER BY nom"); } catch(Exception $e) { $familles = []; }
 try { $sous_categories = query("SELECT sc.*,c.nom as cat_nom FROM sous_categories sc JOIN categories c ON sc.categorie_id=c.id ORDER BY c.nom,sc.nom"); } catch(Exception $e) { $sous_categories = []; }
 $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
@@ -2754,7 +2754,7 @@ const entreeProds = <?=json_encode(array_map(fn($p)=>[
     'desc'=>$p['description']??'',
     // Searchable composite string
     'search'=>strtolower($p['nom'].' '.$p['reference'].' '.($p['marque']??'').' '.($p['code_barre']??'').' '.$p['cat_nom'].' '.($p['description']??''))
-], $produits))?>;
+], $produits ?? []))?>;
 
 let entreeLines = [];
 let selectedProd = null;
@@ -5868,9 +5868,9 @@ function openBonReception() {
         // If HT is 0 or missing, calculate from TTC
         if ($pa_ht <= 0 && $pa_ttc > 0) $pa_ht = round($pa_ttc / (1 + $tva/100), 2);
         return ['id'=>$p['id'],'nom'=>$p['nom'],'ref'=>$p['reference']??'','cat'=>$p['cat_nom'],'marque'=>$p['marque']??'','pa_ht'=>$pa_ht,'pa_ttc'=>$pa_ttc,'pv_ttc'=>floatval($p['prix_vente_ttc']??$p['prix_vente']??0),'tva'=>$tva];
-    }, $produits))?>;
-    const fournList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>$f['nom']], $fournisseurs))?>;
-    const franchList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>shortF($f['nom'])], $allFranchises))?>;
+    }, $produits ?? []))?>;
+    const fournList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>$f['nom']], $fournisseurs ?? []))?>;
+    const franchList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>shortF($f['nom'])], $allFranchises ?? []))?>;
     
     window.renderBR = function(){
         const lignes = window._brLignes;
@@ -7239,10 +7239,10 @@ function checkStockBeforeSale() {
 // Quick product add modal
 function openQuickAddProduct(returnPage) {
     const csrf = '<?=$csrf?>';
-    const cats = <?=json_encode(array_map(fn($c) => ['value' => $c['id'], 'label' => $c['nom']], $categories))?>;
-    const fourns = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => $f['nom']], $fournisseurs))?>;
+    const cats = <?=json_encode(array_map(fn($c) => ['value' => $c['id'], 'label' => $c['nom']], $categories ?? []))?>;
+    const fourns = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => $f['nom']], $fournisseurs ?? []))?>;
     fourns.unshift({value:'', label:'— Aucun —'});
-    const franchAll = <?=json_encode(array_map(fn($f)=>['value'=>$f['id'],'label'=>shortF($f['nom'])], $allFranchises))?>;
+    const franchAll = <?=json_encode(array_map(fn($f)=>['value'=>$f['id'],'label'=>shortF($f['nom'])], $allFranchises ?? []))?>;
     
     openModal(
         modalHeader('bi-plus-circle', 'Nouveau produit', 'Avec prix HT / TVA / TTC') +
@@ -7312,7 +7312,7 @@ function openQuickAddProduct(returnPage) {
 function openQuickAddClient() {
     const csrf = '<?=$csrf?>';
     const isAdmin = <?=can('view_all_franchises')?'true':'false'?>;
-    const franchises = <?=json_encode(array_map(fn($f)=>['value'=>$f['id'],'label'=>shortF($f['nom'])], $allFranchises))?>;
+    const franchises = <?=json_encode(array_map(fn($f)=>['value'=>$f['id'],'label'=>shortF($f['nom'])], $allFranchises ?? []))?>;
     
     let franchiseField = '';
     if (isAdmin) {
@@ -7403,7 +7403,7 @@ function openEditClient(id, nom, prenom, tel, email, type, entreprise, mf, adres
 // Quick stock entry modal
 function openQuickDispatch(produitId, produitNom) {
     const csrf = '<?=$csrf?>';
-    const franchises = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => shortF($f['nom'])], $franchises))?>;
+    const franchises = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => shortF($f['nom'])], $franchises ?? []))?>;
     openModal(
         modalHeader('bi-truck', 'Dispatch rapide', produitNom) +
         `<form method="POST" class="p-6 space-y-4">
@@ -7428,7 +7428,7 @@ function openQuickDispatch(produitId, produitNom) {
 
 function openQuickStockEntry(franchiseId, franchiseName) {
     const csrf = '<?=$csrf?>';
-    const prods = <?=json_encode(array_map(fn($p) => ['value' => $p['id'], 'label' => $p['nom'].' ('.$p['cat_nom'].')'], $produits))?>;
+    const prods = <?=json_encode(array_map(fn($p) => ['value' => $p['id'], 'label' => $p['nom'].' ('.$p['cat_nom'].')'], $produits ?? []))?>;
     openModal(
         modalHeader('bi-box-arrow-in-down', 'Entrée de stock', franchiseName ? 'Franchise: ' + franchiseName : '') +
         `<form method="POST" class="p-6 space-y-4">
@@ -7473,8 +7473,8 @@ function confirmCancelFacture(formId, numero) {
 // Quick transfer request modal
 function openQuickTransfer() {
     const csrf = '<?=$csrf?>';
-    const franchises = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => shortF($f['nom'])], $allFranchises))?>;
-    const prods = <?=json_encode(array_map(fn($p) => ['value' => $p['id'], 'label' => $p['nom'].' ('.$p['cat_nom'].')'], $produits))?>;
+    const franchises = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => shortF($f['nom'])], $allFranchises ?? []))?>;
+    const prods = <?=json_encode(array_map(fn($p) => ['value' => $p['id'], 'label' => $p['nom'].' ('.$p['cat_nom'].')'], $produits ?? []))?>;
     openModal(
         modalHeader('bi-arrow-left-right', 'Demander un transfert', 'Transférer du stock entre franchises') +
         modalForm('transfert', csrf,
@@ -7495,7 +7495,7 @@ function openQuickTransfer() {
 // Quick retour modal
 function openQuickRetour(franchiseId) {
     const csrf = '<?=$csrf?>';
-    const prods = <?=json_encode(array_map(fn($p) => ['value' => $p['id'], 'label' => $p['nom'].' ('.$p['cat_nom'].')'], $produits))?>;
+    const prods = <?=json_encode(array_map(fn($p) => ['value' => $p['id'], 'label' => $p['nom'].' ('.$p['cat_nom'].')'], $produits ?? []))?>;
     openModal(
         modalHeader('bi-arrow-counterclockwise', 'Retour / Échange', 'Enregistrer un retour produit') +
         modalForm('retour', csrf,
@@ -7622,8 +7622,8 @@ function openEditProduct(id, nom, catId, marque, ref, code, pa, pv, seuil, pa_ht
     tva_rate = tva_rate || 19;
     description = description || '';
     const csrf = '<?=$csrf?>';
-    const cats = <?=json_encode(array_map(fn($c) => ['value' => $c['id'], 'label' => $c['nom']], $categories))?>;
-    const fourns = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => $f['nom']], $fournisseurs))?>;
+    const cats = <?=json_encode(array_map(fn($c) => ['value' => $c['id'], 'label' => $c['nom']], $categories ?? []))?>;
+    const fourns = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => $f['nom']], $fournisseurs ?? []))?>;
     cats.forEach(c => c.selected = (c.value == catId));
     
     openModal(
@@ -7715,7 +7715,7 @@ function epRecalc(id) {
 // === ADD USER MODAL ===
 function openAddUser() {
     const csrf = '<?=$csrf?>';
-    const franchises = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => shortF($f['nom'])], $franchises))?>;
+    const franchises = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => shortF($f['nom'])], $franchises ?? []))?>;
     franchises.unshift({value: '', label: '— Aucune (admin) —'});
     openModal(
         modalHeader('bi-person-plus', 'Nouvel utilisateur', 'Créer un compte employé') +
@@ -7742,7 +7742,7 @@ function openAddUser() {
 // === EDIT USER MODAL ===
 function openEditUser(id, nom, role, franchiseId, actif) {
     const csrf = '<?=$csrf?>';
-    const franchises = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => shortF($f['nom'])], $franchises))?>;
+    const franchises = <?=json_encode(array_map(fn($f) => ['value' => $f['id'], 'label' => shortF($f['nom'])], $franchises ?? []))?>;
     franchises.unshift({value: '', label: '— Aucune —'});
     franchises.forEach(f => f.selected = (f.value == franchiseId));
     const roles = [
@@ -7830,7 +7830,7 @@ function openAddAselProduct() {
 // === SMART BARCODE SCAN & LOOKUP ===
 function openBulkPriceModal() {
     const csrf = '<?=$csrf?>';
-    const cats = <?=json_encode(array_map(fn($c) => ['value'=>$c['id'],'label'=>$c['nom']], $categories))?>;
+    const cats = <?=json_encode(array_map(fn($c) => ['value'=>$c['id'],'label'=>$c['nom']], $categories ?? []))?>;
     cats.unshift({value:0, label:'— Tous les produits —'});
     openModal(
         modalHeader('bi-percent','Ajustement global des prix','Modifier les prix en %') +
@@ -8013,7 +8013,7 @@ function doBarcodeLookup() {
 // === DEMANDE PRODUIT MODAL ===
 function openDemandeProduit(franchiseId) {
     const csrf = '<?=$csrf?>';
-    const prods = <?=json_encode(array_map(fn($p) => ['value' => $p['id'], 'label' => $p['nom'].' ('.$p['cat_nom'].')'], $produits))?>;
+    const prods = <?=json_encode(array_map(fn($p) => ['value' => $p['id'], 'label' => $p['nom'].' ('.$p['cat_nom'].')'], $produits ?? []))?>;
     prods.unshift({value: '', label: '— Nouveau produit (écrire ci-dessous) —'});
     openModal(
         modalHeader('bi-megaphone', 'Demande au stock central', 'Commander des produits pour votre franchise') +
