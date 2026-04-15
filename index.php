@@ -175,7 +175,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         $bon_id = null;
         if ($create_bon) {
-            $count = queryOne("SELECT COUNT(*)+1 as n FROM bons_reception WHERE DATE(date_creation)=CURDATE()")['n'];
+            $count = queryOne("SELECT COUNT(*)+1 as n FROM bons_reception WHERE DATE(date_creation)=?", [date('Y-m-d')])['n'] ?? 1;
             $numero = 'BR-' . date('Ymd') . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
             execute("INSERT INTO bons_reception (numero,franchise_id,fournisseur_id,total_ht,tva,total_ttc,statut,note,utilisateur_id) VALUES (?,?,?,?,?,?,'valide',?,?)",
                 [$numero, $efid, $fourn_id, round($total_ht,2), round($total_tva,2), round($total_ttc,2), $note_base ?: ($ref_bl ? "BL: $ref_bl" : null), $user['id']]);
@@ -771,8 +771,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $total_ht += $lht; $total_tva += $ltva; $total_ttc += $lht + $ltva;
         }
         $prefix = $is_draft ? 'BRB' : 'BR';
-        $count = queryOne("SELECT COUNT(*)+1 as n FROM bons_reception WHERE DATE(date_creation)=CURDATE()")['n'];
-        $numero = $prefix . '-' . date('Ymd') . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
+        $today = date('Y-m-d');
+        $today_ymd = date('Ymd');
+        $count = queryOne("SELECT COUNT(*)+1 as n FROM bons_reception WHERE DATE(date_creation)=? AND numero LIKE ?", [$today, $prefix.'-%'])['n'] ?? 1;
+        $numero = $prefix . '-' . $today_ymd . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
         $statut = $is_draft ? 'brouillon' : 'valide';
         execute("INSERT INTO bons_reception (numero,franchise_id,fournisseur_id,total_ht,tva,total_ttc,statut,note,utilisateur_id) VALUES (?,?,?,?,?,?,?,?,?)",
             [$numero, $br_fid, $br_fourn, round($total_ht,2), round($total_tva,2), round($total_ttc,2), $statut, strParam('note'), $user['id']]);
@@ -5920,38 +5922,32 @@ $bons_ce_mois = count(array_filter($bons, fn($b) => date('Y-m', strtotime($b['da
 </div>
 <script>
 function viewBon(id, numero, fourn, franchise, date, ht, tva, ttc, note) {
-    // Load bon lines via fetch
-    fetch(`api.php?action=get_bon_lines&bon_id=${id}`)
-        .then(r => r.json())
-        .then(lines => {
-            let lignesHtml = '';
+    fetch('api.php?action=get_bon_lines&bon_id=' + id)
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+            // API returns {lignes: [...]} or [{...}] (legacy)
+            var lines = Array.isArray(data) ? data : (data.lignes || []);
+            var lignesHtml = '';
             if(lines && lines.length) {
-                lignesHtml = lines.map(l => `<tr class="border-b"><td class="py-2 text-sm">${l.produit_nom||'?'}</td><td class="py-2 text-center text-sm">${l.quantite}</td><td class="py-2 text-right text-sm">${parseFloat(l.prix_unitaire_ht||0).toFixed(2)} HT</td><td class="py-2 text-right text-sm font-bold">${parseFloat(l.total_ttc||0).toFixed(2)} TTC</td></tr>`).join('');
+                lignesHtml = lines.map(function(l){
+                    return '<tr class="border-b"><td class="py-2 text-sm">' + (l.produit_nom||'Produit #'+l.produit_id) + '</td><td class="py-2 text-center text-sm">' + l.quantite + '</td><td class="py-2 text-right text-sm">' + parseFloat(l.prix_unitaire_ht||0).toFixed(2) + ' HT</td><td class="py-2 text-right text-sm font-bold">' + parseFloat(l.total_ttc||0).toFixed(2) + ' TTC</td></tr>';
+                }).join('');
             } else {
-                lignesHtml = '<tr><td colspan="4" class="py-4 text-center text-gray-400 text-sm">Lignes non disponibles</td></tr>';
+                lignesHtml = '<tr><td colspan="4" class="py-4 text-center text-gray-400 text-sm">Aucune ligne</td></tr>';
             }
             openModal(
-                modalHeader('bi-receipt', `Bon ${numero}`, `${franchise} — ${date}`) +
-                `<div class="p-5">
-                    <div class="grid grid-cols-2 gap-3 mb-4 text-sm">
-                        <div><span class="text-gray-400">Fournisseur:</span> <b>${fourn||'—'}</b></div>
-                        <div><span class="text-gray-400">Date:</span> <b>${date}</b></div>
-                    </div>
-                    <table class="w-full text-sm mb-4"><thead><tr class="bg-gray-50 text-xs uppercase"><th class="py-1.5 text-left">Produit</th><th class="py-1.5 text-center">Qté</th><th class="py-1.5 text-right">P.U. HT</th><th class="py-1.5 text-right">Total TTC</th></tr></thead><tbody>${lignesHtml}</tbody></table>
-                    <div class="bg-gray-50 rounded-xl p-3 text-sm space-y-1">
-                        <div class="flex justify-between"><span class="text-gray-500">Total HT</span><span class="font-semibold">${ht.toFixed(2)} DT</span></div>
-                        <div class="flex justify-between"><span class="text-gray-500">TVA</span><span>${tva.toFixed(2)} DT</span></div>
-                        <div class="flex justify-between text-base border-t pt-2"><span class="font-bold">Total TTC</span><span class="font-black text-asel">${ttc.toFixed(2)} DT</span></div>
-                    </div>
-                    ${note ? `<div class="mt-3 text-xs text-gray-500"><i class="bi bi-chat-square-text"></i> ${note}</div>` : ''}
-                    <a href="pdf.php?type=bon_reception&id=${id}" target="_blank" class="mt-4 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-asel text-white font-bold text-sm hover:bg-asel-dark transition-colors"><i class="bi bi-printer"></i> Imprimer</a>
-                </div>`,
+                modalHeader('bi-receipt', 'Bon ' + numero, franchise + ' — ' + date) +
+                '<div class="p-5"><div class="grid grid-cols-2 gap-3 mb-4 text-sm"><div><span class="text-gray-400">Fournisseur:</span> <b>' + (fourn||'—') + '</b></div><div><span class="text-gray-400">Date:</span> <b>' + date + '</b></div></div>' +
+                '<table class="w-full text-sm mb-4"><thead><tr class="bg-gray-50 text-xs uppercase"><th class="py-1.5 text-left">Produit</th><th class="py-1.5 text-center">Qté</th><th class="py-1.5 text-right">P.U. HT</th><th class="py-1.5 text-right">Total TTC</th></tr></thead><tbody>' + lignesHtml + '</tbody></table>' +
+                '<div class="bg-gray-50 rounded-xl p-3 text-sm space-y-1"><div class="flex justify-between"><span class="text-gray-500">Total HT</span><span class="font-semibold">' + ht.toFixed(2) + ' DT</span></div><div class="flex justify-between"><span class="text-gray-500">TVA</span><span>' + tva.toFixed(2) + ' DT</span></div><div class="flex justify-between text-base border-t pt-2"><span class="font-bold">Total TTC</span><span class="font-black text-asel">' + ttc.toFixed(2) + ' DT</span></div></div>' +
+                (note ? '<div class="mt-3 text-xs text-gray-500"><i class="bi bi-chat-square-text"></i> ' + note + '</div>' : '') +
+                '</div>',
                 {size: 'max-w-lg'}
             );
         })
-        .catch(() => {
-            openModal(modalHeader('bi-receipt', `Bon ${numero}`, `${franchise} — ${date}`) +
-                `<div class="p-5 text-center text-gray-400">Erreur lors du chargement des lignes</div>`,
+        .catch(function(){
+            openModal(modalHeader('bi-receipt', 'Bon ' + numero, franchise + ' — ' + date) +
+                '<div class="p-5 text-center text-gray-400">Erreur lors du chargement des lignes</div>',
                 {size:'max-w-lg'});
         });
 }
