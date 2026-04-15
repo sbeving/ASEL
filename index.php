@@ -3912,11 +3912,9 @@ document.addEventListener('change', function(e) {
 function printSelectedLabels() {
     var checked = document.querySelectorAll('.prod-check:checked');
     
-    // If none selected, offer to select all visible
     if (!checked.length) {
         var visible = document.querySelectorAll('#productsTable .prod-row:not([style*="display: none"])');
-        if (!visible.length) { showToast('Aucun produit visible', 'warning'); return; }
-        
+        if (!visible.length) { alert('Aucun produit visible'); return; }
         if (confirm('Aucun produit coché. Sélectionner tous les ' + visible.length + ' produits visibles ?')) {
             visible.forEach(function(r) {
                 var cb = r.querySelector('.prod-check');
@@ -3927,6 +3925,7 @@ function printSelectedLabels() {
         } else return;
     }
     
+    // Collect product data
     var products = [];
     checked.forEach(function(cb) {
         products.push({
@@ -3937,6 +3936,15 @@ function printSelectedLabels() {
             code: cb.dataset.code || ''
         });
     });
+    
+    // Check if openModal is available, otherwise use direct print
+    if (typeof openModal !== 'function') {
+        // Direct print without modal
+        if (confirm('Imprimer ' + products.length + ' étiquette(s) ?')) {
+            doDirectLabelPrint(products);
+        }
+        return;
+    }
     
     openModal(modalHeader('bi-tag', 'Imprimer étiquettes', products.length + ' produit(s) sélectionné(s)') +
         '<div class="p-5 space-y-3">' +
@@ -4040,8 +4048,30 @@ function generateLabels() {
     var w = window.open('', '_blank');
     w.document.write(html);
     w.document.close();
-    closeModal();
+    if (typeof closeModal === 'function') closeModal();
 }
+
+function doDirectLabelPrint(products) {
+    var labels = [];
+    products.forEach(function(p) { labels.push(p); });
+    var html = '<!DOCTYPE html><html><head><title>Étiquettes ASEL</title><style>' +
+        '@page{margin:5mm}body{font-family:Arial,sans-serif;margin:10px}' +
+        '.grid{display:flex;flex-wrap:wrap;gap:4px}' +
+        '.label{width:31%;border:1px solid #ccc;border-radius:6px;padding:6px;text-align:center;page-break-inside:avoid}' +
+        '.nom{font-weight:bold;font-size:10px;margin-bottom:3px}.prix{font-size:18px;font-weight:900;color:#1B3A5C}' +
+        '.ref{font-size:9px;color:#888}.brand{font-size:7px;color:#2AABE2;margin-top:2px}' +
+        '</style></head><body><div class="grid">';
+    labels.forEach(function(l) {
+        html += '<div class="label"><div class="nom">' + l.nom + '</div>';
+        if (l.ref) html += '<div class="ref">' + l.ref + '</div>';
+        html += '<div class="prix">' + l.prix + ' DT</div>';
+        if (l.code) html += '<div class="ref">' + l.code + '</div>';
+        html += '<div class="brand">ASEL Mobile</div></div>';
+    });
+    html += '</div><script>window.print()<\/script></body></html>';
+    var w = window.open('', '_blank');
+    w.document.write(html);
+    w.document.close();
 }
 
 function instantFilter() {
