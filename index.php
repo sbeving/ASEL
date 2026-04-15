@@ -3397,9 +3397,11 @@ elseif ($page === 'transferts'):
 <?php endif; ?>
 </div>
 
-<?php elseif ($page === 'cloture'): $cl_fid=$fid?:(currentFranchise()?:($franchises[0]['id']??1));
+<?php elseif ($page === 'cloture'): 
+    // Admin must select a specific franchise for cloture
+    $cl_fid = $fid ?: (intval($_GET['cl_fid'] ?? 0) ?: (currentFranchise() ?: ($franchises[0]['id'] ?? 1)));
+    if (isset($_GET['cl_fid'])) $cl_fid = intval($_GET['cl_fid']);
     $today = $_GET['cl_date'] ?? date('Y-m-d');
-    // Validate date format
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $today)) $today = date('Y-m-d');
     $is_today = ($today === date('Y-m-d'));
     $sys = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COALESCE(SUM(quantite),0) as a FROM ventes WHERE franchise_id=? AND DATE(date_vente)=?", [$cl_fid, $today]);
@@ -3420,15 +3422,27 @@ elseif ($page === 'transferts'):
 ?>
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-calendar-check text-asel"></i> Clôture journalière</h1>
-    <div class="flex items-center gap-2">
-        <a href="?page=cloture&cl_date=<?=date('Y-m-d',strtotime($today.' -1 day'))?>" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm hover:border-asel hover:text-asel transition-colors"><i class="bi bi-chevron-left"></i></a>
+    <div class="flex items-center gap-2 flex-wrap">
+        <?php if(can('view_all_franchises')): ?>
         <form class="flex gap-1 items-center">
             <input type="hidden" name="page" value="cloture">
+            <input type="hidden" name="cl_date" value="<?=$today?>">
+            <select name="cl_fid" class="border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm font-medium" onchange="this.form.submit()">
+                <?php foreach($allFranchises as $af): ?>
+                <option value="<?=$af['id']?>" <?=$cl_fid==$af['id']?'selected':''?>><?=shortF($af['nom'])?></option>
+                <?php endforeach; ?>
+            </select>
+        </form>
+        <?php endif; ?>
+        <a href="?page=cloture&cl_fid=<?=$cl_fid?>&cl_date=<?=date('Y-m-d',strtotime($today.' -1 day'))?>" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm hover:border-asel hover:text-asel transition-colors"><i class="bi bi-chevron-left"></i></a>
+        <form class="flex gap-1 items-center">
+            <input type="hidden" name="page" value="cloture">
+            <input type="hidden" name="cl_fid" value="<?=$cl_fid?>">
             <input type="date" name="cl_date" value="<?=$today?>" class="border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm font-medium" onchange="this.form.submit()">
         </form>
         <?php if(!$is_today): ?>
-        <a href="?page=cloture&cl_date=<?=date('Y-m-d',strtotime($today.' +1 day'))?>" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm hover:border-asel hover:text-asel transition-colors"><i class="bi bi-chevron-right"></i></a>
-        <a href="?page=cloture" class="bg-asel text-white px-3 py-1.5 rounded-lg text-xs font-bold">Aujourd'hui</a>
+        <a href="?page=cloture&cl_fid=<?=$cl_fid?>&cl_date=<?=date('Y-m-d',strtotime($today.' +1 day'))?>" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm hover:border-asel hover:text-asel transition-colors"><i class="bi bi-chevron-right"></i></a>
+        <a href="?page=cloture&cl_fid=<?=$cl_fid?>" class="bg-asel text-white px-3 py-1.5 rounded-lg text-xs font-bold">Aujourd'hui</a>
         <?php endif; ?>
         <?php if(!$already_closed): ?>
         <button onclick="quickCloture()" class="bg-gradient-to-r from-asel to-asel-dark text-white font-bold px-4 py-2 rounded-xl text-sm flex items-center gap-2 hover:opacity-90 transition-opacity">
