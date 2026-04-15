@@ -3797,6 +3797,7 @@ function submitQuickCloture(ca, art) {
     <div class="overflow-x-auto">
         <table class="w-full text-sm" id="productsTable">
             <thead><tr class="bg-asel-dark text-white text-[10px] uppercase tracking-wider">
+                <th class="px-1 py-3 w-8"><input type="checkbox" id="selectAllProds" onchange="toggleAllProds(this.checked)" class="rounded"></th>
                 <th class="px-2 py-3 text-left cursor-pointer hover:bg-white/10" onclick="sortTable(0)">Produit <i class="bi bi-arrow-down-up text-white/30"></i></th>
                 <th class="px-2 py-3 text-left cursor-pointer hover:bg-white/10" onclick="sortTable(1)">Réf. <i class="bi bi-arrow-down-up text-white/30"></i></th>
                 <th class="px-2 py-3 text-left hidden sm:table-cell cursor-pointer hover:bg-white/10" onclick="sortTable(2)">Cat.</th>
@@ -3821,6 +3822,7 @@ function submitQuickCloture(ca, art) {
                 $central_qty = $stock_by_product[$p['id']][$central_id]['qty'] ?? 0;
             ?>
                 <tr class="hover:bg-gray-50 prod-row" data-pid="<?=$p['id']?>" data-search="<?=e(strtolower($p['nom'].' '.$p['reference'].' '.$p['marque'].' '.$p['code_barre'].' '.$p['cat_nom']))?>">
+                    <td class="px-1 py-1.5"><input type="checkbox" class="prod-check rounded" value="<?=$p['id']?>" data-nom="<?=e($p['nom'])?>" data-ref="<?=e($p['reference']??'')?>" data-prix="<?=number_format($p['prix_vente_ttc']??$p['prix_vente'],2)?>" data-code="<?=e($p['code_barre']??'')?>"></td>
                     <td class="px-2 py-1.5">
                         <div class="flex items-center gap-2">
                             <div class="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 text-gray-300 overflow-hidden border" id="pimg<?=$p['id']?>">
@@ -3889,45 +3891,157 @@ function submitQuickCloture(ca, art) {
 <!-- Instant filter + column sorting -->
 <script>
 // Instant client-side search
-function printSelectedLabels() {
-    // Get all visible product IDs from the table
-    const rows = document.querySelectorAll('#productsTable .prod-row:not([style*="display: none"])');
-    if(!rows.length) { showToast('Aucun produit visible', 'warning'); return; }
-    
-    const ids = [...rows].map(r => r.dataset.pid).filter(Boolean).join(',');
-    if(!ids) {
-        // Fallback: use all visible, get IDs from PHP
-        showToast('Sélectionnez des produits via la recherche pour imprimer des étiquettes', 'info');
-        return;
-    }
-    
-    openModal(modalHeader('bi-tag','Imprimer étiquettes','Définissez la quantité par produit') +
-        `<div class="p-5 space-y-3">
-            <div class="text-sm text-gray-600">${rows.length} produit(s) sélectionné(s)</div>
-            <div class="flex gap-2 items-center">
-                <label class="text-xs font-bold text-gray-500">Quantité par défaut</label>
-                <input type="number" id="labelQtyDefault" value="1" min="1" max="50" class="w-16 border-2 border-gray-200 rounded-lg px-2 py-1 text-sm text-center">
-                <button onclick="const v=document.getElementById('labelQtyDefault').value;document.querySelectorAll('.label-qty-input').forEach(el=>el.value=v)" class="text-xs text-asel underline">Appliquer à tous</button>
-            </div>
-            <div class="max-h-60 overflow-y-auto space-y-1">
-                ${[...rows].slice(0,30).map(r => {
-                    const n = r.querySelector('td:first-child .font-semibold, td:first-child .font-medium')?.textContent?.trim() || '?';
-                    return `<div class="flex items-center gap-2 text-sm py-1 border-b"><span class="flex-1 truncate">${n}</span><input type="number" class="label-qty-input w-14 border-2 border-gray-200 rounded-lg px-2 py-0.5 text-sm text-center" value="1" min="1" max="20" data-id="${r.dataset.pid}"></div>`;
-                }).join('')}
-            </div>
-            <button onclick="doLabelPrint()" class="w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-sm transition-colors"><i class="bi bi-printer"></i> Imprimer</button>
-        </div>`,
-        {size: 'max-w-md'}
-    );
+function toggleAllProds(checked) {
+    document.querySelectorAll('.prod-check').forEach(function(cb) {
+        if (cb.closest('tr').style.display !== 'none') cb.checked = checked;
+    });
+    updateLabelCount();
 }
 
-function doLabelPrint() {
-    const inputs = document.querySelectorAll('.label-qty-input[data-id]');
-    const ids = [...inputs].map(i => i.dataset.id).join(',');
-    const qty = [...inputs].map(i => i.value).join(',');
-    if(!ids) return;
-    window.open(`pdf.php?type=etiquettes&ids=${ids}&qty=${qty}`, '_blank');
+function updateLabelCount() {
+    var count = document.querySelectorAll('.prod-check:checked').length;
+    var btn = document.querySelector('[onclick="printSelectedLabels()"]');
+    if (btn) btn.innerHTML = '<i class="bi bi-tag"></i> Étiquettes' + (count > 0 ? ' (' + count + ')' : '');
+}
+
+// Listen for checkbox changes
+document.addEventListener('change', function(e) {
+    if (e.target.classList.contains('prod-check')) updateLabelCount();
+});
+
+function printSelectedLabels() {
+    var checked = document.querySelectorAll('.prod-check:checked');
+    
+    // If none selected, offer to select all visible
+    if (!checked.length) {
+        var visible = document.querySelectorAll('#productsTable .prod-row:not([style*="display: none"])');
+        if (!visible.length) { showToast('Aucun produit visible', 'warning'); return; }
+        
+        if (confirm('Aucun produit coché. Sélectionner tous les ' + visible.length + ' produits visibles ?')) {
+            visible.forEach(function(r) {
+                var cb = r.querySelector('.prod-check');
+                if (cb) cb.checked = true;
+            });
+            checked = document.querySelectorAll('.prod-check:checked');
+            updateLabelCount();
+        } else return;
+    }
+    
+    var products = [];
+    checked.forEach(function(cb) {
+        products.push({
+            id: cb.value,
+            nom: cb.dataset.nom || '?',
+            ref: cb.dataset.ref || '',
+            prix: cb.dataset.prix || '0',
+            code: cb.dataset.code || ''
+        });
+    });
+    
+    openModal(modalHeader('bi-tag', 'Imprimer étiquettes', products.length + ' produit(s) sélectionné(s)') +
+        '<div class="p-5 space-y-3">' +
+        '<div class="flex gap-3 items-center mb-2">' +
+            '<label class="text-xs font-bold text-gray-500">Taille</label>' +
+            '<select id="labelSize" class="border-2 border-gray-200 rounded-lg px-2 py-1 text-sm">' +
+                '<option value="small">Petit (4 par ligne)</option>' +
+                '<option value="medium" selected>Moyen (3 par ligne)</option>' +
+                '<option value="large">Grand (2 par ligne)</option>' +
+            '</select>' +
+            '<label class="text-xs font-bold text-gray-500 ml-2">Qté/produit</label>' +
+            '<input type="number" id="labelQtyAll" value="1" min="1" max="20" class="w-14 border-2 border-gray-200 rounded-lg px-2 py-1 text-sm text-center">' +
+        '</div>' +
+        '<div class="max-h-48 overflow-y-auto space-y-1 border rounded-lg p-2 bg-gray-50">' +
+        products.map(function(p) {
+            return '<div class="flex items-center gap-2 text-xs py-1 border-b border-gray-200">' +
+                '<span class="flex-1 truncate font-medium">' + p.nom + '</span>' +
+                '<span class="text-gray-400 font-mono">' + p.ref + '</span>' +
+                '<span class="text-asel font-bold">' + p.prix + ' DT</span>' +
+                '<input type="number" class="label-qty w-12 border rounded px-1 py-0.5 text-xs text-center" value="1" min="1" max="20" data-id="' + p.id + '">' +
+            '</div>';
+        }).join('') +
+        '</div>' +
+        '<div class="flex gap-2 items-center text-xs text-gray-400">' +
+            '<label><input type="checkbox" id="labelShowPrice" checked class="mr-1">Afficher prix</label>' +
+            '<label><input type="checkbox" id="labelShowBarcode" checked class="mr-1">Code-barres</label>' +
+            '<label><input type="checkbox" id="labelShowRef" checked class="mr-1">Référence</label>' +
+        '</div>' +
+        '<button onclick="generateLabels()" class="w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-sm transition-colors"><i class="bi bi-printer"></i> Générer & Imprimer</button>' +
+        '</div>',
+        {size: 'max-w-md'}
+    );
+    
+    // Apply qty to all when global qty changes
+    document.getElementById('labelQtyAll').addEventListener('input', function() {
+        var v = this.value;
+        document.querySelectorAll('.label-qty').forEach(function(el) { el.value = v; });
+    });
+}
+
+function generateLabels() {
+    var inputs = document.querySelectorAll('.label-qty[data-id]');
+    var size = document.getElementById('labelSize').value;
+    var showPrice = document.getElementById('labelShowPrice').checked;
+    var showBarcode = document.getElementById('labelShowBarcode').checked;
+    var showRef = document.getElementById('labelShowRef').checked;
+    
+    var cols = size === 'small' ? 4 : size === 'large' ? 2 : 3;
+    var labelW = size === 'small' ? '23%' : size === 'large' ? '48%' : '31%';
+    var fontSize = size === 'small' ? '8px' : size === 'large' ? '12px' : '10px';
+    var priceFontSize = size === 'small' ? '14px' : size === 'large' ? '22px' : '18px';
+    
+    // Collect labels (repeat by qty)
+    var labels = [];
+    inputs.forEach(function(inp) {
+        var qty = parseInt(inp.value) || 1;
+        var cb = document.querySelector('.prod-check[value="' + inp.dataset.id + '"]');
+        if (!cb) return;
+        for (var i = 0; i < qty; i++) {
+            labels.push({
+                nom: cb.dataset.nom,
+                ref: cb.dataset.ref,
+                prix: cb.dataset.prix,
+                code: cb.dataset.code
+            });
+        }
+    });
+    
+    if (!labels.length) { showToast('Aucune étiquette à imprimer', 'warning'); return; }
+    
+    // Generate print window
+    var html = '<!DOCTYPE html><html><head><title>Étiquettes ASEL</title><style>' +
+        '@page { margin: 5mm; } ' +
+        '@media print { body { margin: 0; } .no-print { display: none !important; } }' +
+        'body { font-family: Arial, sans-serif; margin: 10px; }' +
+        '.labels-grid { display: flex; flex-wrap: wrap; gap: 4px; }' +
+        '.label { width: ' + labelW + '; border: 1px solid #ccc; border-radius: 6px; padding: 6px; text-align: center; page-break-inside: avoid; box-sizing: border-box; }' +
+        '.label .nom { font-weight: bold; font-size: ' + fontSize + '; line-height: 1.2; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }' +
+        '.label .ref { font-size: ' + (parseInt(fontSize)-1) + 'px; color: #888; margin-bottom: 2px; }' +
+        '.label .prix { font-size: ' + priceFontSize + '; font-weight: 900; color: #1B3A5C; }' +
+        '.label .code { font-family: monospace; font-size: ' + (parseInt(fontSize)-1) + 'px; color: #666; margin-top: 2px; letter-spacing: 1px; }' +
+        '.label .brand { font-size: 7px; color: #2AABE2; margin-top: 2px; }' +
+        '</style></head><body>' +
+        '<div class="no-print" style="padding:10px;text-align:center;margin-bottom:10px">' +
+        '<button onclick="window.print()" style="padding:10px 30px;background:#2AABE2;color:white;border:none;border-radius:8px;font-weight:bold;font-size:14px;cursor:pointer">🖨️ Imprimer</button>' +
+        ' <span style="color:#888;font-size:12px;margin-left:10px">' + labels.length + ' étiquette(s)</span></div>' +
+        '<div class="labels-grid">';
+    
+    labels.forEach(function(l) {
+        html += '<div class="label">';
+        html += '<div class="nom">' + l.nom + '</div>';
+        if (showRef && l.ref) html += '<div class="ref">' + l.ref + '</div>';
+        if (showPrice) html += '<div class="prix">' + l.prix + ' DT</div>';
+        if (showBarcode && l.code) html += '<div class="code">' + l.code + '</div>';
+        html += '<div class="brand">ASEL Mobile</div>';
+        html += '</div>';
+    });
+    
+    html += '</div></body></html>';
+    
+    var w = window.open('', '_blank');
+    w.document.write(html);
+    w.document.close();
     closeModal();
+}
 }
 
 function instantFilter() {
