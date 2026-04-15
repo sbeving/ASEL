@@ -3398,7 +3398,10 @@ elseif ($page === 'transferts'):
 </div>
 
 <?php elseif ($page === 'cloture'): $cl_fid=$fid?:(currentFranchise()?:($franchises[0]['id']??1));
-    $today = date('Y-m-d');
+    $today = $_GET['cl_date'] ?? date('Y-m-d');
+    // Validate date format
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $today)) $today = date('Y-m-d');
+    $is_today = ($today === date('Y-m-d'));
     $sys = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COALESCE(SUM(quantite),0) as a FROM ventes WHERE franchise_id=? AND DATE(date_vente)=?", [$cl_fid, $today]);
     
     // Cash breakdown
@@ -3415,14 +3418,31 @@ elseif ($page === 'transferts'):
     } catch(Exception $e) { $tr_today_enc = $tr_today_dec = 0; }
     $already_closed = queryOne("SELECT id FROM clotures WHERE franchise_id=? AND date_cloture=?", [$cl_fid, $today]);
 ?>
-<div class="flex justify-between items-center mb-4">
+<div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-calendar-check text-asel"></i> Clôture journalière</h1>
-    <?php if(!$already_closed): ?>
-    <button onclick="quickCloture()" class="bg-gradient-to-r from-asel to-asel-dark text-white font-bold px-4 py-2 rounded-xl text-sm flex items-center gap-2 hover:opacity-90 transition-opacity">
-        <i class="bi bi-lightning-charge-fill"></i> Clôture rapide
-    </button>
-    <?php endif; ?>
+    <div class="flex items-center gap-2">
+        <a href="?page=cloture&cl_date=<?=date('Y-m-d',strtotime($today.' -1 day'))?>" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm hover:border-asel hover:text-asel transition-colors"><i class="bi bi-chevron-left"></i></a>
+        <form class="flex gap-1 items-center">
+            <input type="hidden" name="page" value="cloture">
+            <input type="date" name="cl_date" value="<?=$today?>" class="border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm font-medium" onchange="this.form.submit()">
+        </form>
+        <?php if(!$is_today): ?>
+        <a href="?page=cloture&cl_date=<?=date('Y-m-d',strtotime($today.' +1 day'))?>" class="border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm hover:border-asel hover:text-asel transition-colors"><i class="bi bi-chevron-right"></i></a>
+        <a href="?page=cloture" class="bg-asel text-white px-3 py-1.5 rounded-lg text-xs font-bold">Aujourd'hui</a>
+        <?php endif; ?>
+        <?php if(!$already_closed): ?>
+        <button onclick="quickCloture()" class="bg-gradient-to-r from-asel to-asel-dark text-white font-bold px-4 py-2 rounded-xl text-sm flex items-center gap-2 hover:opacity-90 transition-opacity">
+            <i class="bi bi-lightning-charge-fill"></i> Clôture rapide
+        </button>
+        <?php endif; ?>
+    </div>
 </div>
+<?php if(!$is_today): ?>
+<div class="bg-amber-50 border-2 border-amber-200 rounded-xl p-3 mb-4 flex items-center gap-2 text-sm text-amber-800">
+    <i class="bi bi-clock-history text-lg"></i>
+    <span>Clôture pour le <b><?=date('d/m/Y', strtotime($today))?></b> — <?=date('l', strtotime($today))?></span>
+</div>
+<?php endif; ?>
 
 <!-- Cash breakdown -->
 <div class="bg-white rounded-2xl shadow-sm border-2 border-asel/20 p-5 mb-4">
