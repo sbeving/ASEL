@@ -122,7 +122,18 @@ function userRole() { return $_SESSION['user']['role'] ?? ''; }
 // Franchise scope: franchise users can ONLY see their own data
 function scopedFranchiseId() {
     if (can('view_all_franchises')) {
-        return $_GET['fid'] ?? null; // Admin/gestionnaire can filter
+        // If fid is passed in URL, save to session for persistence
+        if (isset($_GET['fid'])) {
+            $fid = $_GET['fid'];
+            if ($fid === '' || $fid === '0' || $fid === 'all') {
+                unset($_SESSION['admin_fid']); // Clear filter = show all
+                return null;
+            }
+            $_SESSION['admin_fid'] = intval($fid);
+            return intval($fid);
+        }
+        // Use session-stored franchise if available
+        return $_SESSION['admin_fid'] ?? null;
     }
     return currentFranchise(); // Franchise users locked to their own
 }
