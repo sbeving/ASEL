@@ -5999,6 +5999,34 @@ function openBonReception() {
     const fournList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>$f['nom']], $fournisseurs ?? []))?>;
     const franchList = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>shortF($f['nom'])], $allFranchises ?? []))?>;
     
+    // Product-fournisseur mapping: which products belong to which fournisseur
+    const prodFournMap = <?php
+        $pf_map = [];
+        try {
+            $pf_links = query("SELECT produit_id, fournisseur_id, prix_achat_ht FROM produit_fournisseurs WHERE actif=1");
+            foreach ($pf_links as $link) {
+                $fid_key = $link['fournisseur_id'];
+                if (!isset($pf_map[$fid_key])) $pf_map[$fid_key] = [];
+                $pf_map[$fid_key][] = ['pid' => $link['produit_id'], 'pa_ht' => floatval($link['prix_achat_ht'])];
+            }
+        } catch(Exception $e) { /* table might not exist yet */ }
+        // Also add products linked via the old fournisseur_id field
+        foreach ($produits ?? [] as $p) {
+            if (!empty($p['fournisseur_id'])) {
+                $fk = $p['fournisseur_id'];
+                if (!isset($pf_map[$fk])) $pf_map[$fk] = [];
+                // Check if already added
+                $exists = false;
+                foreach ($pf_map[$fk] as $existing) {
+                    if ($existing['pid'] == $p['id']) { $exists = true; break; }
+                }
+                if (!$exists) {
+                    $pf_map[$fk][] = ['pid' => $p['id'], 'pa_ht' => floatval($p['prix_achat_ht'] ?? 0)];
+                }
+            }
+        }
+        echo json_encode($pf_map);
+    ?>;
     window.renderBR = function(){
         const lignes = window._brLignes;
         let total_ht=0, total_tva=0, total_ttc=0;
@@ -6056,8 +6084,8 @@ function openBonReception() {
             </div>
             <div>
                 <label class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Fournisseur</label>
-                <select name="fournisseur_id" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-asel outline-none">
-                    <option value="">— Aucun —</option>
+                <select name="fournisseur_id" id="brFournSelect" onchange="filterProductsByFournisseur()" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-asel outline-none">
+                    <option value="">— Tous les produits —</option>
                     ${fournList.map(f=>'<option value="'+f.id+'">'+f.nom+'</option>').join('')}
                 </select>
             </div>
@@ -6188,14 +6216,41 @@ function openBonReception() {
     updatePricePreview();
     
     // Product search filter
+    // Track which products belong to selected fournisseur
+    window._brSelectedFourn = '';
+    
+    window.filterProductsByFournisseur = function() {
+        window._brSelectedFourn = document.getElementById('brFournSelect').value;
+        filterBRProducts(); // Re-apply product filter with fournisseur constraint
+    };
+    
     window.filterBRProducts = function(){
         const q = document.getElementById('brSearch').value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
         const words = q.split(/\s+/).filter(Boolean);
+        const fournId = window._brSelectedFourn;
+        
+        // Get product IDs for selected fournisseur
+        let fournProdIds = null;
+        if (fournId && prodFournMap[fournId]) {
+            fournProdIds = new Set(prodFournMap[fournId].map(function(p){ return String(p.pid); }));
+        }
+        
         for(let opt of prodSel.options){
             const s = (opt.dataset.search || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-            const match = !q || words.every(w => s.includes(w));
-            opt.style.display = match ? '' : 'none';
-            opt.hidden = !match;
+            const matchSearch = !q || words.every(w => s.includes(w));
+            const matchFourn = !fournProdIds || fournProdIds.has(opt.value);
+            const visible = matchSearch && matchFourn;
+            opt.style.display = visible ? '' : 'none';
+            opt.hidden = !visible;
+            
+            // If fournisseur selected, update the price to fournisseur-specific price
+            if (visible && fournId && prodFournMap[fournId]) {
+                const fournProd = prodFournMap[fournId].find(function(p){ return String(p.pid) === opt.value; });
+                if (fournProd && fournProd.pa_ht > 0) {
+                    opt.dataset.paHt = fournProd.pa_ht;
+                    opt.dataset.paTtc = (fournProd.pa_ht * (1 + (parseFloat(opt.dataset.tva)||19)/100)).toFixed(2);
+                }
+            }
         }
         // Select first visible option
         for(let opt of prodSel.options){
