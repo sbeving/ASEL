@@ -4129,7 +4129,19 @@ elseif ($page === 'clients'):
                 <td class="px-3 py-2 text-xs text-gray-400"><?=date('d/m/Y',strtotime($c['date_creation']))?></td>
                 <td class="px-3 py-2 flex gap-1">
                     <button onclick="openClientProfile(<?=$c['id']?>,'<?=ejs($c['nom'].' '.($c['prenom']??''))?>')" class="text-gray-400 hover:text-asel p-1" title="Profil"><i class="bi bi-person-lines-fill text-sm"></i></button>
-                    <button onclick="openEditClient(<?=$c['id']?>,'<?=ejs($c['nom'])?>','<?=ejs($c['prenom']??'')?>','<?=ejs($c['telephone']??'')?>','<?=ejs($c['email']??'')?>','<?=$c['type_client']?>','<?=ejs($c['entreprise']??'')?>','<?=ejs($c['matricule_fiscal']??'')?>','<?=ejs($c['adresse']??'')?>','<?=ejs($c['notes']??'')?>',<?=$c['actif']?>)" class="text-gray-400 hover:text-asel p-1" title="Modifier"><i class="bi bi-pencil text-sm"></i></button>
+                    <button class="text-gray-400 hover:text-asel p-1 edit-client-btn" title="Modifier"
+                        data-id="<?=$c['id']?>"
+                        data-nom="<?=e($c['nom'])?>"
+                        data-prenom="<?=e($c['prenom']??'')?>"
+                        data-tel="<?=e($c['telephone']??'')?>"
+                        data-email="<?=e($c['email']??'')?>"
+                        data-type="<?=$c['type_client']?>"
+                        data-entreprise="<?=e($c['entreprise']??'')?>"
+                        data-mf="<?=e($c['matricule_fiscal']??'')?>"
+                        data-adresse="<?=e($c['adresse']??'')?>"
+                        data-notes="<?=e($c['notes']??'')?>"
+                        data-actif="<?=$c['actif']?>"
+                    ><i class="bi bi-pencil text-sm"></i></button>
                 </td>
             </tr>
         <?php endforeach; ?></tbody>
@@ -7334,6 +7346,18 @@ function openQuickAddClient() {
         )
     );
 }
+
+// Edit client click handler (uses data attributes to avoid quote issues)
+document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.edit-client-btn');
+    if (!btn) return;
+    openEditClient(
+        btn.dataset.id, btn.dataset.nom, btn.dataset.prenom,
+        btn.dataset.tel, btn.dataset.email, btn.dataset.type,
+        btn.dataset.entreprise, btn.dataset.mf, btn.dataset.adresse,
+        btn.dataset.notes, btn.dataset.actif
+    );
+});
 
 function openEditClient(id, nom, prenom, tel, email, type, entreprise, mf, adresse, notes, actif) {
     const csrf = '<?=$csrf?>';
