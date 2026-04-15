@@ -330,6 +330,19 @@ case 'global_search':
     echo json_encode(['results'=>array_slice($results, 0, 10)]);
     exit;
 
+case 'get_product_fournisseurs':
+    $pid = intval($_GET['produit_id'] ?? 0);
+    if (!$pid) { echo json_encode([]); exit; }
+    try {
+        $links = query("SELECT pf.*, f.nom as fournisseur_nom, f.telephone as fournisseur_tel 
+            FROM produit_fournisseurs pf 
+            JOIN fournisseurs f ON pf.fournisseur_id=f.id 
+            WHERE pf.produit_id=? AND pf.actif=1 
+            ORDER BY pf.is_default DESC, f.nom", [$pid]);
+        echo json_encode($links);
+    } catch(Exception $e) { echo json_encode([]); }
+    exit;
+
 case 'get_bon_lines':
     $bon_id = intval($_GET['bon_id'] ?? 0);
     if (!$bon_id) { echo json_encode(['error'=>'Invalid bon ID']); exit; }

@@ -288,6 +288,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Produit mis à jour!'];
         auditLog('edit_produit', 'produit', intval($_POST['produit_id']), ['nom'=>$nom, 'pv_ttc'=>$pv_ttc]);
     }
+    // === PRODUCT-FOURNISSEUR MANAGEMENT ===
+    elseif ($action === 'add_product_fournisseur' && can('edit_produit')) {
+        $pid = intval($_POST['produit_id']);
+        $fid_f = intval($_POST['fournisseur_id']);
+        $pa_ht = floatval($_POST['prix_achat_ht'] ?? 0);
+        $tva = floatval($_POST['tva_rate'] ?? 19);
+        $pa_ttc = round($pa_ht * (1 + $tva/100), 2);
+        $is_default = intval($_POST['is_default'] ?? 0);
+        
+        // If setting as default, unset other defaults
+        if ($is_default) {
+            execute("UPDATE produit_fournisseurs SET is_default=0 WHERE produit_id=?", [$pid]);
+        }
+        
+        execute("INSERT INTO produit_fournisseurs (produit_id, fournisseur_id, prix_achat_ht, prix_achat_ttc, reference_fournisseur, is_default, notes) VALUES (?,?,?,?,?,?,?)
+                 ON DUPLICATE KEY UPDATE prix_achat_ht=VALUES(prix_achat_ht), prix_achat_ttc=VALUES(prix_achat_ttc), reference_fournisseur=VALUES(reference_fournisseur), is_default=VALUES(is_default), notes=VALUES(notes)",
+            [$pid, $fid_f, $pa_ht, $pa_ttc, strParam('reference_fournisseur',50), $is_default, strParam('notes',255)]);
+        
+        // Update main product price if default
+        if ($is_default) {
+            $pv_ht = floatval($_POST['prix_vente_ht'] ?? 0);
+            $pv_ttc = round($pv_ht * (1 + $tva/100), 2);
+            execute("UPDATE produits SET fournisseur_id=?, prix_achat_ht=?, prix_achat_ttc=?, prix_achat=? WHERE id=?",
+                [$fid_f, $pa_ht, $pa_ttc, $pa_ttc, $pid]);
+        }
+        
+        $_SESSION['flash'] = ['type'=>'success','msg'=>'Fournisseur lié au produit!'];
+        $page = 'produits';
+    }
+    elseif ($action === 'remove_product_fournisseur' && can('edit_produit')) {
+        execute("DELETE FROM produit_fournisseurs WHERE id=? AND produit_id=?", [intval($_POST['link_id']), intval($_POST['produit_id'])]);
+        $_SESSION['flash'] = ['type'=>'success','msg'=>'Fournisseur dissocié!'];
+        $page = 'produits';
+    }
     elseif ($action === 'demande_produit') {
         $dfid = can('view_all_franchises') ? $_POST['franchise_id'] : currentFranchise();
         execute("INSERT INTO demandes_produits (franchise_id,produit_id,nom_produit,quantite,urgence,note,demandeur_id) VALUES (?,?,?,?,?,?,?)",
@@ -7695,10 +7729,69 @@ function viewProductDetails(id, nom, ref, marque, cat, pa, pv, code, seuil) {
                 <div><strong>Référence:</strong> ${ref || '—'}</div>
                 <div><strong>Code-barres:</strong> <span class="font-mono">${code || '—'}</span></div>
             </div>
+            <div class="border-t pt-3">
+                <div class="flex justify-between items-center mb-2">
+                    <h4 class="font-bold text-sm text-asel-dark"><i class="bi bi-truck"></i> Fournisseurs</h4>
+                    <button onclick="showAddFournisseurForm(${id})" class="text-xs text-asel hover:underline"><i class="bi bi-plus-circle"></i> Ajouter</button>
+                </div>
+                <div id="prodFournList${id}" class="text-xs text-gray-400">Chargement...</div>
+            </div>
+            <div id="addFournForm${id}" class="hidden border-t pt-3"></div>
             <button onclick="closeModal()" class="w-full py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50">Fermer</button>
         </div>`,
         {size: 'max-w-md'}
     );
+    // Load fournisseurs for this product
+    fetch('api.php?action=get_product_fournisseurs&produit_id=' + id)
+        .then(function(r){ return r.json(); })
+        .then(function(links){
+            var el = document.getElementById('prodFournList' + id);
+            if (!links || !links.length) {
+                el.innerHTML = '<p class="text-gray-400 text-xs py-2">Aucun fournisseur lié</p>';
+                return;
+            }
+            var html = '<div class="space-y-2">';
+            links.forEach(function(l){
+                html += '<div class="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">' +
+                    '<div class="flex-1"><span class="font-semibold text-sm">' + l.fournisseur_nom + '</span>' +
+                    (l.is_default == 1 ? ' <span class="bg-asel text-white text-[9px] px-1.5 py-0.5 rounded-full">Défaut</span>' : '') +
+                    '<div class="text-[10px] text-gray-400">PA HT: ' + parseFloat(l.prix_achat_ht).toFixed(2) + ' · TTC: ' + parseFloat(l.prix_achat_ttc).toFixed(2) + '</div>' +
+                    (l.reference_fournisseur ? '<div class="text-[10px] text-gray-400">Réf: ' + l.reference_fournisseur + '</div>' : '') +
+                    '</div>' +
+                    '<form method="POST" class="inline" onsubmit="return confirm(\'Dissocier ce fournisseur?\')">' +
+                    '<input type="hidden" name="_csrf" value="<?=$csrf?>">' +
+                    '<input type="hidden" name="action" value="remove_product_fournisseur">' +
+                    '<input type="hidden" name="produit_id" value="' + id + '">' +
+                    '<input type="hidden" name="link_id" value="' + l.id + '">' +
+                    '<button class="text-red-400 hover:text-red-600"><i class="bi bi-x-circle"></i></button>' +
+                    '</form></div>';
+            });
+            html += '</div>';
+            el.innerHTML = html;
+        })
+        .catch(function(){ document.getElementById('prodFournList' + id).innerHTML = '<p class="text-red-400 text-xs">Erreur</p>'; });
+}
+
+function showAddFournisseurForm(prodId) {
+    var fourns = <?=json_encode(array_map(fn($f)=>['id'=>$f['id'],'nom'=>$f['nom']], $fournisseurs ?? []))?>;
+    var opts = fourns.map(function(f){ return '<option value="' + f.id + '">' + f.nom + '</option>'; }).join('');
+    var el = document.getElementById('addFournForm' + prodId);
+    el.classList.remove('hidden');
+    el.innerHTML = '<form method="POST" class="space-y-2">' +
+        '<input type="hidden" name="_csrf" value="<?=$csrf?>">' +
+        '<input type="hidden" name="action" value="add_product_fournisseur">' +
+        '<input type="hidden" name="produit_id" value="' + prodId + '">' +
+        '<input type="hidden" name="tva_rate" value="19">' +
+        '<div class="grid grid-cols-2 gap-2">' +
+        '<div><label class="text-[10px] font-bold text-gray-400">Fournisseur *</label><select name="fournisseur_id" required class="w-full border rounded-lg px-2 py-1.5 text-xs">' + opts + '</select></div>' +
+        '<div><label class="text-[10px] font-bold text-gray-400">Prix achat HT</label><input name="prix_achat_ht" type="number" step="0.01" class="w-full border rounded-lg px-2 py-1.5 text-xs" required></div>' +
+        '</div>' +
+        '<div class="grid grid-cols-2 gap-2">' +
+        '<div><label class="text-[10px] font-bold text-gray-400">Réf fournisseur</label><input name="reference_fournisseur" class="w-full border rounded-lg px-2 py-1.5 text-xs"></div>' +
+        '<div><label class="text-[10px] font-bold text-gray-400">Défaut?</label><select name="is_default" class="w-full border rounded-lg px-2 py-1.5 text-xs"><option value="0">Non</option><option value="1">Oui</option></select></div>' +
+        '</div>' +
+        '<button type="submit" class="bg-asel text-white px-4 py-1.5 rounded-lg text-xs font-bold w-full"><i class="bi bi-link-45deg"></i> Lier le fournisseur</button>' +
+        '</form>';
 }
 
 // Receipt preview modal

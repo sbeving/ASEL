@@ -33,7 +33,7 @@ define('PERMISSIONS', [
         'pointage', 'pointage_admin', 'import_phones',
         // Actions
         'vente', 'entree_stock', 'entree_multi_stock', 'transfert', 'transfert_valider',
-        'retour', 'cloture_submit', 'add_produit', 'add_produit_v2', 'edit_produit',
+        'retour', 'cloture_submit', 'add_produit', 'add_produit_v2', 'edit_produit', 'add_product_fournisseur', 'remove_product_fournisseur',
         'demande_produit', 'traiter_demande', 'edit_user', 'add_user',
         'dispatch', 'export', 'add_client', 'edit_client', 'add_service',
         'edit_service', 'add_asel_product', 'edit_asel_product',
