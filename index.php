@@ -3429,25 +3429,25 @@ elseif ($page === 'transferts'):
     <h3 class="font-bold text-asel-dark text-sm mb-3 flex items-center gap-2"><i class="bi bi-cash-stack text-asel"></i> Détail des encaissements du jour</h3>
     <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <div class="bg-green-50 rounded-xl p-3 text-center">
-            <div class="text-[10px] text-green-600 font-bold uppercase">💵 Espèces (ventes)</div>
+            <div class="text-[10px] text-green-600 font-bold uppercase">💵 Ventes espèces</div>
             <div class="text-lg font-black text-green-700"><?=number_format($especes_ventes,2)?></div>
+        </div>
+        <div class="bg-amber-50 rounded-xl p-3 text-center">
+            <div class="text-[10px] text-amber-600 font-bold uppercase">💰 Avances lots</div>
+            <div class="text-lg font-black text-amber-700"><?=number_format($avances_lots,2)?></div>
+        </div>
+        <div class="bg-purple-50 rounded-xl p-3 text-center">
+            <div class="text-[10px] text-purple-600 font-bold uppercase">✅ Échéances encaissées</div>
+            <div class="text-lg font-black text-purple-700"><?=number_format($echeances_payees,2)?></div>
         </div>
         <div class="bg-blue-50 rounded-xl p-3 text-center">
             <div class="text-[10px] text-blue-600 font-bold uppercase">💳 Carte</div>
             <div class="text-lg font-black text-blue-700"><?=number_format($carte_ventes,2)?></div>
         </div>
-        <div class="bg-amber-50 rounded-xl p-3 text-center">
-            <div class="text-[10px] text-amber-600 font-bold uppercase">💰 Avances (lots)</div>
-            <div class="text-lg font-black text-amber-700"><?=number_format($avances_lots,2)?></div>
-        </div>
-        <div class="bg-purple-50 rounded-xl p-3 text-center">
-            <div class="text-[10px] text-purple-600 font-bold uppercase">✅ Échéances payées</div>
-            <div class="text-lg font-black text-purple-700"><?=number_format($echeances_payees,2)?></div>
-        </div>
         <div class="bg-asel/10 rounded-xl p-3 text-center border-2 border-asel/30">
-            <div class="text-[10px] text-asel font-bold uppercase">🏦 Total en caisse</div>
+            <div class="text-[10px] text-asel font-bold uppercase">🏦 TOTAL ESPÈCES CAISSE</div>
             <div class="text-xl font-black text-asel-dark"><?=number_format($total_especes_caisse,2)?></div>
-            <div class="text-[9px] text-gray-400">espèces uniquement</div>
+            <div class="text-[9px] text-gray-400">= ventes + avances + échéances</div>
         </div>
     </div>
 </div>
@@ -3489,11 +3489,11 @@ elseif ($page === 'transferts'):
             <div><label class="form-label">Nb articles déclaré</label><input name="articles_declare" type="number" class="form-input text-center text-lg font-bold" required placeholder="0" value="<?=$sys['a']?>"></div>
         </div>
         <div class="bg-blue-50 rounded-xl p-3 text-xs text-blue-700 space-y-1">
-            <div><b>💵 Espèces ventes:</b> <?=number_format($especes_ventes,2)?> DT</div>
-            <div><b>💰 Avances lots:</b> <?=number_format($avances_lots,2)?> DT</div>
-            <div><b>✅ Échéances payées:</b> <?=number_format($echeances_payees,2)?> DT</div>
-            <div><b>💳 Carte:</b> <?=number_format($carte_ventes,2)?> DT</div>
-            <div class="border-t pt-1 mt-1"><b>🏦 Total théorique caisse:</b> <?=number_format($total_especes_caisse,2)?> DT</div>
+            <div><b>💵 Ventes espèces:</b> <?=number_format($especes_ventes,2)?> DT</div>
+            <div><b>💰 + Avances lots:</b> <?=number_format($avances_lots,2)?> DT</div>
+            <div><b>✅ + Échéances encaissées:</b> <?=number_format($echeances_payees,2)?> DT</div>
+            <div class="border-t border-blue-200 pt-1 mt-1 font-bold text-sm"><b>🏦 = Total espèces caisse:</b> <?=number_format($total_especes_caisse,2)?> DT</div>
+            <div class="text-blue-400"><b>💳 Carte (hors caisse):</b> <?=number_format($carte_ventes,2)?> DT</div>
         </div>
         <div><label class="form-label">Commentaire</label><textarea name="commentaire" class="form-input" rows="2" placeholder="Notes sur la journée, anomalies..."></textarea></div>
         <button type="submit" class="btn-submit"><i class="bi bi-calendar-check"></i> Soumettre la clôture</button>
