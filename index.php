@@ -1459,6 +1459,12 @@ if ($page === 'dashboard'):
         $tr_dec_today = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE type_mouvement='decaissement' AND date_mouvement=CURDATE()".($fid?" AND franchise_id=".intval($fid):""))['t'];
         $tr_solde = $tr_enc_today - $tr_dec_today;
     } catch(Exception $e) { $tr_enc_today = $tr_dec_today = $tr_solde = 0; }
+    // Monthly treasury
+    try {
+        $tr_enc_month = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE type_mouvement='encaissement' AND MONTH(date_mouvement)=MONTH(CURDATE()) AND YEAR(date_mouvement)=YEAR(CURDATE())".($fid?" AND franchise_id=".intval($fid):""))['t'];
+        $tr_dec_month = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM tresorerie WHERE type_mouvement='decaissement' AND MONTH(date_mouvement)=MONTH(CURDATE()) AND YEAR(date_mouvement)=YEAR(CURDATE())".($fid?" AND franchise_id=".intval($fid):""))['t'];
+        $tr_solde_month = $tr_enc_month - $tr_dec_month;
+    } catch(Exception $e) { $tr_enc_month = $tr_dec_month = $tr_solde_month = 0; }
 ?>
 
 <!-- Dashboard header with quick actions -->
@@ -1634,6 +1640,16 @@ if ($page === 'dashboard'):
                 <div class="text-xs text-gray-400">Enc: <?=number_format($tr_enc_today)?> · Déc: <?=number_format($tr_dec_today)?></div>
             </div>
             <div class="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center"><i class="bi bi-cash-stack text-emerald-600 text-lg"></i></div>
+        </div>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 border-teal-500 hover-lift">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Trésorerie (ce mois)</div>
+                <div class="text-2xl font-black <?=$tr_solde_month>=0?'text-teal-600':'text-red-600'?>"><?=number_format($tr_solde_month)?> <span class="text-sm font-normal text-gray-400">DT</span></div>
+                <div class="text-xs text-gray-400">Enc: <?=number_format($tr_enc_month)?> · Déc: <?=number_format($tr_dec_month)?></div>
+            </div>
+            <div class="w-10 h-10 bg-teal-50 rounded-lg flex items-center justify-center"><i class="bi bi-calendar-month text-teal-500 text-lg"></i></div>
         </div>
     </div>
 </div>
