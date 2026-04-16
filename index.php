@@ -14,6 +14,10 @@ if(!isset($_SESSION['last_echeance_check']) || (time() - $_SESSION['last_echeanc
     } catch(Exception $e) { /* silent */ }
 }
 $page = $_GET['page'] ?? 'dashboard';
+// Vendeur defaults to POS
+if ($page === 'dashboard' && isset($_SESSION['user']) && ($_SESSION['user']['role'] ?? '') === 'vendeur') {
+    $page = 'pos';
+}
 $user = currentUser();
 $fid = scopedFranchiseId();
 $centralId = getCentralId();
@@ -8413,10 +8417,11 @@ function openAddUser() {
             modalField('Nom complet *', 'nom_complet', 'text', '', 'Prénom Nom') +
             modalRow([
                 modalField('Rôle', 'role', 'select', '', '', [
-                    {value: 'franchise', label: 'Franchise (vendeur)'},
-                    {value: 'gestionnaire', label: 'Gestionnaire (stock)'},
-                    {value: 'admin', label: 'Administrateur'},
-                    {value: 'viewer', label: 'Viewer (lecture seule)'},
+                    {value: 'vendeur', label: '🛒 Vendeur (POS + caisse)'},
+                    {value: 'franchise', label: '🏪 Franchise (gestion complète)'},
+                    {value: 'gestionnaire', label: '📦 Gestionnaire (stock central)'},
+                    {value: 'admin', label: '👑 Administrateur'},
+                    {value: 'viewer', label: '👁️ Viewer (lecture seule)'},
                 ]),
                 modalField('Franchise', 'franchise_id', 'select', '', '', franchises),
             ]),
@@ -8432,10 +8437,11 @@ function openEditUser(id, nom, role, franchiseId, actif) {
     franchises.unshift({value: '', label: '— Aucune —'});
     franchises.forEach(f => f.selected = (f.value == franchiseId));
     const roles = [
-        {value: 'franchise', label: 'Franchise', selected: role === 'franchise'},
-        {value: 'gestionnaire', label: 'Gestionnaire', selected: role === 'gestionnaire'},
-        {value: 'admin', label: 'Admin', selected: role === 'admin'},
-        {value: 'viewer', label: 'Viewer', selected: role === 'viewer'},
+        {value: 'vendeur', label: '🛒 Vendeur', selected: role === 'vendeur'},
+        {value: 'franchise', label: '🏪 Franchise', selected: role === 'franchise'},
+        {value: 'gestionnaire', label: '📦 Gestionnaire', selected: role === 'gestionnaire'},
+        {value: 'admin', label: '👑 Admin', selected: role === 'admin'},
+        {value: 'viewer', label: '👁️ Viewer', selected: role === 'viewer'},
     ];
     openModal(
         modalHeader('bi-person-gear', 'Modifier utilisateur', nom) +

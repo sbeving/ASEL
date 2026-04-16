@@ -88,6 +88,16 @@ define('PERMISSIONS', [
         // NOTE: franchise CANNOT: add_produit, edit_produit, add_category, manage_products, 
         // fournisseurs, bons_reception, tresorerie, produits page, rapports, users
     ],
+    'vendeur' => [
+        // Pages — POS + caisse only
+        'pos', 'cloture', 'ventes', 'factures', 'mon_compte', 'notifications',
+        'clients',
+        // Actions — sell + basic client management
+        'vente', 'add_client', 'create_facture',
+        'vente_recharge', 'cloture_submit', 'create_echeances_lot',
+        'pay_echeance', 'pay_facture',
+        'pointage', 'add_pointage',
+    ],
     'viewer' => [
         'dashboard', 'stock', 'ventes', 'mon_compte', 'notifications', 'pointage',
     ],
@@ -196,6 +206,7 @@ function roleBadge($role) {
         'admin' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Admin</span>',
         'gestionnaire' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">Stock Central</span>',
         'franchise' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">Franchise</span>',
+        'vendeur' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Vendeur</span>',
         'viewer' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">Viewer</span>',
         default => '<span class="badge bg-secondary">'.$role.'</span>',
     };
