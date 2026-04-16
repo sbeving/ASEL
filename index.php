@@ -3643,25 +3643,28 @@ function submitQuickCloture(ca, art) {
     $r_fid = $fid ?: null;
     $r_fwhere = $r_fid ? "AND v.franchise_id=".intval($r_fid) : "";
     
+    try {
     $by_f=query("SELECT f.nom,f.id,COALESCE(SUM(v.prix_total),0) as ca,COALESCE(SUM(v.quantite),0) as art,COUNT(DISTINCT v.id) as tx FROM franchises f LEFT JOIN ventes v ON f.id=v.franchise_id AND v.date_vente BETWEEN ? AND ? WHERE f.actif=1 AND (f.type_franchise IS NULL OR f.type_franchise='point_de_vente') GROUP BY f.id,f.nom ORDER BY ca DESC",[$d1,$d2]);
+    } catch(Exception $e) { $by_f = []; }
+    try {
     $top=query("SELECT p.nom,p.marque,p.reference,p.prix_achat,p.prix_achat_ht,p.tva_rate,SUM(v.quantite) as qty,SUM(v.prix_total) as ca,SUM(v.quantite*p.prix_achat) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente BETWEEN ? AND ? $r_fwhere GROUP BY p.id ORDER BY ca DESC LIMIT 15",[$d1,$d2]);
+    } catch(Exception $e) { $top = []; }
     $total_ca = array_sum(array_column($by_f, 'ca'));
     $total_art = array_sum(array_column($by_f, 'art'));
     $total_tx = array_sum(array_column($by_f, 'tx'));
-    $by_cat=query("SELECT c.nom,SUM(v.prix_total) as ca,SUM(v.quantite) as qty,SUM(v.quantite*p.prix_achat) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN categories c ON p.categorie_id=c.id WHERE v.date_vente BETWEEN ? AND ? $r_fwhere GROUP BY c.nom ORDER BY ca DESC",[$d1,$d2]);
-    // By vendeur (employee performance)
-    $by_vendeur = query("SELECT u.nom_complet, COALESCE(SUM(v.prix_total),0) as ca, COALESCE(SUM(v.quantite),0) as art, COUNT(DISTINCT v.id) as tx FROM ventes v LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id WHERE v.date_vente BETWEEN ? AND ? $r_fwhere GROUP BY v.utilisateur_id, u.nom_complet ORDER BY ca DESC LIMIT 10", [$d1,$d2]);
+    try { $by_cat=query("SELECT c.nom,SUM(v.prix_total) as ca,SUM(v.quantite) as qty,SUM(v.quantite*p.prix_achat) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id JOIN categories c ON p.categorie_id=c.id WHERE v.date_vente BETWEEN ? AND ? $r_fwhere GROUP BY c.nom ORDER BY ca DESC",[$d1,$d2]); } catch(Exception $e) { $by_cat = []; }
+    try { $by_vendeur = query("SELECT u.nom_complet, COALESCE(SUM(v.prix_total),0) as ca, COALESCE(SUM(v.quantite),0) as art, COUNT(DISTINCT v.id) as tx FROM ventes v LEFT JOIN utilisateurs u ON v.utilisateur_id=u.id WHERE v.date_vente BETWEEN ? AND ? $r_fwhere GROUP BY v.utilisateur_id, u.nom_complet ORDER BY ca DESC LIMIT 10", [$d1,$d2]); } catch(Exception $e) { $by_vendeur = []; }
     // By hour (peak hours analysis) - only for single day or narrow range
     $day_diff = (strtotime($d2) - strtotime($d1)) / 86400;
-    $by_hour = $day_diff <= 7 ? query("SELECT HOUR(v.date_creation) as hr, COALESCE(SUM(v.prix_total),0) as ca, COUNT(*) as tx FROM ventes v WHERE v.date_vente BETWEEN ? AND ? $r_fwhere GROUP BY HOUR(v.date_creation) ORDER BY hr", [$d1,$d2]) : [];
+    try { $by_hour = $day_diff <= 7 ? query("SELECT HOUR(v.date_creation) as hr, COALESCE(SUM(v.prix_total),0) as ca, COUNT(*) as tx FROM ventes v WHERE v.date_vente BETWEEN ? AND ? $r_fwhere GROUP BY HOUR(v.date_creation) ORDER BY hr", [$d1,$d2]) : []; } catch(Exception $e) { $by_hour = []; }
     
     // Reorder suggestions: products with high sales velocity + low stock
-    $reorder_suggestions = query("SELECT p.nom, p.reference, p.marque, p.seuil_alerte,
+    try { $reorder_suggestions = query("SELECT p.nom, p.reference, p.marque, p.seuil_alerte,
         COALESCE((SELECT SUM(v.quantite) FROM ventes v WHERE v.produit_id=p.id AND v.date_vente>=DATE_SUB(CURDATE(),INTERVAL 30 DAY)),0) as ventes_30j,
         COALESCE((SELECT SUM(s.quantite) FROM stock s WHERE s.produit_id=p.id),0) as stock_total
         FROM produits p WHERE p.actif=1
         HAVING ventes_30j > 0 AND stock_total <= GREATEST(ventes_30j * 0.5, p.seuil_alerte)
-        ORDER BY (ventes_30j / GREATEST(stock_total,0.1)) DESC LIMIT 8");
+        ORDER BY (ventes_30j / GREATEST(stock_total,0.1)) DESC LIMIT 8"); } catch(Exception $e) { $reorder_suggestions = []; }
     $r_fwhere_v = $r_fid ? "AND v.franchise_id=".intval($r_fid) : "";
     $total_cout = queryOne("SELECT COALESCE(SUM(v.quantite*p.prix_achat),0) as c FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente BETWEEN ? AND ? $r_fwhere", [$d1,$d2])['c'];
     $total_profit = $total_ca - $total_cout;
