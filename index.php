@@ -8485,7 +8485,21 @@ function openAddUser() {
                     {value: 'viewer', label: '👁️ Viewer (lecture seule basique)'},
                 ]),
                 modalField('Franchise', 'franchise_id', 'select', '', '', franchises),
-            ]),
+            ]) +
+            '<div class="bg-gray-50 rounded-xl p-3 border">' +
+            '<div class="text-[10px] font-bold text-gray-500 uppercase mb-2">🔧 Permissions supplémentaires (optionnel)</div>' +
+            '<div class="grid grid-cols-3 gap-1 text-xs">' +
+            [
+                ['dashboard','📊 Dashboard'], ['pos','🛒 POS'], ['stock','📦 Stock'],
+                ['entree','📥 Entrée stock'], ['ventes','💰 Ventes'], ['rapports','📈 Rapports'],
+                ['produits','🏷️ Produits'], ['clients','👥 Clients'], ['factures','📄 Factures'],
+                ['cloture','🔒 Clôture'], ['echeances','📅 Échéances'], ['transferts','🔄 Transferts'],
+                ['inventaire','📋 Inventaire'], ['pointage','⏰ Pointage'], ['tresorerie','💵 Trésorerie'],
+                ['bons_reception','📦 Bons récep.'], ['fournisseurs','🚚 Fournisseurs'],
+            ].map(function(p) {
+                return '<label class="flex items-center gap-1 py-0.5"><input type="checkbox" name="custom_permissions[]" value="' + p[0] + '" class="rounded text-asel"> ' + p[1] + '</label>';
+            }).join('') +
+            '</div></div>',
             'Créer le compte'
         )
     );
@@ -8511,7 +8525,14 @@ function openEditUser(id, nom, role, franchiseId, actif) {
             <input type="hidden" name="_csrf" value="${csrf}">
             <input type="hidden" name="action" value="edit_user">
             <input type="hidden" name="user_id" value="${id}">
-            ${modalField('Nom complet', 'nom_complet', 'text', nom, '')}
+            ${modalRow([
+                modalField('Nom', 'nom_complet', 'text', nom, ''),
+                modalField('Prénom', 'prenom', 'text', '', ''),
+            ])}
+            ${modalRow([
+                modalField('🪪 CIN', 'cin', 'text', '', '12345678'),
+                modalField('📞 Téléphone', 'telephone', 'tel', '', '+216'),
+            ])}
             ${modalRow([
                 modalField('Rôle', 'role', 'select', '', '', roles),
                 modalField('Franchise', 'franchise_id', 'select', '', '', franchises),
@@ -8521,6 +8542,19 @@ function openEditUser(id, nom, role, franchiseId, actif) {
                 {value: '1', label: 'Oui — actif', selected: actif == 1},
                 {value: '0', label: 'Non — désactivé', selected: actif == 0},
             ])}
+            <div class="bg-gray-50 rounded-xl p-3 border">
+                <div class="text-[10px] font-bold text-gray-500 uppercase mb-2">🔧 Permissions supplémentaires</div>
+                <div class="grid grid-cols-3 gap-1 text-xs">
+                    ${[
+                        ['dashboard','📊 Dashboard'], ['pos','🛒 POS'], ['stock','📦 Stock'],
+                        ['entree','📥 Entrée stock'], ['ventes','💰 Ventes'], ['rapports','📈 Rapports'],
+                        ['produits','🏷️ Produits'], ['clients','👥 Clients'], ['factures','📄 Factures'],
+                        ['cloture','🔒 Clôture'], ['echeances','📅 Échéances'], ['transferts','🔄 Transferts'],
+                        ['inventaire','📋 Inventaire'], ['pointage','⏰ Pointage'], ['tresorerie','💵 Trésorerie'],
+                        ['bons_reception','📦 Bons récep.'], ['fournisseurs','🚚 Fournisseurs'],
+                    ].map(p => '<label class="flex items-center gap-1 py-0.5"><input type="checkbox" name="custom_permissions[]" value="' + p[0] + '" class="rounded text-asel"> ' + p[1] + '</label>').join('')}
+                </div>
+            </div>
             <div class="flex gap-3 pt-2">
                 <button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm">Annuler</button>
                 <button type="submit" class="flex-1 py-2.5 rounded-xl bg-asel hover:bg-asel-dark text-white font-semibold text-sm flex items-center justify-center gap-2">
