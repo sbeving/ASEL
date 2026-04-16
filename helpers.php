@@ -101,6 +101,21 @@ define('PERMISSIONS', [
     'viewer' => [
         'dashboard', 'stock', 'ventes', 'mon_compte', 'notifications', 'pointage',
     ],
+    'superadmin' => [
+        // READ-ONLY access to EVERYTHING — viewer of all pages
+        'dashboard', 'pos', 'stock', 'entree', 'transferts', 'demandes',
+        'retours', 'cloture', 'ventes', 'rapports', 'produits', 'users',
+        'franchises_mgmt', 'franchise_locations', 'audit_log', 'settings',
+        'clients', 'services', 'recharges', 'factures',
+        'gestion_services', 'gestion_asel', 'echeances', 'inventaire',
+        'notifications', 'mon_compte', 'stock_central',
+        'pointage', 'pointage_admin',
+        'fournisseurs', 'bons_reception', 'tresorerie',
+        'familles_categories', 'points_reseau',
+        // Scope
+        'view_all_franchises',
+        // NO write actions — read only
+    ],
 ]);
 
 function requireLogin() {
@@ -112,7 +127,21 @@ function requireLogin() {
 
 function can($permission) {
     $role = $_SESSION['user']['role'] ?? '';
-    return in_array($permission, PERMISSIONS[$role] ?? []);
+    // Check role-based permissions first
+    $has_role_perm = in_array($permission, PERMISSIONS[$role] ?? []);
+    // Check custom permissions override (stored in DB as JSON)
+    $custom = $_SESSION['user']['custom_permissions'] ?? null;
+    if ($custom) {
+        $custom_perms = is_array($custom) ? $custom : json_decode($custom, true);
+        if (is_array($custom_perms)) {
+            // Custom permissions: {"+": ["extra_perm"], "-": ["removed_perm"]}
+            if (isset($custom_perms['+']) && in_array($permission, $custom_perms['+'])) return true;
+            if (isset($custom_perms['-']) && in_array($permission, $custom_perms['-'])) return false;
+            // Flat array format: just check if permission is in the list
+            if (!isset($custom_perms['+']) && !isset($custom_perms['-']) && in_array($permission, $custom_perms)) return true;
+        }
+    }
+    return $has_role_perm;
 }
 
 function requirePermission($permission) {
@@ -204,6 +233,7 @@ function verifyCsrf() {
 function roleBadge($role) {
     return match($role) {
         'admin' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Admin</span>',
+        'superadmin' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">Super Admin</span>',
         'gestionnaire' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">Stock Central</span>',
         'franchise' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">Franchise</span>',
         'vendeur' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Vendeur</span>',

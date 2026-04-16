@@ -371,14 +371,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     elseif ($action === 'add_user') {
         $pw = password_hash($_POST['password'], PASSWORD_DEFAULT);
-        execute("INSERT INTO utilisateurs (nom_utilisateur,mot_de_passe,nom_complet,role,franchise_id) VALUES (?,?,?,?,?)",
-            [$_POST['username'], $pw, $_POST['nom_complet'], $_POST['role'], $_POST['franchise_id'] ?: null]);
+        $custom_perms = null;
+        if (!empty($_POST['custom_permissions'])) {
+            $custom_perms = json_encode(array_values(array_filter($_POST['custom_permissions'])));
+        }
+        execute("INSERT INTO utilisateurs (nom_utilisateur,mot_de_passe,nom_complet,prenom,cin,telephone,role,franchise_id,custom_permissions) VALUES (?,?,?,?,?,?,?,?,?)",
+            [$_POST['username'], $pw, $_POST['nom_complet'], $_POST['prenom']??'', $_POST['cin']??'', $_POST['telephone']??'', $_POST['role'], $_POST['franchise_id'] ?: null, $custom_perms]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Utilisateur créé!'];
         auditLog('add_user', 'utilisateur', db()->lastInsertId(), ['username'=>$_POST['username'], 'role'=>$_POST['role']]);
     }
     elseif ($action === 'edit_user') {
-        execute("UPDATE utilisateurs SET nom_complet=?,role=?,franchise_id=?,actif=? WHERE id=?",
-            [$_POST['nom_complet'], $_POST['role'], $_POST['franchise_id'] ?: null, $_POST['actif'] ?? 1, $_POST['user_id']]);
+        $custom_perms = null;
+        if (!empty($_POST['custom_permissions'])) {
+            $custom_perms = json_encode(array_values(array_filter($_POST['custom_permissions'])));
+        }
+        execute("UPDATE utilisateurs SET nom_complet=?,prenom=?,cin=?,telephone=?,role=?,franchise_id=?,actif=?,custom_permissions=? WHERE id=?",
+            [$_POST['nom_complet'], $_POST['prenom']??'', $_POST['cin']??'', $_POST['telephone']??'', $_POST['role'], $_POST['franchise_id'] ?: null, $_POST['actif'] ?? 1, $custom_perms, $_POST['user_id']]);
         if (!empty($_POST['new_password']))
             execute("UPDATE utilisateurs SET mot_de_passe=? WHERE id=?", [password_hash($_POST['new_password'], PASSWORD_DEFAULT), $_POST['user_id']]);
         $_SESSION['flash'] = ['type'=>'success','msg'=>'Utilisateur mis à jour!'];
@@ -4430,10 +4438,18 @@ document.addEventListener('keydown', e => {
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-people text-asel"></i> Utilisateurs <span class="text-sm font-normal text-gray-400">(<?=count($users)?>)</span></h1>
     <button onclick="openAddUser()" class="bg-asel hover:bg-asel-dark text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors"><i class="bi bi-person-plus"></i> Nouvel utilisateur</button>
 </div>
-<div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Login</th><th class="px-3 py-3 text-left">Nom</th><th class="px-3 py-3">Rôle</th><th class="px-3 py-3 text-left hidden sm:table-cell">Franchise</th><th class="px-3 py-3">Statut</th><th class="px-3 py-3">Edit</th></tr></thead>
+<div class="bg-white rounded-xl shadow-sm overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-asel-dark text-white text-xs uppercase tracking-wider"><th class="px-3 py-3 text-left">Login</th><th class="px-3 py-3 text-left">Nom & Prénom</th><th class="px-3 py-3 hidden md:table-cell">CIN</th><th class="px-3 py-3 hidden sm:table-cell">Tél</th><th class="px-3 py-3">Rôle</th><th class="px-3 py-3 text-left hidden sm:table-cell">Franchise</th><th class="px-3 py-3">Statut</th><th class="px-3 py-3">Edit</th></tr></thead>
 <tbody class="divide-y"><?php foreach($users as $u):?>
-<tr class="hover:bg-gray-50"><td class="px-3 py-2 font-mono text-sm"><?=e($u['nom_utilisateur'])?></td><td class="px-3 py-2 font-medium"><?=e($u['nom_complet'])?></td><td class="px-3 py-2 text-center"><?=roleBadge($u['role'])?></td><td class="px-3 py-2 text-xs hidden sm:table-cell"><?=$u['fnom']?shortF($u['fnom']):'—'?></td><td class="px-3 py-2 text-center"><?=$u['actif']?'<span class="text-green-500"><i class="bi bi-check-circle-fill"></i></span>':'<span class="text-red-400"><i class="bi bi-x-circle-fill"></i></span>'?></td>
-<td class="px-3 py-2"><button onclick="openEditUser(<?=$u['id']?>,'<?=ejs($u['nom_complet'])?>','<?=$u['role']?>',<?=$u['franchise_id']?:0?>,<?=$u['actif']?>)" class="text-asel hover:text-asel-dark"><i class="bi bi-pencil"></i></button></td></tr>
+<tr class="hover:bg-gray-50 <?=$u['actif']?'':'opacity-50'?>">
+<td class="px-3 py-2 font-mono text-sm"><?=e($u['nom_utilisateur'])?></td>
+<td class="px-3 py-2"><div class="font-medium"><?=e($u['nom_complet'])?></div><?php if(!empty($u['prenom'])): ?><div class="text-xs text-gray-400"><?=e($u['prenom'])?></div><?php endif; ?></td>
+<td class="px-3 py-2 text-xs font-mono text-gray-500 hidden md:table-cell"><?=e($u['cin']??'')?></td>
+<td class="px-3 py-2 text-xs hidden sm:table-cell"><?=e($u['telephone']??'')?></td>
+<td class="px-3 py-2 text-center"><?=roleBadge($u['role'])?></td>
+<td class="px-3 py-2 text-xs hidden sm:table-cell"><?=$u['fnom']?shortF($u['fnom']):'—'?></td>
+<td class="px-3 py-2 text-center"><?=$u['actif']?'<span class="text-green-500"><i class="bi bi-check-circle-fill"></i></span>':'<span class="text-red-400"><i class="bi bi-x-circle-fill"></i></span>'?></td>
+<td class="px-3 py-2"><button onclick="openEditUser(<?=$u['id']?>,'<?=ejs($u['nom_complet'])?>','<?=$u['role']?>',<?=$u['franchise_id']?:0?>,<?=$u['actif']?>)" class="text-asel hover:text-asel-dark"><i class="bi bi-pencil"></i></button></td>
+</tr>
 <?php endforeach;?></tbody></table></div></div>
 
 <?php
@@ -8449,14 +8465,22 @@ function openAddUser() {
                 modalField('Login *', 'username', 'text', '', 'Identifiant unique'),
                 modalField('Mot de passe *', 'password', 'password', '', 'Min. 6 caractères'),
             ]) +
-            modalField('Nom complet *', 'nom_complet', 'text', '', 'Prénom Nom') +
+            modalRow([
+                modalField('Nom *', 'nom_complet', 'text', '', 'Nom de famille'),
+                modalField('Prénom', 'prenom', 'text', '', 'Prénom'),
+            ]) +
+            modalRow([
+                modalField('🪪 CIN', 'cin', 'text', '', '12345678'),
+                modalField('📞 Téléphone', 'telephone', 'tel', '', '+216 XX XXX XXX'),
+            ]) +
             modalRow([
                 modalField('Rôle', 'role', 'select', '', '', [
                     {value: 'vendeur', label: '🛒 Vendeur (POS + caisse)'},
                     {value: 'franchise', label: '🏪 Franchise (gestion complète)'},
                     {value: 'gestionnaire', label: '📦 Gestionnaire (stock central)'},
                     {value: 'admin', label: '👑 Administrateur'},
-                    {value: 'viewer', label: '👁️ Viewer (lecture seule)'},
+                    {value: 'superadmin', label: '🔐 Super Admin (lecture seule)'},
+                    {value: 'viewer', label: '👁️ Viewer (lecture seule basique)'},
                 ]),
                 modalField('Franchise', 'franchise_id', 'select', '', '', franchises),
             ]),
@@ -8476,6 +8500,7 @@ function openEditUser(id, nom, role, franchiseId, actif) {
         {value: 'franchise', label: '🏪 Franchise', selected: role === 'franchise'},
         {value: 'gestionnaire', label: '📦 Gestionnaire', selected: role === 'gestionnaire'},
         {value: 'admin', label: '👑 Admin', selected: role === 'admin'},
+        {value: 'superadmin', label: '🔐 Super Admin', selected: role === 'superadmin'},
         {value: 'viewer', label: '👁️ Viewer', selected: role === 'viewer'},
     ];
     openModal(
