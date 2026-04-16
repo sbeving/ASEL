@@ -1428,7 +1428,7 @@ if ($page === 'dashboard'):
     $vj = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t, COUNT(*) as n, COALESCE(SUM(v.quantite*p.prix_achat),0) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE v.date_vente=CURDATE() $wf");
     // Cash from echeance payments today + avances on lot sales today
     $echeances_cash_today = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM echeances WHERE statut='payee' AND DATE(date_paiement)=CURDATE() $wf_ech")['t'] ?? 0;
-    $avances_today = queryOne("SELECT COALESCE(SUM(f.montant_recu),0) as t FROM factures f WHERE f.mode_paiement='echeance' AND DATE(f.date_facture)=? AND f.montant_recu > 0 $wf_fac", [date('Y-m-d')])['t'] ?? 0;
+    $avances_today = queryOne("SELECT COALESCE(SUM(f.montant_recu),0) as t FROM factures f WHERE f.id IN (SELECT DISTINCT facture_id FROM echeances) AND DATE(f.date_facture)=? AND f.montant_recu > 0 $wf_fac", [date('Y-m-d')])['t'] ?? 0;
     $total_cash_today = $vj['t'] + $echeances_cash_today;
     $vm = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t, COUNT(*) as n, COALESCE(SUM(v.quantite*p.prix_achat),0) as cout FROM ventes v JOIN produits p ON v.produit_id=p.id WHERE MONTH(v.date_vente)=MONTH(CURDATE()) AND YEAR(v.date_vente)=YEAR(CURDATE()) $wf");
     $vh = queryOne("SELECT COALESCE(SUM(prix_total),0) as t FROM ventes WHERE date_vente=DATE_SUB(CURDATE(), INTERVAL 1 DAY) $wf");
@@ -3407,9 +3407,9 @@ elseif ($page === 'transferts'):
     $sys = queryOne("SELECT COALESCE(SUM(prix_total),0) as t, COALESCE(SUM(quantite),0) as a FROM ventes WHERE franchise_id=? AND DATE(date_vente)=?", [$cl_fid, $today]);
     
     // Cash breakdown
-    $especes_ventes = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t FROM ventes v JOIN factures f ON v.facture_id=f.id WHERE v.franchise_id=? AND DATE(v.date_vente)=? AND f.mode_paiement='especes'", [$cl_fid, $today])['t'] ?? 0;
+    $especes_ventes = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t FROM ventes v JOIN factures f ON v.facture_id=f.id WHERE v.franchise_id=? AND DATE(v.date_vente)=? AND f.mode_paiement='especes' AND f.id NOT IN (SELECT DISTINCT facture_id FROM echeances)", [$cl_fid, $today])['t'] ?? 0;
     $carte_ventes = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t FROM ventes v JOIN factures f ON v.facture_id=f.id WHERE v.franchise_id=? AND DATE(v.date_vente)=? AND f.mode_paiement='carte'", [$cl_fid, $today])['t'] ?? 0;
-    $avances_lots = queryOne("SELECT COALESCE(SUM(f.montant_recu),0) as t FROM factures f WHERE f.franchise_id=? AND DATE(f.date_facture)=? AND f.mode_paiement='echeance' AND f.montant_recu > 0", [$cl_fid, $today])['t'] ?? 0;
+    $avances_lots = queryOne("SELECT COALESCE(SUM(f.montant_recu),0) as t FROM factures f WHERE f.franchise_id=? AND DATE(f.date_facture)=? AND f.id IN (SELECT DISTINCT facture_id FROM echeances) AND f.montant_recu > 0", [$cl_fid, $today])['t'] ?? 0;
     $echeances_payees = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM echeances WHERE franchise_id=? AND statut='payee' AND DATE(date_paiement)=?", [$cl_fid, $today])['t'] ?? 0;
     $total_especes_caisse = $especes_ventes + $avances_lots + $echeances_payees;
     
