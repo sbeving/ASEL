@@ -1153,6 +1153,19 @@ $csrf = csrfToken();
     /* Badge animation */
     @keyframes badge-bounce { 0%,100%{transform:scale(1)} 50%{transform:scale(1.2)} }
     .badge-animate { animation: badge-bounce 0.5s ease; }
+    /* Enterprise polish */
+    .hover-lift { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+    .hover-lift:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+    .btn-submit:active, button[type=submit]:active { transform: scale(0.97); }
+    .form-card { transition: border-color 0.2s; }
+    .form-card:focus-within { border-color: var(--asel, #2AABE2); }
+    table tbody tr { transition: background-color 0.15s ease; }
+    .sidebar-link { transition: all 0.2s ease; }
+    .sidebar-link:hover { transform: translateX(3px); }
+    @keyframes fadeInUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+    .fade-in { animation: fadeInUp 0.3s ease-out; }
+    .stat-card { transition: all 0.3s ease; }
+    .stat-card:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(0,0,0,0.1); }
     </style>
     <!-- ASEL Design System v2 -->
     <style>
@@ -1378,7 +1391,7 @@ try {
 <div class="lg:hidden fixed inset-0 bg-black/50 z-30 hidden" id="backdrop" onclick="document.getElementById('sidebar').classList.add('-translate-x-full');this.classList.add('hidden')"></div>
 
 <!-- Main content -->
-<main class="lg:ml-64 pt-14 lg:pt-0 min-h-screen">
+<main class="lg:ml-64 pt-14 lg:pt-0 min-h-screen fade-in">
     <div class="p-4 lg:p-6 max-w-7xl mx-auto">
     
     <?php if ($flash): ?>
@@ -7795,6 +7808,74 @@ function modalForm(action, csrf, fields, submitText, submitColor) {
 }
 document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeModal(); });
 window._modalReady = true;
+
+// === PERSISTENT FILTERS ===
+// Save/restore filter values (search, date, select) across page reloads
+(function(){
+    var page = new URLSearchParams(window.location.search).get('page') || 'dashboard';
+    var key = 'asel_filters_' + page;
+    
+    // Restore on load
+    try {
+        var saved = JSON.parse(sessionStorage.getItem(key) || '{}');
+        setTimeout(function(){
+            Object.keys(saved).forEach(function(id){
+                var el = document.getElementById(id);
+                if (el && el.tagName === 'INPUT' && el.type === 'text') {
+                    el.value = saved[id];
+                    el.dispatchEvent(new Event('input', {bubbles:true}));
+                }
+            });
+        }, 300);
+    } catch(e){}
+    
+    // Save on change
+    document.addEventListener('input', function(e){
+        if (e.target.id && e.target.type === 'text' && e.target.closest('.relative')) {
+            try {
+                var data = JSON.parse(sessionStorage.getItem(key) || '{}');
+                data[e.target.id] = e.target.value;
+                sessionStorage.setItem(key, JSON.stringify(data));
+            } catch(ex){}
+        }
+    });
+})();
+
+// === AJAX MODAL FORM SUBMISSION ===
+// Forms inside modals submit via fetch, show toast, refresh page data
+function enableAjaxForms() {
+    document.addEventListener('submit', function(e) {
+        var form = e.target;
+        if (!form.closest('#modalContent')) return; // only modal forms
+        if (form.dataset.noajax === '1') return; // opt-out
+        
+        e.preventDefault();
+        var btn = form.querySelector('button[type=submit]');
+        var origText = btn ? btn.innerHTML : '';
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Traitement...'; }
+        
+        var formData = new FormData(form);
+        
+        fetch('index.php?' + new URLSearchParams({page: new URLSearchParams(window.location.search).get('page') || 'dashboard'}).toString(), {
+            method: 'POST',
+            body: formData,
+            redirect: 'follow'
+        }).then(function(resp) {
+            if (resp.redirected || resp.ok) {
+                closeModal();
+                if (typeof showToast === 'function') showToast('Enregistré avec succès!', 'success');
+                // Soft reload: refresh the current page content
+                setTimeout(function(){ location.reload(); }, 500);
+            } else {
+                throw new Error('Erreur serveur');
+            }
+        }).catch(function(err) {
+            if (typeof showToast === 'function') showToast('Erreur: ' + err.message, 'error');
+            if (btn) { btn.disabled = false; btn.innerHTML = origText; }
+        });
+    });
+}
+enableAjaxForms();
 </script>
 
 <script>
