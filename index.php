@@ -7790,6 +7790,9 @@ function modalField(label, name, type, value, placeholder, options) {
     return '<div><label class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">' + label + '</label><input type="' + (type || 'text') + '" name="' + name + '" value="' + (value || '') + '" placeholder="' + (placeholder || '') + '" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-asel"></div>';
 }
 function modalRow(cols) { return '<div class="grid grid-cols-' + cols.length + ' gap-3">' + cols.join('') + '</div>'; }
+function modalForm(action, csrf, fields, submitText, submitColor) {
+    return '<form method="POST" class="p-6 space-y-4" onsubmit="this.querySelector(\'button[type=submit]\').disabled=true"><input type="hidden" name="_csrf" value="' + csrf + '"><input type="hidden" name="action" value="' + action + '">' + fields + '<div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50">Annuler</button><button type="submit" class="flex-1 py-2.5 rounded-xl text-white font-semibold text-sm ' + (submitColor || 'bg-asel hover:bg-asel-dark') + ' flex items-center justify-center gap-2"><i class="bi bi-check-circle"></i> ' + (submitText || 'Enregistrer') + '</button></div></form>';
+}
 document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeModal(); });
 window._modalReady = true;
 </script>
@@ -7830,10 +7833,7 @@ function closeConfirm() {
     confirmCallback = null;
 }
 
-// modalForm helper (extends the core modal system)
-function modalForm(action, csrf, fields, submitText, submitColor) {
-    return '<form method="POST" class="p-6 space-y-4" onsubmit="this.querySelector(\'button[type=submit]\').disabled=true"><input type="hidden" name="_csrf" value="' + csrf + '"><input type="hidden" name="action" value="' + action + '">' + fields + '<div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50">Annuler</button><button type="submit" class="flex-1 py-2.5 rounded-xl text-white font-semibold text-sm ' + (submitColor || 'bg-asel hover:bg-asel-dark') + ' flex items-center justify-center gap-2"><i class="bi bi-check-circle"></i> ' + (submitText || 'Enregistrer') + '</button></div></form>';
-}
+// modalForm is now in the core isolated script block above
 
 // === BUSINESS LOGIC HELPERS ===
 
