@@ -89,9 +89,9 @@ define('PERMISSIONS', [
         // fournisseurs, bons_reception, tresorerie, produits page, rapports, users
     ],
     'vendeur' => [
-        // Pages — POS + caisse only
-        'pos', 'cloture', 'ventes', 'factures', 'mon_compte', 'notifications',
-        'clients',
+        // Pages — POS + caisse + essentials
+        'dashboard', 'pos', 'cloture', 'ventes', 'factures', 'mon_compte', 'notifications',
+        'clients', 'echeances',
         // Actions — sell + basic client management
         'vente', 'add_client', 'create_facture',
         'vente_recharge', 'cloture_submit', 'create_echeances_lot',
