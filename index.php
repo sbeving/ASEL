@@ -7640,7 +7640,7 @@ function submitPunch() {
 }
 </script>
 <!-- Global Scanner Modal (hidden by default) -->
-<div id="scannerModal" class="fixed inset-0 z-50 bg-black/60 items-center justify-center p-4" style="display:none">
+<div id="scannerModal" class="fixed inset-0 z-[10000] bg-black/80 items-center justify-center p-4" style="display:none">
     <div class="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
         <div class="bg-asel-dark text-white px-4 py-3 flex justify-between items-center">
             <span class="font-bold text-sm"><i class="bi bi-upc-scan"></i> Scanner code-barres</span>
