@@ -2805,7 +2805,7 @@ $recent_entrees = query("SELECT m.*,p.nom as pnom,p.reference FROM mouvements m 
         <div class="mt-4 bg-asel-light/50 rounded-xl p-3 flex justify-between items-center">
             <div class="text-sm"><span class="text-gray-500">Total HT:</span> <span class="font-bold text-asel-dark" id="entreeTotalHT">0.00</span> DT &nbsp; <span class="text-gray-400 text-xs" id="entreeTotalTTC"></span></div>
             <button type="submit" id="entreSubmit" disabled 
-                onclick="if(!this.disabled){this.disabled=true;this.innerHTML='<i class=\'bi bi-hourglass-split\'></i> Enregistrement...'}"
+                onclick="if(!this.disabled){this.innerHTML='<i class=\'bi bi-hourglass-split\'></i> Enregistrement...';var f=this.closest('form');this.disabled=true;f.submit();}"
                 class="bg-asel disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold px-6 py-2.5 rounded-xl text-sm transition-colors flex items-center gap-2">
                 <i class="bi bi-check-circle"></i> Valider l'entrée
             </button>
