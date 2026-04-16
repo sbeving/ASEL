@@ -3788,7 +3788,7 @@ function submitQuickCloture(ca, art) {
         default => 'c.nom ASC, p.nom ASC',
     };
     
-    $filtered_produits = query("SELECT p.*,c.nom as cat_nom,
+    $filtered_produits = query("SELECT p.id,p.nom,p.reference,p.code_barre,p.marque,p.categorie_id,p.sous_categorie_id,p.prix_achat,p.prix_vente,p.prix_achat_ht,p.prix_achat_ttc,p.prix_vente_ht,p.prix_vente_ttc,p.tva_rate,p.seuil_alerte,p.description,p.fournisseur_id,p.actif,p.date_creation,(p.image_base64 IS NOT NULL AND p.image_base64!='') as has_image,c.nom as cat_nom,
         COALESCE((SELECT SUM(v.quantite) FROM ventes v WHERE v.produit_id=p.id AND v.date_vente>=DATE_SUB(CURDATE(),INTERVAL 30 DAY)),0) as ventes_30j,
         COALESCE((SELECT SUM(v.quantite) FROM ventes v WHERE v.produit_id=p.id AND v.date_vente>=DATE_SUB(CURDATE(),INTERVAL 90 DAY)),0) as ventes_90j
         FROM produits p JOIN categories c ON p.categorie_id=c.id WHERE " . implode(' AND ', $pw) . " ORDER BY $order", $pp);
@@ -3907,7 +3907,8 @@ function submitQuickCloture(ca, art) {
                     <td class="px-1 py-1.5"><input type="checkbox" class="prod-check rounded" value="<?=$p['id']?>" data-nom="<?=e($p['nom'])?>" data-ref="<?=e($p['reference']??'')?>" data-prix="<?=number_format($p['prix_vente_ttc']??$p['prix_vente'],2)?>" data-code="<?=e($p['code_barre']??'')?>"></td>
                     <td class="px-2 py-1.5">
                         <div class="flex items-center gap-2">
-                            <div class="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 text-gray-300 overflow-hidden border" id="pimg<?=$p['id']?>">
+                            <div class="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 text-gray-300 overflow-hidden border prod-img" data-pid="<?=$p['id']?>">
+                                <i class="bi bi-image text-xs"></i>
                                 <i class="bi bi-image text-xs"></i>
                             </div>
                             <div class="font-medium text-sm"><?=e($p['nom'])?></div>
@@ -4223,6 +4224,40 @@ document.addEventListener('keydown', e => {
         document.getElementById('instantSearch').focus();
     }
 });
+
+// Lazy load product images
+(function(){
+    var imgDivs = document.querySelectorAll('.prod-img[data-pid]');
+    var loaded = {};
+    function loadVisibleImages() {
+        imgDivs.forEach(function(div) {
+            var pid = div.dataset.pid;
+            if (loaded[pid] || div.closest('tr').style.display === 'none') return;
+            var rect = div.getBoundingClientRect();
+            if (rect.top < window.innerHeight + 200 && rect.bottom > -200) {
+                loaded[pid] = true;
+                fetch('api.php?action=get_product_image&id=' + pid)
+                    .then(function(r){ return r.json(); })
+                    .then(function(d){
+                        if (d.image) {
+                            div.innerHTML = '<img src="' + d.image + '" class="w-full h-full object-cover">';
+                        }
+                    }).catch(function(){});
+            }
+        });
+    }
+    // Load on page ready + scroll
+    setTimeout(loadVisibleImages, 500);
+    window.addEventListener('scroll', loadVisibleImages, {passive: true});
+    // Reload after filter changes
+    var origFilter = window.instantFilter;
+    if (origFilter) {
+        window.instantFilter = function() {
+            origFilter.apply(this, arguments);
+            setTimeout(loadVisibleImages, 100);
+        };
+    }
+})();
 </script>
 
 <?php elseif ($page === 'franchises_mgmt' && can('franchises_mgmt')):
@@ -8042,6 +8077,7 @@ function viewProductDetails(id, nom, ref, marque, cat, pa, pv, code, seuil) {
     openModal(
         modalHeader('bi-box-seam', nom, ref + ' · ' + marque) +
         `<div class="p-6 space-y-4">
+            <div id="prodDetailImg${id}" class="hidden w-full h-32 rounded-xl overflow-hidden bg-gray-100 mb-3"></div>
             <div class="grid grid-cols-2 gap-4">
                 <div class="bg-gray-50 rounded-xl p-3 text-center">
                     <div class="text-[10px] text-gray-400 uppercase font-bold">Prix achat</div>
@@ -8083,6 +8119,14 @@ function viewProductDetails(id, nom, ref, marque, cat, pa, pv, code, seuil) {
         </div>`,
         {size: 'max-w-md'}
     );
+    // Load product image
+    loadProductImage(id, function(imgSrc) {
+        var imgDiv = document.getElementById('prodDetailImg' + id);
+        if (imgDiv) {
+            imgDiv.innerHTML = '<img src="' + imgSrc + '" class="w-full h-full object-contain">';
+            imgDiv.classList.remove('hidden');
+        }
+    });
     // Load fournisseurs for this product
     fetch('api.php?action=get_product_fournisseurs&produit_id=' + id)
         .then(function(r){ return r.json(); })
