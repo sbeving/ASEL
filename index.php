@@ -3191,6 +3191,14 @@ elseif ($page === 'ventes'):
     $tmarge=$tca>0?round($tprofit/$tca*100):0;
     $tca_ht = round($tca/1.19, 2);
     $ttva = $tca - $tca_ht;
+    // Cash breakdown for the period
+    $wf_v = $fid ? "AND v.franchise_id=".intval($fid) : "";
+    $wf_f = $fid ? "AND f.franchise_id=".intval($fid) : "";
+    $especes_period = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t FROM ventes v JOIN factures fa ON v.facture_id=fa.id WHERE v.date_vente BETWEEN ? AND ? AND fa.mode_paiement='especes' AND fa.id NOT IN (SELECT DISTINCT facture_id FROM echeances) $wf_v", [$d1,$d2])['t'] ?? 0;
+    $carte_period = queryOne("SELECT COALESCE(SUM(v.prix_total),0) as t FROM ventes v JOIN factures fa ON v.facture_id=fa.id WHERE v.date_vente BETWEEN ? AND ? AND fa.mode_paiement='carte' $wf_v", [$d1,$d2])['t'] ?? 0;
+    $avances_period = queryOne("SELECT COALESCE(SUM(f.montant_recu),0) as t FROM factures f WHERE DATE(f.date_facture) BETWEEN ? AND ? AND f.id IN (SELECT DISTINCT facture_id FROM echeances) AND f.montant_recu > 0 $wf_f", [$d1,$d2])['t'] ?? 0;
+    $echeances_period = queryOne("SELECT COALESCE(SUM(montant),0) as t FROM echeances WHERE statut='payee' AND DATE(date_paiement) BETWEEN ? AND ? ".($fid?"AND franchise_id=".intval($fid):""), [$d1,$d2])['t'] ?? 0;
+    $total_especes_period = $especes_period + $avances_period + $echeances_period;
 ?>
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <h1 class="text-2xl font-bold text-asel-dark flex items-center gap-2"><i class="bi bi-receipt text-asel"></i> Historique des ventes</h1>
@@ -3234,6 +3242,17 @@ elseif ($page === 'ventes'):
         <div class="text-[10px] text-gray-400 uppercase font-bold">Articles</div>
         <div class="text-xl font-black text-asel-dark"><?=number_format($tart)?></div>
         <?php if($tart>0): ?><div class="text-xs text-gray-400">Moy: <?=number_format($tca/$tart,2)?> DT/article</div><?php endif; ?>
+    </div>
+</div>
+<!-- Cash breakdown -->
+<div class="bg-white rounded-xl shadow-sm p-3 mb-4">
+    <div class="flex flex-wrap items-center gap-4 text-xs">
+        <span class="font-bold text-gray-500"><i class="bi bi-cash-stack text-asel"></i> Encaissements:</span>
+        <span>💵 Espèces: <b class="text-green-700"><?=number_format($especes_period,2)?></b></span>
+        <span>💰 Avances: <b class="text-amber-700"><?=number_format($avances_period,2)?></b></span>
+        <span>✅ Échéances: <b class="text-purple-700"><?=number_format($echeances_period,2)?></b></span>
+        <span>💳 Carte: <b class="text-blue-700"><?=number_format($carte_period,2)?></b></span>
+        <span class="ml-auto font-bold text-asel-dark bg-asel/10 px-3 py-1 rounded-lg">🏦 Total espèces: <?=number_format($total_especes_period,2)?> DT</span>
     </div>
 </div>
 <!-- Search -->

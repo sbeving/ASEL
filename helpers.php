@@ -75,7 +75,7 @@ define('PERMISSIONS', [
     ],
     'franchise' => [
         'dashboard', 'pos', 'stock', 'entree', 'demandes',
-        'retours', 'cloture', 'ventes', 'transferts',
+        'retours', 'cloture', 'ventes', 'rapports', 'transferts',
         'clients', 'services', 'recharges', 'factures',
         'echeances', 'inventaire', 'notifications', 'mon_compte',
         // Actions — franchise can ONLY sell, enter stock, and manage their own data
