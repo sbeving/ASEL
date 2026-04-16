@@ -3693,7 +3693,6 @@ function submitQuickCloture(ca, art) {
     <?php endforeach; ?>
 </div>
 <?php endif; ?>
-</div>
 <!-- Date filter with shortcuts -->
 <div class="bg-white rounded-xl shadow-sm p-3 mb-4">
     <form class="flex flex-wrap gap-2 items-center">
