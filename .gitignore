@@ -2,3 +2,32 @@ asel_stock.db
 __pycache__/
 *.pyc
 .env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+dist/
+build/
+.turbo/
+coverage/
+*.tsbuildinfo
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+.mongo-data/
