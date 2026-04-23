@@ -41,6 +41,7 @@ export const PERMISSIONS = [
   'cashflows.manage',
   'franchises.view',
   'franchises.manage',
+  'map.manage',
   'users.manage',
   'audit.view',
   'map.view',
@@ -95,6 +96,7 @@ const managerPermissions: readonly Permission[] = [
   'cashflows.view',
   'cashflows.manage',
   'franchises.view',
+  'map.manage',
   'map.view',
 ];
 

@@ -339,6 +339,33 @@ export interface ServiceRecord {
   performedAt: string;
 }
 
+export interface NetworkPoint {
+  _id: string;
+  name: string;
+  type: 'franchise' | 'activation' | 'recharge' | 'activation_recharge';
+  status: 'prospect' | 'contact' | 'contrat_non_signe' | 'contrat_signe' | 'actif' | 'suspendu' | 'resilie';
+  address?: string;
+  city?: string;
+  governorate?: string;
+  phone?: string;
+  phone2?: string;
+  email?: string;
+  responsible?: string;
+  schedule?: string;
+  gps?: {
+    lat?: number | null;
+    lng?: number | null;
+  };
+  internalNotes?: string;
+  franchiseId?: Franchise | string | null;
+  contactDate?: string | null;
+  contractDate?: string | null;
+  activationDate?: string | null;
+  commissionPct?: number;
+  active: boolean;
+  createdAt?: string;
+}
+
 export interface ProductOverview {
   product: Omit<Product, 'categoryId' | 'supplierId'> & {
     categoryId?: { _id: string; name: string } | string;

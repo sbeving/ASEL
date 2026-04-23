@@ -23,6 +23,7 @@ import { ReturnsPage } from './pages/ReturnsPage';
 import { TimeLogsPage } from './pages/TimeLogsPage';
 import { DemandsPage } from './pages/DemandsPage';
 import { ServicesPage } from './pages/ServicesPage';
+import { NetworkPointsPage } from './pages/NetworkPointsPage';
 
 export default function App() {
   return (
@@ -44,6 +45,14 @@ export default function App() {
         <Route path="services" element={<ServicesPage />} />
         <Route path="transfers" element={<TransfersPage />} />
         <Route path="demands" element={<DemandsPage />} />
+        <Route
+          path="network-points"
+          element={
+            <ProtectedRoute roles={['admin', 'superadmin', 'manager']}>
+              <NetworkPointsPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="receptions" element={<ReceptionsPage />} />
         <Route path="returns" element={<ReturnsPage />} />
         <Route path="timelogs" element={<TimeLogsPage />} />

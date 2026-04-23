@@ -12,6 +12,7 @@ const nav: { to: string; label: string; roles?: Role[] }[] = [
   { to: '/services', label: 'Services', roles: ['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur', 'viewer'] },
   { to: '/transfers', label: 'Transferts' },
   { to: '/demands', label: 'Demandes', roles: ['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur', 'viewer'] },
+  { to: '/network-points', label: 'Reseau', roles: ['admin', 'superadmin', 'manager'] },
   { to: '/returns', label: 'Retours', roles: ['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur', 'viewer'] },
   { to: '/timelogs', label: 'Pointage', roles: ['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur'] },
   { to: '/receptions', label: 'Bons de réception', roles: ['admin', 'superadmin', 'manager', 'franchise'] },

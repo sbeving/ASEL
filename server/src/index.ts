@@ -30,6 +30,7 @@ import cashFlowRoutes from './routes/cashFlows.js';
 import returnRoutes from './routes/returns.js';
 import demandRoutes from './routes/demands.js';
 import serviceRoutes from './routes/services.js';
+import networkPointRoutes from './routes/networkPoints.js';
 
 async function main() {
   await connectDb();
@@ -77,6 +78,7 @@ async function main() {
   app.use('/api/returns', returnRoutes);
   app.use('/api/demands', demandRoutes);
   app.use('/api/services', serviceRoutes);
+  app.use('/api/network-points', networkPointRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
