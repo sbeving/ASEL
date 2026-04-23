@@ -40,6 +40,23 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
 
+  audit:
+    name: dependency audit (high+ only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Audit server production deps
+        working-directory: server
+        # Fail the build only on HIGH and CRITICAL findings in production
+        # dependencies — dev-deps are intentionally tolerated because some
+        # build tooling trails published advisories.
+        run: npm audit --omit=dev --audit-level=high
+      - name: Audit client production deps
+        working-directory: client
+        run: npm audit --omit=dev --audit-level=high
+
   docker:
     name: docker · build images
     runs-on: ubuntu-latest

@@ -57,7 +57,7 @@ export function DashboardPage() {
                   </tr>
                 )}
                 {lowStock.map((s) => (
-                  <tr key={s._id}>
+                  <tr key={s.id}>
                     <td className="td">{s.product.name}</td>
                     <td className="td text-slate-500">{s.franchise?.name ?? '—'}</td>
                     <td className="td text-right font-medium text-rose-600">{s.quantity}</td>
@@ -90,7 +90,7 @@ export function DashboardPage() {
                   </tr>
                 )}
                 {recentSales.map((s) => (
-                  <tr key={s._id}>
+                  <tr key={s.id}>
                     <td className="td text-slate-500">{dateTime(s.createdAt)}</td>
                     <td className="td">{typeof s.franchiseId === 'object' ? s.franchiseId?.name : '—'}</td>
                     <td className="td">

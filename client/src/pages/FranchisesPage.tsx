@@ -47,7 +47,7 @@ export function FranchisesPage() {
           </thead>
           <tbody>
             {(list.data ?? []).map((f) => (
-              <tr key={f._id}>
+              <tr key={f.id}>
                 <td className="td font-medium">{f.name}</td>
                 <td className="td text-slate-500">{f.address ?? '—'}</td>
                 <td className="td text-slate-500">{f.phone ?? '—'}</td>
@@ -90,7 +90,7 @@ function FranchiseForm({
 
   const save = useMutation({
     mutationFn: async (values: FormValues) => {
-      if (initial) await api.patch(`/franchises/${initial._id}`, values);
+      if (initial) await api.patch(`/franchises/${initial.id}`, values);
       else await api.post('/franchises', values);
     },
     onSuccess: onSaved,

@@ -79,13 +79,13 @@ export function TransfersPage() {
             {(list.data ?? []).map((t) => {
               const isDest =
                 typeof t.destFranchiseId === 'object'
-                  ? t.destFranchiseId._id === user?.franchiseId
+                  ? t.destFranchiseId.id === user?.franchiseId
                   : t.destFranchiseId === user?.franchiseId;
               const canResolve =
                 t.status === 'pending' &&
                 (user?.role === 'admin' || user?.role === 'manager' || (user?.role === 'franchise' && isDest));
               return (
-                <tr key={t._id}>
+                <tr key={t.id}>
                   <td className="td text-slate-500">{dateTime(t.createdAt)}</td>
                   <td className="td">{typeof t.sourceFranchiseId === 'object' ? t.sourceFranchiseId.name : '—'}</td>
                   <td className="td">{typeof t.destFranchiseId === 'object' ? t.destFranchiseId.name : '—'}</td>
@@ -100,13 +100,13 @@ export function TransfersPage() {
                       <div className="flex justify-end gap-2">
                         <button
                           className="text-emerald-600 hover:underline"
-                          onClick={() => resolve.mutate({ id: t._id, action: 'accept' })}
+                          onClick={() => resolve.mutate({ id: t.id, action: 'accept' })}
                         >
                           Accepter
                         </button>
                         <button
                           className="text-rose-600 hover:underline"
-                          onClick={() => resolve.mutate({ id: t._id, action: 'reject' })}
+                          onClick={() => resolve.mutate({ id: t.id, action: 'reject' })}
                         >
                           Rejeter
                         </button>
@@ -182,7 +182,7 @@ function NewTransferModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
           <select className="input" {...register('sourceFranchiseId')}>
             <option value="">—</option>
             {(franchises.data ?? []).map((f) => (
-              <option key={f._id} value={f._id}>{f.name}</option>
+              <option key={f.id} value={f.id}>{f.name}</option>
             ))}
           </select>
         </div>
@@ -191,7 +191,7 @@ function NewTransferModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
           <select className="input" {...register('destFranchiseId')}>
             <option value="">—</option>
             {(franchises.data ?? []).map((f) => (
-              <option key={f._id} value={f._id}>{f.name}</option>
+              <option key={f.id} value={f.id}>{f.name}</option>
             ))}
           </select>
           {errors.destFranchiseId && <p className="text-xs text-rose-600 mt-1">{errors.destFranchiseId.message}</p>}
@@ -201,7 +201,7 @@ function NewTransferModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
           <select className="input" {...register('productId')}>
             <option value="">—</option>
             {(products.data ?? []).map((p) => (
-              <option key={p._id} value={p._id}>
+              <option key={p.id} value={p.id}>
                 {p.name} {p.reference ? `(${p.reference})` : ''}
               </option>
             ))}

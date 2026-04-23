@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import './db/setup.js';
 import bcrypt from 'bcryptjs';
 import { env } from './config/env.js';
 import { connectDb, disconnectDb } from './db/connect.js';
@@ -74,14 +75,14 @@ async function seed() {
     },
     {
       username: 'mourouj',
-      passwordHash: await bcrypt.hash('mourouj2024', rounds),
+      passwordHash: await bcrypt.hash('Mourouj!2024', rounds),
       fullName: 'Gérant Mourouj',
       role: 'franchise',
       franchiseId: franchises[0]!._id,
     },
     {
       username: 'soukra',
-      passwordHash: await bcrypt.hash('soukra2024', rounds),
+      passwordHash: await bcrypt.hash('Soukra!2024', rounds),
       fullName: 'Gérant Soukra',
       role: 'franchise',
       franchiseId: franchises[1]!._id,

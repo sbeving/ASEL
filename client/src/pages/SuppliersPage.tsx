@@ -47,7 +47,7 @@ export function SuppliersPage() {
           </thead>
           <tbody>
             {(list.data ?? []).map((s) => (
-              <tr key={s._id}>
+              <tr key={s.id}>
                 <td className="td font-medium">{s.name}</td>
                 <td className="td text-slate-500">{s.phone ?? '—'}</td>
                 <td className="td text-slate-500">{s.email ?? '—'}</td>
@@ -85,7 +85,7 @@ function SupplierForm({
   });
   const save = useMutation({
     mutationFn: async (values: FormValues) => {
-      if (initial) await api.patch(`/suppliers/${initial._id}`, values);
+      if (initial) await api.patch(`/suppliers/${initial.id}`, values);
       else await api.post('/suppliers', values);
     },
     onSuccess: onSaved,

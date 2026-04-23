@@ -32,21 +32,35 @@ are not deployed with the new stack.
 
 ## Defenses in place
 
-- bcrypt password hashing with timing-safe compare on login
+- bcrypt password hashing (cost 12 by default, configurable) with
+  timing-safe compare on login
+- **Password policy**: 10+ characters, 3+ character classes (lower / upper
+  / digit / symbol). Enforced at `/auth/change-password` and `/users` routes
+  and mirrored in the client form validation.
+- **Account lockout**: 8 consecutive failed logins lock the account for 15
+  minutes (`423 ACCOUNT_LOCKED`). Successful login, or an admin setting a
+  new password, resets the counter. Every failed attempt is audited.
 - JWT in `httpOnly` + `SameSite=strict` + `Secure` cookie — no token access
   from JS, immune to XSS token theft and cross-site CSRF
-- Helmet security headers, `x-powered-by` disabled
+- Helmet security headers (CSP with `frame-ancestors 'none'`,
+  `upgrade-insecure-requests` in prod, strict cross-origin policies),
+  `x-powered-by` disabled
 - Strict CORS allow-list with credentials
-- Zod validation on every request body / query / params
-- Mongoose `sanitizeFilter` blocks `$`-prefixed operator injection from
-  user-controlled filter fragments
+- Zod validation on every request body / query / params — query filter
+  field names are never derived from user input, so Mongo operator
+  injection is impossible by construction
 - JSON body size capped at 1 MB
-- Rate limits: 10 login attempts / 15 min, 300 req / min global
+- Rate limits: 10 login attempts / 15 min per IP, 300 req / min global
+  (disabled in `NODE_ENV=test`)
 - RBAC enforced at middleware level; franchise-scoped users cannot read or
   write another franchise's stock, sales, or transfers
 - Atomic guarded stock updates (`$inc` with `$gte` precondition) refuse to
   push stock below zero; multi-line sales roll back on partial failure
-- Audit log auto-written on every mutation, redacted in application logs
+- Audit log auto-written on every mutation and on failed-login events,
+  redacted in application logs
+- Global Mongoose JSON transform guarantees `passwordHash` never leaves
+  the server, even if it was explicitly selected into an in-memory doc
+- `npm audit --audit-level=high` on production deps enforced in CI
 
 ## Reporting issues
 

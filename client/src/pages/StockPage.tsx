@@ -56,7 +56,7 @@ export function StockPage() {
           <select className="input max-w-sm" value={selectedFid} onChange={(e) => setSelectedFid(e.target.value)}>
             <option value="">— Sélectionner une franchise —</option>
             {(franchises.data ?? []).map((f) => (
-              <option key={f._id} value={f._id}>{f.name}</option>
+              <option key={f.id} value={f.id}>{f.name}</option>
             ))}
           </select>
         )}
@@ -93,7 +93,7 @@ export function StockPage() {
               {(stock.data ?? []).map((s) => {
                 const low = s.quantity <= s.product.lowStockThreshold;
                 return (
-                  <tr key={s._id} className={low ? 'bg-rose-50/50' : undefined}>
+                  <tr key={s.id} className={low ? 'bg-rose-50/50' : undefined}>
                     <td className="td font-medium">{s.product.name}</td>
                     <td className="td text-slate-500">{s.category?.name ?? '—'}</td>
                     <td className="td text-slate-500">{s.product.reference ?? '—'}</td>
@@ -183,7 +183,7 @@ function StockEntryModal({
           <select className="input" {...register('productId')}>
             <option value="">— Sélectionner —</option>
             {productsSorted.map((p) => (
-              <option key={p._id} value={p._id}>
+              <option key={p.id} value={p.id}>
                 {p.name} {p.reference ? `(${p.reference})` : ''}
               </option>
             ))}

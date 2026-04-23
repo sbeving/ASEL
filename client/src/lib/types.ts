@@ -12,7 +12,7 @@ export interface User {
 }
 
 export interface Franchise {
-  _id: string;
+  id: string;
   name: string;
   address?: string;
   phone?: string;
@@ -21,13 +21,13 @@ export interface Franchise {
 }
 
 export interface Category {
-  _id: string;
+  id: string;
   name: string;
   description?: string;
 }
 
 export interface Supplier {
-  _id: string;
+  id: string;
   name: string;
   phone?: string;
   email?: string;
@@ -36,7 +36,7 @@ export interface Supplier {
 }
 
 export interface Product {
-  _id: string;
+  id: string;
   name: string;
   categoryId: string;
   supplierId?: string | null;
@@ -51,24 +51,24 @@ export interface Product {
 }
 
 export interface StockItem {
-  _id: string;
+  id: string;
   franchiseId: string;
   productId: string;
   quantity: number;
   product: Product;
   category?: Category;
-  franchise?: { _id: string; name: string };
+  franchise?: { id: string; name: string };
 }
 
 export interface Movement {
-  _id: string;
+  id: string;
   franchiseId: string;
   productId: Product | string;
   type: string;
   delta: number;
   unitPrice: number;
   note?: string;
-  userId?: { _id: string; username: string; fullName: string } | string;
+  userId?: { id: string; username: string; fullName: string } | string;
   createdAt: string;
 }
 
@@ -80,7 +80,7 @@ export interface SaleItem {
 }
 
 export interface Sale {
-  _id: string;
+  id: string;
   franchiseId: Franchise | string;
   userId: User | string;
   items: SaleItem[];
@@ -93,7 +93,7 @@ export interface Sale {
 }
 
 export interface Transfer {
-  _id: string;
+  id: string;
   sourceFranchiseId: Franchise | string;
   destFranchiseId: Franchise | string;
   productId: Product | string;
@@ -122,7 +122,7 @@ export interface DashboardPayload {
 }
 
 export interface AuditLog {
-  _id: string;
+  id: string;
   userId?: string | null;
   username?: string | null;
   action: string;

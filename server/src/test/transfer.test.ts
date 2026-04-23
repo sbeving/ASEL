@@ -60,7 +60,7 @@ describe('transfers', () => {
       productId: product._id,
       quantity: 3,
     });
-    const id = body.transfer._id;
+    const id = body.transfer.id;
     const accepted = await admin.post(`/api/transfers/${id}/accept`);
     expect(accepted.status).toBe(200);
     expect(accepted.body.transfer.status).toBe('accepted');
@@ -81,7 +81,7 @@ describe('transfers', () => {
       productId: product._id,
       quantity: 3,
     });
-    const id = body.transfer._id;
+    const id = body.transfer.id;
     const rej = await admin.post(`/api/transfers/${id}/reject`);
     expect(rej.body.transfer.status).toBe('rejected');
 
@@ -101,7 +101,7 @@ describe('transfers', () => {
       productId: product._id,
       quantity: 999,
     });
-    const id = body.transfer._id;
+    const id = body.transfer.id;
     const res = await admin.post(`/api/transfers/${id}/accept`);
     expect(res.status).toBe(400);
 
@@ -121,7 +121,7 @@ describe('transfers', () => {
       productId: product._id,
       quantity: 1,
     });
-    const id = body.transfer._id;
+    const id = body.transfer.id;
     await admin.post(`/api/transfers/${id}/accept`).expect(200);
     const again = await admin.post(`/api/transfers/${id}/accept`);
     expect(again.status).toBe(409);

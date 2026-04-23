@@ -11,16 +11,33 @@ import type { Franchise, Role, User } from '../lib/types';
 
 const ROLES: Role[] = ['admin', 'manager', 'franchise', 'seller'];
 
+// Mirror of server/src/utils/passwordPolicy.ts — keep in sync.
+const passwordPolicy = z
+  .string()
+  .min(10, 'Au moins 10 caractères')
+  .max(200)
+  .refine(
+    (v) => {
+      let n = 0;
+      if (/[a-z]/.test(v)) n++;
+      if (/[A-Z]/.test(v)) n++;
+      if (/[0-9]/.test(v)) n++;
+      if (/[^A-Za-z0-9]/.test(v)) n++;
+      return n >= 3;
+    },
+    { message: 'Au moins 3 classes parmi {minuscule, majuscule, chiffre, symbole}' },
+  );
+
 const createSchema = z.object({
   username: z.string().min(3).max(50),
   fullName: z.string().min(1).max(100),
   role: z.enum(['admin', 'manager', 'franchise', 'seller']),
   franchiseId: z.string().optional().nullable(),
-  password: z.string().min(8).max(200),
+  password: passwordPolicy,
   active: z.boolean().optional(),
 });
 const editSchema = createSchema.partial().extend({
-  password: z.string().min(8).max(200).optional().or(z.literal('')),
+  password: passwordPolicy.optional().or(z.literal('')),
 });
 type CreateValues = z.infer<typeof createSchema>;
 
@@ -74,7 +91,7 @@ export function UsersPage() {
                 <td className="td"><span className="badge-info capitalize">{u.role}</span></td>
                 <td className="td text-slate-500">
                   {u.franchiseId
-                    ? (franchises.data ?? []).find((f) => f._id === u.franchiseId)?.name ?? '—'
+                    ? (franchises.data ?? []).find((f) => f.id === u.franchiseId)?.name ?? '—'
                     : '—'}
                 </td>
                 <td className="td text-slate-500">{dateTime(u.lastLoginAt ?? undefined)}</td>
@@ -189,7 +206,7 @@ function UserForm({
           <label className="label">Franchise</label>
           <select className="input" {...register('franchiseId')} disabled={!scoped}>
             <option value="">—</option>
-            {franchises.map((f) => <option key={f._id} value={f._id}>{f.name}</option>)}
+            {franchises.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
         </div>
         <div className="sm:col-span-2">

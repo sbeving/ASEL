@@ -41,7 +41,7 @@ export function CategoriesPage() {
           </thead>
           <tbody>
             {(list.data ?? []).map((c) => (
-              <tr key={c._id}>
+              <tr key={c.id}>
                 <td className="td font-medium">{c.name}</td>
                 <td className="td text-slate-500">{c.description ?? '—'}</td>
                 <td className="td text-right">
@@ -76,7 +76,7 @@ function CategoryForm({
   });
   const save = useMutation({
     mutationFn: async (values: FormValues) => {
-      if (initial) await api.patch(`/categories/${initial._id}`, values);
+      if (initial) await api.patch(`/categories/${initial.id}`, values);
       else await api.post('/categories', values);
     },
     onSuccess: onSaved,

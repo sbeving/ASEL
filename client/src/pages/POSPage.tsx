@@ -107,7 +107,7 @@ export function POSPage() {
           <select className="input max-w-sm" value={selectedFid} onChange={(e) => setSelectedFid(e.target.value)}>
             <option value="">— Sélectionner une franchise —</option>
             {(franchises.data ?? []).map((f) => (
-              <option key={f._id} value={f._id}>{f.name}</option>
+              <option key={f.id} value={f.id}>{f.name}</option>
             ))}
           </select>
         </div>
@@ -129,7 +129,7 @@ export function POSPage() {
             <div className="max-h-[60vh] overflow-y-auto divide-y divide-slate-100">
               {(stock.data ?? []).map((s) => (
                 <button
-                  key={s._id}
+                  key={s.id}
                   type="button"
                   disabled={s.quantity <= 0}
                   onClick={() => addToCart(s)}

@@ -27,7 +27,7 @@ export function AuditPage() {
           </thead>
           <tbody>
             {(logs.data ?? []).map((l) => (
-              <tr key={l._id}>
+              <tr key={l.id}>
                 <td className="td text-slate-500 whitespace-nowrap">{dateTime(l.createdAt)}</td>
                 <td className="td">{l.username ?? '—'}</td>
                 <td className="td"><span className="badge-info">{l.action}</span></td>

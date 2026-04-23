@@ -47,7 +47,7 @@ export function ProductsPage() {
   });
 
   const categoriesById = useMemo(
-    () => new Map((categories.data ?? []).map((c) => [c._id, c.name])),
+    () => new Map((categories.data ?? []).map((c) => [c.id, c.name])),
     [categories.data],
   );
 
@@ -85,7 +85,7 @@ export function ProductsPage() {
           </thead>
           <tbody>
             {(products.data ?? []).map((p) => (
-              <tr key={p._id}>
+              <tr key={p.id}>
                 <td className="td font-medium">{p.name}</td>
                 <td className="td text-slate-500">{categoriesById.get(p.categoryId) ?? '—'}</td>
                 <td className="td text-slate-500">{p.brand ?? '—'}</td>
@@ -165,7 +165,7 @@ function ProductForm({
           lowStockThreshold: initial.lowStockThreshold,
           active: initial.active,
         }
-      : { name: '', categoryId: categories[0]?._id ?? '', purchasePrice: 0, sellPrice: 0, lowStockThreshold: 3, active: true },
+      : { name: '', categoryId: categories[0]?.id ?? '', purchasePrice: 0, sellPrice: 0, lowStockThreshold: 3, active: true },
   });
 
   const save = useMutation({
@@ -175,7 +175,7 @@ function ProductForm({
         supplierId: values.supplierId || null,
       };
       if (initial) {
-        await api.patch(`/products/${initial._id}`, payload);
+        await api.patch(`/products/${initial.id}`, payload);
       } else {
         await api.post('/products', payload);
       }
@@ -209,7 +209,7 @@ function ProductForm({
           <label className="label">Catégorie</label>
           <select className="input" {...register('categoryId')}>
             {categories.map((c) => (
-              <option key={c._id} value={c._id}>{c.name}</option>
+              <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
         </div>
@@ -218,7 +218,7 @@ function ProductForm({
           <select className="input" {...register('supplierId')}>
             <option value="">—</option>
             {suppliers.map((s) => (
-              <option key={s._id} value={s._id}>{s.name}</option>
+              <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
         </div>

@@ -10,6 +10,7 @@ import { User } from '../models/User.js';
 import { Franchise } from '../models/Franchise.js';
 import { audit } from '../services/audit.service.js';
 import { ROLES, isFranchiseScoped } from '../utils/roles.js';
+import { passwordSchema } from '../utils/passwordPolicy.js';
 import { badRequest, notFound } from '../utils/AppError.js';
 
 const router = Router();
@@ -28,7 +29,7 @@ const baseUser = {
 
 const createSchema = z.object({
   ...baseUser,
-  password: z.string().min(8).max(200),
+  password: passwordSchema,
 });
 
 const updateSchema = z.object({
@@ -36,7 +37,7 @@ const updateSchema = z.object({
   role: z.enum(ROLES).optional(),
   franchiseId: objectId.nullable().optional(),
   active: z.boolean().optional(),
-  password: z.string().min(8).max(200).optional(),
+  password: passwordSchema.optional(),
 });
 
 async function ensureFranchiseConsistency(role: string, franchiseId: unknown) {

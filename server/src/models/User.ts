@@ -10,21 +10,22 @@ const userSchema = new Schema(
     franchiseId: { type: Schema.Types.ObjectId, ref: 'Franchise', default: null },
     active: { type: Boolean, default: true },
     lastLoginAt: { type: Date, default: null },
+    /**
+     * Count of consecutive failed login attempts. Reset to 0 on a successful
+     * login and on `lockedUntil` expiry.
+     */
+    failedLoginAttempts: { type: Number, default: 0, select: false },
+    /**
+     * When non-null and in the future, login is refused for this account
+     * regardless of password validity. Cleared on successful login or by an
+     * admin setting a new password.
+     */
+    lockedUntil: { type: Date, default: null, select: false },
   },
   { timestamps: true, collection: 'users' },
 );
 
 userSchema.index({ franchiseId: 1 });
 
-userSchema.methods.toSafeJSON = function () {
-  const obj = this.toObject({ versionKey: false });
-  delete obj.passwordHash;
-  return obj;
-};
-
-export type UserDoc = InferSchemaType<typeof userSchema> & {
-  _id: Types.ObjectId;
-  toSafeJSON(): Record<string, unknown>;
-};
-
+export type UserDoc = InferSchemaType<typeof userSchema> & { _id: Types.ObjectId };
 export const User = model('User', userSchema);

@@ -79,15 +79,23 @@ enforced at the query level in every domain route.
 
 Implemented:
 
-- Authentication (bcrypt + JWT in httpOnly cookie) with change-password flow
+- Authentication (bcrypt + JWT in httpOnly cookie) with change-password flow,
+  enforced password policy (10+ chars, 3+ character classes), and account
+  lockout after 8 failed attempts (15-minute cooldown)
 - Users, franchises, categories, suppliers, products CRUD with RBAC
 - Stock per franchise, stock entries, manual adjustments
 - Sales / POS with guarded stock decrements and multi-line rollback
 - Transfers with atomic pending → accepted stock swap
 - Dashboard KPIs, low-stock watch, recent activity
-- Audit log for every mutation, redacted in application logs
+- Audit log for every mutation (including failed logins), redacted in
+  application logs
 - Request ID propagation + structured logs (pino)
 - Graceful shutdown, DB-aware `/api/health`
+- Prometheus `/api/metrics` (http request counter + latency histogram +
+  process / Node runtime defaults)
+- OpenAPI 3 spec at `/api/openapi.json` + interactive Swagger UI at `/api/docs`
+- Consistent API serialization (`id` on every document, `_id` and `__v`
+  stripped, `passwordHash` never leaks)
 
 Deferred (legacy features to re-implement as needed):
 
@@ -117,9 +125,10 @@ npm run docker:logs     # tail all container logs
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and
 every PR:
 
-1. Server typecheck + full integration test suite
+1. Server typecheck + full integration test suite (32 tests)
 2. Client typecheck + production build
-3. Docker build for both `server/` and `client/` images (cached)
+3. `npm audit --omit=dev --audit-level=high` on both apps
+4. Docker build for both `server/` and `client/` images (cached)
 
 See `SECURITY.md` for the production deployment checklist and the action
 items on the legacy PHP credentials.

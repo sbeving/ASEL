@@ -35,7 +35,7 @@ export function SalesPage() {
           <select className="input max-w-sm" value={selectedFid} onChange={(e) => setSelectedFid(e.target.value)}>
             <option value="">Toutes franchises</option>
             {(franchises.data ?? []).map((f) => (
-              <option key={f._id} value={f._id}>{f.name}</option>
+              <option key={f.id} value={f.id}>{f.name}</option>
             ))}
           </select>
         </div>
@@ -56,7 +56,7 @@ export function SalesPage() {
           </thead>
           <tbody>
             {(sales.data ?? []).map((s) => (
-              <tr key={s._id}>
+              <tr key={s.id}>
                 <td className="td text-slate-500">{dateTime(s.createdAt)}</td>
                 <td className="td">{typeof s.franchiseId === 'object' ? s.franchiseId.name : '—'}</td>
                 <td className="td">{typeof s.userId === 'object' ? s.userId.fullName : '—'}</td>
