@@ -18,6 +18,7 @@ import { ReceptionsPage } from './pages/ReceptionsPage';
 import { ClosingsPage } from './pages/ClosingsPage';
 import { InstallmentsPage } from './pages/InstallmentsPage';
 import { MonthlyInventoryPage } from './pages/MonthlyInventoryPage';
+import { MapPage } from './pages/MapPage';
 
 export default function App() {
   return (
@@ -79,6 +80,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={['admin', 'superadmin']}>
               <AuditPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="map"
+          element={
+            <ProtectedRoute roles={['admin', 'manager']}>
+              <MapPage />
             </ProtectedRoute>
           }
         />

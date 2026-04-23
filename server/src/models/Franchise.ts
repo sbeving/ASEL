@@ -6,6 +6,10 @@ const franchiseSchema = new Schema(
     address: { type: String, trim: true, maxlength: 255 },
     phone: { type: String, trim: true, maxlength: 50 },
     manager: { type: String, trim: true, maxlength: 100 },
+    gps: {
+      lat: Number,
+      lng: Number
+    },
     active: { type: Boolean, default: true },
   },
   { timestamps: true, collection: 'franchises' },
