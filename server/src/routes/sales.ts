@@ -9,6 +9,7 @@ import { Movement } from '../models/Movement.js';
 import { Product } from '../models/Product.js';
 import { Stock } from '../models/Stock.js';
 import { applyStockDelta } from '../services/stock.service.js';
+import { applyCursorFilter, nextCursor, paginationQuery } from '../utils/pagination.js';
 import { audit } from '../services/audit.service.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
 
@@ -121,11 +122,10 @@ router.post(
   }),
 );
 
-const listQuery = z.object({
+const listQuery = paginationQuery.extend({
   franchiseId: objectId.optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
-  limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 
 router.get(
@@ -133,9 +133,9 @@ router.get(
   requireAuth,
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
-    const { franchiseId, from, to, limit } = req.query as unknown as z.infer<typeof listQuery>;
+    const { franchiseId, from, to, limit, cursor } = req.query as unknown as z.infer<typeof listQuery>;
     const scope = franchiseScopeFilter(req.user);
-    const filter: Record<string, unknown> = { ...scope };
+    let filter: Record<string, unknown> = { ...scope };
     if (franchiseId) {
       if (scope.franchiseId && scope.franchiseId !== franchiseId) throw forbidden();
       filter.franchiseId = franchiseId;
@@ -146,12 +146,13 @@ router.get(
         ...(to ? { $lte: new Date(to) } : {}),
       };
     }
+    filter = applyCursorFilter(cursor, filter);
     const sales = await Sale.find(filter)
       .sort({ createdAt: -1 })
       .limit(limit)
       .populate('userId', 'username fullName')
       .populate('items.productId', 'name reference');
-    res.json({ sales });
+    res.json({ sales, nextCursor: nextCursor(sales, limit) });
   }),
 );
 

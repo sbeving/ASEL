@@ -104,6 +104,7 @@ router.post(
       role: user.role as Role,
       franchiseId: user.franchiseId ? user.franchiseId.toString() : null,
       username: user.username,
+      tv: user.tokenVersion ?? 0,
     });
     res.cookie(AUTH_COOKIE, token, cookieOptions);
 
@@ -130,6 +131,12 @@ router.get(
   asyncHandler(async (req, res) => {
     const user = await User.findById(req.user!.sub);
     if (!user || !user.active) throw unauthorized('Session invalid');
+    // Revocation check — a password change or admin force-logout bumps
+    // tokenVersion; stale tokens must not resurrect their session here.
+    if ((user.tokenVersion ?? 0) !== req.user!.tv) {
+      res.clearCookie(AUTH_COOKIE, { ...cookieOptions, maxAge: undefined });
+      throw unauthorized('Session revoked');
+    }
     res.json({ user: publicUser(user) });
   }),
 );
@@ -155,9 +162,21 @@ router.post(
     const ok = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!ok) throw badRequest('Current password is incorrect');
     user.passwordHash = await bcrypt.hash(newPassword, env.BCRYPT_ROUNDS);
+    // Bump tokenVersion so any existing sessions (on other devices) are
+    // invalidated at their next /auth/me check.
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
     await user.save();
-    // Any lockout state becomes moot once the password is changed.
     await resetLoginState(user._id);
+    // Re-issue the cookie for the current session with the new tokenVersion
+    // so the caller isn't immediately kicked out by their own change.
+    const token = signSession({
+      sub: user._id.toString(),
+      role: user.role as Role,
+      franchiseId: user.franchiseId ? user.franchiseId.toString() : null,
+      username: user.username,
+      tv: user.tokenVersion,
+    });
+    res.cookie(AUTH_COOKIE, token, cookieOptions);
     await audit(req, { action: 'auth.change_password' });
     res.json({ ok: true });
   }),

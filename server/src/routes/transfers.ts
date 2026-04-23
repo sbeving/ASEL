@@ -9,6 +9,7 @@ import { Franchise } from '../models/Franchise.js';
 import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
 import { badRequest, conflict, forbidden, notFound } from '../utils/AppError.js';
+import { applyCursorFilter, nextCursor, paginationQuery } from '../utils/pagination.js';
 
 const router = Router();
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
@@ -62,10 +63,9 @@ router.post(
   }),
 );
 
-const listQuery = z.object({
+const listQuery = paginationQuery.extend({
   status: z.enum(['pending', 'accepted', 'rejected', 'cancelled']).optional(),
   franchiseId: objectId.optional(),
-  limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 
 router.get(
@@ -73,10 +73,10 @@ router.get(
   requireAuth,
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
-    const { status, franchiseId, limit } = req.query as unknown as z.infer<typeof listQuery>;
+    const { status, franchiseId, limit, cursor } = req.query as unknown as z.infer<typeof listQuery>;
     const user = req.user!;
 
-    const filter: Record<string, unknown> = {};
+    let filter: Record<string, unknown> = {};
     if (status) filter.status = status;
 
     // Franchise-scoped users only see transfers involving their franchise
@@ -90,6 +90,8 @@ router.get(
       filter.$or = [{ sourceFranchiseId: franchiseId }, { destFranchiseId: franchiseId }];
     }
 
+    filter = applyCursorFilter(cursor, filter);
+
     const transfers = await Transfer.find(filter)
       .sort({ createdAt: -1 })
       .limit(limit)
@@ -98,7 +100,7 @@ router.get(
       .populate('destFranchiseId', 'name')
       .populate('requestedBy', 'username fullName')
       .populate('resolvedBy', 'username fullName');
-    res.json({ transfers });
+    res.json({ transfers, nextCursor: nextCursor(transfers, limit) });
   }),
 );
 

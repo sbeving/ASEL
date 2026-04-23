@@ -21,6 +21,15 @@ const userSchema = new Schema(
      * admin setting a new password.
      */
     lockedUntil: { type: Date, default: null, select: false },
+    /**
+     * Bumped on password change, admin deactivation, or admin force-logout.
+     * JWTs embed the issuing `tokenVersion`; the `/auth/me` probe compares
+     * it and invalidates sessions whose `tv` is stale. Revocation SLA =
+     * however often the client calls `/auth/me` (typically on page load
+     * and focus). Per-route lookups would be stricter but require a cache
+     * to avoid per-request DB hits; pragmatic trade-off for this app.
+     */
+    tokenVersion: { type: Number, default: 0 },
   },
   { timestamps: true, collection: 'users' },
 );

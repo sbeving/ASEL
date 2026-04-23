@@ -303,6 +303,32 @@ export const openapiSpec = {
       patch: { tags: ['users'], summary: 'Update a user (admin)', responses: { '200': { description: 'Updated' } } },
       delete: { tags: ['users'], summary: 'Deactivate a user (admin)', responses: { '200': { description: 'Deactivated' } } },
     },
+    '/users/{id}/reset-password': {
+      post: {
+        tags: ['users'],
+        summary: 'Admin: set a new password, unlock, revoke existing sessions',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['password'],
+                properties: { password: { type: 'string', minLength: 10 } },
+              },
+            },
+          },
+        },
+        responses: { '200': { description: 'Password reset' }, '400': { description: 'Weak password' } },
+      },
+    },
+    '/users/{id}/force-logout': {
+      post: {
+        tags: ['users'],
+        summary: 'Admin: revoke all existing sessions for a user (bumps tokenVersion)',
+        responses: { '200': { description: 'Sessions revoked' } },
+      },
+    },
     '/franchises': {
       get: { tags: ['franchises'], summary: 'List visible franchises', responses: { '200': { description: 'OK' } } },
       post: { tags: ['franchises'], summary: 'Create a franchise (admin)', responses: { '201': { description: 'Created' } } },
@@ -322,7 +348,8 @@ export const openapiSpec = {
           { name: 'q', in: 'query', schema: { type: 'string' } },
           { name: 'categoryId', in: 'query', schema: { type: 'string' } },
           { name: 'active', in: 'query', schema: { type: 'boolean' } },
-          { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 500 } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 200 } },
+          { name: 'cursor', in: 'query', schema: { type: 'string', format: 'date-time' }, description: 'Opaque cursor (ISO datetime) from the previous page response.' },
         ],
         responses: { '200': { description: 'Products' } },
       },
@@ -355,8 +382,25 @@ export const openapiSpec = {
           { name: 'franchiseId', in: 'query', schema: { type: 'string' } },
           { name: 'from', in: 'query', schema: { type: 'string', format: 'date-time' } },
           { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
+          { name: 'cursor', in: 'query', schema: { type: 'string', format: 'date-time' } },
         ],
-        responses: { '200': { description: 'Sales' } },
+        responses: {
+          '200': {
+            description: 'Sales page',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    sales: { type: 'array', items: { $ref: '#/components/schemas/Sale' } },
+                    nextCursor: { type: 'string', format: 'date-time', nullable: true },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
       post: {
         tags: ['sales'], summary: 'Record a sale (decrements stock atomically)',

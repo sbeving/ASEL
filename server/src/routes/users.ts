@@ -103,6 +103,12 @@ router.patch(
     if (input.active !== undefined) user.active = input.active;
     if (input.password) {
       user.passwordHash = await bcrypt.hash(input.password, env.BCRYPT_ROUNDS);
+      // Admin-set passwords invalidate existing sessions of this user.
+      user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+    }
+    if (input.active === false) {
+      // Deactivation should invalidate existing sessions immediately as well.
+      user.tokenVersion = (user.tokenVersion ?? 0) + 1;
     }
 
     // Prevent admins from locking themselves out
@@ -122,10 +128,63 @@ router.delete(
   asyncHandler(async (req, res) => {
     const { id } = req.params as { id: string };
     if (req.user!.sub === id) throw badRequest('You cannot deactivate yourself');
-    const user = await User.findByIdAndUpdate(id, { active: false }, { new: true });
+    const user = await User.findById(id);
     if (!user) throw notFound('User not found');
+    user.active = false;
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+    await user.save();
     await audit(req, { action: 'user.deactivate', entity: 'User', entityId: id });
     res.json({ user });
+  }),
+);
+
+// --- Admin recovery flows ---
+
+const resetPasswordSchema = z.object({ password: passwordSchema });
+
+/**
+ * Admin helper: set a new password on behalf of a user, clear any lockout
+ * state, and bump tokenVersion so existing sessions on that account are
+ * revoked at their next /auth/me tick. Useful when a legitimate user is
+ * locked out or has forgotten their credentials.
+ */
+router.post(
+  '/:id/reset-password',
+  validate(z.object({ id: objectId }), 'params'),
+  validate(resetPasswordSchema),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as { id: string };
+    const { password } = req.body as z.infer<typeof resetPasswordSchema>;
+    const user = await User.findById(id).select('+failedLoginAttempts +lockedUntil');
+    if (!user) throw notFound('User not found');
+    user.passwordHash = await bcrypt.hash(password, env.BCRYPT_ROUNDS);
+    user.failedLoginAttempts = 0;
+    user.lockedUntil = null;
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+    await user.save();
+    await audit(req, { action: 'user.reset_password', entity: 'User', entityId: id });
+    res.json({ ok: true });
+  }),
+);
+
+/**
+ * Admin helper: force-logout a user without changing their password.
+ * Bumps tokenVersion only; existing sessions will be refused at their
+ * next /auth/me tick.
+ */
+router.post(
+  '/:id/force-logout',
+  validate(z.object({ id: objectId }), 'params'),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as { id: string };
+    const user = await User.findByIdAndUpdate(
+      id,
+      { $inc: { tokenVersion: 1 } },
+      { new: true },
+    );
+    if (!user) throw notFound('User not found');
+    await audit(req, { action: 'user.force_logout', entity: 'User', entityId: id });
+    res.json({ ok: true });
   }),
 );
 

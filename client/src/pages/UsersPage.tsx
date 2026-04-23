@@ -7,6 +7,7 @@ import { api, apiError } from '../lib/api';
 import { dateTime } from '../lib/money';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
+import { useToast } from '../components/Toast';
 import type { Franchise, Role, User } from '../lib/types';
 
 const ROLES: Role[] = ['admin', 'manager', 'franchise', 'seller'];
@@ -47,8 +48,10 @@ function isScoped(role: Role) {
 
 export function UsersPage() {
   const qc = useQueryClient();
+  const toast = useToast();
   const [editing, setEditing] = useState<User | null>(null);
   const [creating, setCreating] = useState(false);
+  const [resetting, setResetting] = useState<User | null>(null);
 
   const users = useQuery({
     queryKey: ['users'],
@@ -61,7 +64,17 @@ export function UsersPage() {
 
   const deactivate = useMutation({
     mutationFn: async (id: string) => api.delete(`/users/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+      toast.success('Utilisateur désactivé');
+    },
+    onError: (err) => toast.error(apiError(err).message),
+  });
+
+  const forceLogout = useMutation({
+    mutationFn: async (id: string) => api.post(`/users/${id}/force-logout`),
+    onSuccess: () => toast.success('Sessions révoquées'),
+    onError: (err) => toast.error(apiError(err).message),
   });
 
   return (
@@ -96,17 +109,30 @@ export function UsersPage() {
                 </td>
                 <td className="td text-slate-500">{dateTime(u.lastLoginAt ?? undefined)}</td>
                 <td className="td">{u.active ? <span className="badge-success">actif</span> : <span className="badge-muted">inactif</span>}</td>
-                <td className="td text-right space-x-3">
+                <td className="td text-right space-x-3 whitespace-nowrap">
                   <button className="text-brand-600 hover:underline" onClick={() => setEditing(u)}>Modifier</button>
+                  <button className="text-brand-600 hover:underline" onClick={() => setResetting(u)}>
+                    Réinitialiser MDP
+                  </button>
                   {u.active && (
-                    <button
-                      className="text-rose-600 hover:underline"
-                      onClick={() => {
-                        if (confirm(`Désactiver ${u.username} ?`)) deactivate.mutate(u.id);
-                      }}
-                    >
-                      Désactiver
-                    </button>
+                    <>
+                      <button
+                        className="text-slate-600 hover:underline"
+                        onClick={() => {
+                          if (confirm(`Déconnecter toutes les sessions de ${u.username} ?`)) forceLogout.mutate(u.id);
+                        }}
+                      >
+                        Forcer déconnexion
+                      </button>
+                      <button
+                        className="text-rose-600 hover:underline"
+                        onClick={() => {
+                          if (confirm(`Désactiver ${u.username} ?`)) deactivate.mutate(u.id);
+                        }}
+                      >
+                        Désactiver
+                      </button>
+                    </>
                   )}
                 </td>
               </tr>
@@ -123,7 +149,66 @@ export function UsersPage() {
           onSaved={() => { qc.invalidateQueries({ queryKey: ['users'] }); setCreating(false); setEditing(null); }}
         />
       )}
+
+      {resetting && (
+        <ResetPasswordModal
+          user={resetting}
+          onClose={() => setResetting(null)}
+          onDone={() => {
+            setResetting(null);
+            toast.success('Mot de passe réinitialisé');
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function ResetPasswordModal({
+  user,
+  onClose,
+  onDone,
+}: {
+  user: User;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const schema = z.object({ password: passwordPolicy });
+  const { register, handleSubmit, formState: { isSubmitting, errors } } = useForm<{ password: string }>({
+    resolver: zodResolver(schema),
+    defaultValues: { password: '' },
+  });
+  const reset = useMutation({
+    mutationFn: async (v: { password: string }) => api.post(`/users/${user.id}/reset-password`, v),
+    onSuccess: onDone,
+    onError: (err) => setError(apiError(err).message),
+  });
+
+  return (
+    <Modal
+      open
+      title={`Réinitialiser le mot de passe de ${user.username}`}
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button className="btn-secondary" onClick={onClose}>Annuler</button>
+          <button className="btn-primary" form="reset-pw-form" disabled={isSubmitting}>Réinitialiser</button>
+        </div>
+      }
+    >
+      <form id="reset-pw-form" className="grid gap-3" onSubmit={handleSubmit((v) => reset.mutate(v))}>
+        <p className="text-sm text-slate-600">
+          Cette action débloque le compte et invalide toutes les sessions existantes de cet utilisateur.
+        </p>
+        <div>
+          <label className="label">Nouveau mot de passe</label>
+          <input type="password" className="input" autoComplete="new-password" {...register('password')} />
+          {errors.password && <p className="text-xs text-rose-600 mt-1">{errors.password.message}</p>}
+        </div>
+        {error && <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}
+      </form>
+    </Modal>
   );
 }
 

@@ -10,6 +10,7 @@ import { Product } from '../models/Product.js';
 import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
 import { badRequest, forbidden } from '../utils/AppError.js';
+import { applyCursorFilter, nextCursor, paginationQuery } from '../utils/pagination.js';
 
 const router = Router();
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
@@ -157,10 +158,9 @@ router.post(
   }),
 );
 
-const movementsQuery = z.object({
+const movementsQuery = paginationQuery.extend({
   franchiseId: objectId.optional(),
   productId: objectId.optional(),
-  limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 
 router.get(
@@ -168,20 +168,21 @@ router.get(
   requireAuth,
   validate(movementsQuery, 'query'),
   asyncHandler(async (req, res) => {
-    const { franchiseId, productId, limit } = req.query as unknown as z.infer<typeof movementsQuery>;
+    const { franchiseId, productId, limit, cursor } = req.query as unknown as z.infer<typeof movementsQuery>;
     const scope = franchiseScopeFilter(req.user);
-    const filter: Record<string, unknown> = { ...scope };
+    let filter: Record<string, unknown> = { ...scope };
     if (franchiseId) {
       if (scope.franchiseId && scope.franchiseId !== franchiseId) throw forbidden();
       filter.franchiseId = franchiseId;
     }
     if (productId) filter.productId = productId;
+    filter = applyCursorFilter(cursor, filter);
     const movements = await Movement.find(filter)
       .sort({ createdAt: -1 })
       .limit(limit)
       .populate('productId', 'name reference')
       .populate('userId', 'username fullName');
-    res.json({ movements });
+    res.json({ movements, nextCursor: nextCursor(movements, limit) });
   }),
 );
 

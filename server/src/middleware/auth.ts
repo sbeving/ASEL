@@ -11,6 +11,8 @@ export interface JwtPayload {
   role: Role;
   franchiseId: string | null;
   username: string;
+  /** User.tokenVersion at issue time; see User model for revocation notes. */
+  tv: number;
 }
 
 declare global {

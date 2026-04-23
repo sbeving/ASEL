@@ -1,10 +1,16 @@
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { money, dateTime } from '../lib/money';
 import { PageHeader } from '../components/PageHeader';
 import { useAuth } from '../auth/AuthContext';
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { Franchise, Sale } from '../lib/types';
+
+interface SalePage {
+  sales: Sale[];
+  nextCursor: string | null;
+}
 
 export function SalesPage() {
   const { user } = useAuth();
@@ -17,19 +23,27 @@ export function SalesPage() {
     queryFn: async () => (await api.get<{ franchises: Franchise[] }>('/franchises')).data.franchises,
   });
 
-  const sales = useQuery({
+  const pages = useInfiniteQuery<SalePage>({
     queryKey: ['sales', selectedFid],
-    queryFn: async () =>
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
+    queryFn: async ({ pageParam }) =>
       (
-        await api.get<{ sales: Sale[] }>('/sales', {
-          params: { franchiseId: selectedFid || undefined, limit: 200 },
+        await api.get<SalePage>('/sales', {
+          params: {
+            franchiseId: selectedFid || undefined,
+            cursor: pageParam || undefined,
+            limit: 50,
+          },
         })
-      ).data.sales,
+      ).data,
   });
+
+  const sales = (pages.data?.pages ?? []).flatMap((p) => p.sales);
 
   return (
     <>
-      <PageHeader title="Ventes" subtitle={`${sales.data?.length ?? 0} transactions`} />
+      <PageHeader title="Ventes" subtitle={`${sales.length} transactions chargées`} />
       {isGlobal && (
         <div className="mb-4">
           <select className="input max-w-sm" value={selectedFid} onChange={(e) => setSelectedFid(e.target.value)}>
@@ -55,7 +69,7 @@ export function SalesPage() {
             </tr>
           </thead>
           <tbody>
-            {(sales.data ?? []).map((s) => (
+            {sales.map((s) => (
               <tr key={s.id}>
                 <td className="td text-slate-500">{dateTime(s.createdAt)}</td>
                 <td className="td">{typeof s.franchiseId === 'object' ? s.franchiseId.name : '—'}</td>
@@ -67,12 +81,23 @@ export function SalesPage() {
                 <td className="td text-right font-medium">{money(s.total)}</td>
               </tr>
             ))}
-            {!sales.isLoading && (sales.data?.length ?? 0) === 0 && (
+            {!pages.isLoading && sales.length === 0 && (
               <tr><td className="td text-slate-400" colSpan={8}>Aucune vente.</td></tr>
             )}
           </tbody>
         </table>
       </div>
+      {pages.hasNextPage && (
+        <div className="mt-4 flex justify-center">
+          <button
+            className="btn-secondary"
+            onClick={() => pages.fetchNextPage()}
+            disabled={pages.isFetchingNextPage}
+          >
+            {pages.isFetchingNextPage ? 'Chargement…' : 'Charger plus'}
+          </button>
+        </div>
+      )}
     </>
   );
 }

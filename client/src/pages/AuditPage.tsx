@@ -1,18 +1,32 @@
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { dateTime } from '../lib/money';
 import { PageHeader } from '../components/PageHeader';
 import type { AuditLog } from '../lib/types';
 
+interface AuditPage {
+  logs: AuditLog[];
+  nextCursor: string | null;
+}
+
 export function AuditPage() {
-  const logs = useQuery({
+  const pages = useInfiniteQuery<AuditPage>({
     queryKey: ['audit'],
-    queryFn: async () => (await api.get<{ logs: AuditLog[] }>('/audit', { params: { limit: 300 } })).data.logs,
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
+    queryFn: async ({ pageParam }) =>
+      (
+        await api.get<AuditPage>('/audit', {
+          params: { limit: 100, cursor: pageParam || undefined },
+        })
+      ).data,
   });
+
+  const logs = (pages.data?.pages ?? []).flatMap((p) => p.logs);
 
   return (
     <>
-      <PageHeader title="Journal d’audit" subtitle="Événements sensibles" />
+      <PageHeader title="Journal d’audit" subtitle={`${logs.length} événements chargés`} />
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -26,7 +40,7 @@ export function AuditPage() {
             </tr>
           </thead>
           <tbody>
-            {(logs.data ?? []).map((l) => (
+            {logs.map((l) => (
               <tr key={l.id}>
                 <td className="td text-slate-500 whitespace-nowrap">{dateTime(l.createdAt)}</td>
                 <td className="td">{l.username ?? '—'}</td>
@@ -40,12 +54,23 @@ export function AuditPage() {
                 </td>
               </tr>
             ))}
-            {!logs.isLoading && (logs.data?.length ?? 0) === 0 && (
+            {!pages.isLoading && logs.length === 0 && (
               <tr><td className="td text-slate-400" colSpan={6}>Aucun événement.</td></tr>
             )}
           </tbody>
         </table>
       </div>
+      {pages.hasNextPage && (
+        <div className="mt-4 flex justify-center">
+          <button
+            className="btn-secondary"
+            onClick={() => pages.fetchNextPage()}
+            disabled={pages.isFetchingNextPage}
+          >
+            {pages.isFetchingNextPage ? 'Chargement…' : 'Charger plus'}
+          </button>
+        </div>
+      )}
     </>
   );
 }
