@@ -17,6 +17,7 @@ const schema = z.object({
     .string()
     .default('http://localhost:5173')
     .transform((v) => v.split(',').map((s) => s.trim()).filter(Boolean)),
+  UPLOAD_DIR: z.string().default('uploads'),
   SEED_ADMIN_USERNAME: z.string().default('admin'),
   SEED_ADMIN_PASSWORD: z.string().default('ChangeMeNow!2024'),
 });
