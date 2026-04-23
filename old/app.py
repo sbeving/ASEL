@@ -5,7 +5,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta, date
-import database as db
+import old.database as db
 
 db.init_db()
 st.set_page_config(page_title="ASEL Mobile — Stock & POS", page_icon="📱", layout="wide", initial_sidebar_state="expanded")

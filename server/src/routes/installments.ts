@@ -33,6 +33,11 @@ router.get(
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
     const { franchiseId, status, limit } = req.query as unknown as z.infer<typeof listQuery>;
+    await Installment.updateMany(
+      { status: 'pending', dueDate: { $lt: new Date() } },
+      { $set: { status: 'late' } },
+    );
+
     const scope = franchiseScopeFilter(req.user);
     const filter: Record<string, unknown> = { ...scope };
     if (franchiseId) {
@@ -43,7 +48,7 @@ router.get(
     const installments = await Installment.find(filter)
       .sort({ dueDate: 1 })
       .limit(limit)
-      .populate('saleId', 'total createdAt')
+      .populate('saleId', 'total createdAt invoiceNumber saleType paymentStatus')
       .populate('clientId', 'fullName phone')
       .populate('userId', 'username fullName');
     res.json({ installments });

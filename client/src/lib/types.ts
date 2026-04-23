@@ -17,6 +17,10 @@ export interface Franchise {
   address?: string;
   phone?: string;
   manager?: string;
+  gps?: {
+    lat: number;
+    lng: number;
+  };
   active: boolean;
 }
 
@@ -92,13 +96,27 @@ export interface SaleItem {
 
 export interface Sale {
   _id: string;
+  invoiceNumber?: string | null;
+  saleType: 'ticket' | 'facture' | 'devis';
   franchiseId: Franchise | string;
+  clientId?: Client | string | null;
   userId: User | string;
   items: SaleItem[];
   subtotal: number;
   discount: number;
   total: number;
-  paymentMethod: 'cash' | 'card' | 'transfer' | 'other';
+  paymentMethod: 'cash' | 'card' | 'transfer' | 'installment' | 'other';
+  paymentStatus: 'paid' | 'partial' | 'pending';
+  amountReceived?: number | null;
+  changeDue?: number;
+  installmentPlan?: {
+    totalLots: number;
+    intervalDays: number;
+    upfrontAmount: number;
+    remainingAmount: number;
+    firstDueDate: string;
+    generatedLots: number;
+  };
   note?: string;
   createdAt: string;
 }

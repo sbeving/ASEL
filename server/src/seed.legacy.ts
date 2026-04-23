@@ -135,11 +135,12 @@ function roleToNewRole(role: string): 'admin' | 'superadmin' | 'manager' | 'fran
   return 'admin';
 }
 
-function pmToNew(mode: unknown): 'cash' | 'card' | 'transfer' | 'other' {
+function pmToNew(mode: unknown): 'cash' | 'card' | 'transfer' | 'installment' | 'other' {
   const v = String(mode ?? '').toLowerCase();
   if (v.includes('espe') || v.includes('cash')) return 'cash';
   if (v.includes('carte') || v.includes('card')) return 'card';
   if (v.includes('virement') || v.includes('transfer')) return 'transfer';
+  if (v.includes('eche') || v.includes('lot') || v.includes('trait')) return 'installment';
   return 'other';
 }
 
@@ -166,11 +167,12 @@ function installmentStatusToNew(status: unknown): 'pending' | 'paid' | 'late' {
   return 'pending';
 }
 
-function paymentMethodToNew(method: unknown): 'cash' | 'card' | 'transfer' | 'other' {
+function paymentMethodToNew(method: unknown): 'cash' | 'card' | 'transfer' | 'installment' | 'other' {
   const v = String(method ?? '').toLowerCase().trim();
   if (v.includes('espe') || v.includes('cash')) return 'cash';
   if (v.includes('carte') || v.includes('card')) return 'card';
   if (v.includes('virement') || v.includes('transfer')) return 'transfer';
+  if (v.includes('eche') || v.includes('lot') || v.includes('trait')) return 'installment';
   return 'other';
 }
 

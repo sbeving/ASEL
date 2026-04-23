@@ -6,13 +6,19 @@ import { dateOnly, dateTime, money } from '../lib/money';
 import { useAuth } from '../auth/AuthContext';
 import type { Client, Franchise, Installment, Sale } from '../lib/types';
 
-function toLocalDateTimeInputValue(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
+function toLocalDateTimeInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
   return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function statusBadge(status: Installment['status']) {
+  if (status === 'paid') return 'badge-success';
+  if (status === 'late') return 'badge-danger';
+  return 'badge-warning';
 }
 
 export function InstallmentsPage() {
@@ -26,7 +32,9 @@ export function InstallmentsPage() {
   const [saleId, setSaleId] = useState('');
   const [clientId, setClientId] = useState('');
   const [amount, setAmount] = useState(0);
-  const [dueDateLocal, setDueDateLocal] = useState(toLocalDateTimeInputValue(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)));
+  const [dueDateLocal, setDueDateLocal] = useState(
+    toLocalDateTimeInputValue(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
+  );
   const [err, setErr] = useState<string | null>(null);
 
   const franchises = useQuery({
@@ -75,15 +83,15 @@ export function InstallmentsPage() {
   });
 
   const selectedSaleAmount = useMemo(() => {
-    const selected = (sales.data ?? []).find((s) => s._id === saleId);
+    const selected = (sales.data ?? []).find((sale) => sale._id === saleId);
     return selected?.total ?? 0;
-  }, [sales.data, saleId]);
+  }, [saleId, sales.data]);
 
   const create = useMutation({
     mutationFn: async () => {
       if (!saleId) throw new Error('Vente requise');
       const due = new Date(dueDateLocal);
-      if (Number.isNaN(due.getTime())) throw new Error('Date d’échéance invalide');
+      if (Number.isNaN(due.getTime())) throw new Error("Date d'échéance invalide");
       await api.post('/installments', {
         saleId,
         clientId: clientId || null,
@@ -98,7 +106,7 @@ export function InstallmentsPage() {
       setAmount(0);
       qc.invalidateQueries({ queryKey: ['installments'] });
     },
-    onError: (e) => setErr(apiError(e).message),
+    onError: (error) => setErr(apiError(error).message),
   });
 
   const pay = useMutation({
@@ -106,20 +114,20 @@ export function InstallmentsPage() {
       await api.post(`/installments/${id}/pay`, { paymentMethod: 'cash' });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['installments'] }),
-    onError: (e) => setErr(apiError(e).message),
+    onError: (error) => setErr(apiError(error).message),
   });
 
   return (
     <>
-      <PageHeader title="Echéances" subtitle="Suivi des paiements à terme" />
+      <PageHeader title="Échéances" subtitle="Suivi des paiements à terme" />
 
-      <section className="card p-4 mb-5">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <section className="card mb-5 p-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {isGlobal ? (
             <select className="input" value={franchiseId} onChange={(e) => setFranchiseId(e.target.value)}>
               <option value="">Toutes franchises</option>
-              {(franchises.data ?? []).map((f) => (
-                <option key={f._id} value={f._id}>{f.name}</option>
+              {(franchises.data ?? []).map((franchise) => (
+                <option key={franchise._id} value={franchise._id}>{franchise.name}</option>
               ))}
             </select>
           ) : (
@@ -131,27 +139,34 @@ export function InstallmentsPage() {
             <option value="paid">Payée</option>
             <option value="late">En retard</option>
           </select>
-          <div className="text-sm text-slate-500 self-center">{installments.data?.length ?? 0} échéance(s)</div>
+          <div className="self-center text-sm text-slate-500">{installments.data?.length ?? 0} échéance(s)</div>
         </div>
       </section>
 
-      <section className="card p-4 mb-5">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+      <section className="card mb-5 p-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
           <select className="input" value={saleId} onChange={(e) => setSaleId(e.target.value)}>
             <option value="">— Vente —</option>
-            {(sales.data ?? []).map((s) => (
-              <option key={s._id} value={s._id}>
-                {dateTime(s.createdAt)} · {money(s.total)}
+            {(sales.data ?? []).map((sale) => (
+              <option key={sale._id} value={sale._id}>
+                {(sale.invoiceNumber || dateTime(sale.createdAt))} · {money(sale.total)}
               </option>
             ))}
           </select>
           <select className="input" value={clientId} onChange={(e) => setClientId(e.target.value)}>
             <option value="">Sans client</option>
-            {(clients.data ?? []).map((c) => (
-              <option key={c._id} value={c._id}>{c.fullName}</option>
+            {(clients.data ?? []).map((client) => (
+              <option key={client._id} value={client._id}>{client.fullName}</option>
             ))}
           </select>
-          <input type="number" min={0} step="0.01" className="input" value={amount} onChange={(e) => setAmount(Math.max(0, Number(e.target.value) || 0))} />
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            className="input"
+            value={amount}
+            onChange={(e) => setAmount(Math.max(0, Number(e.target.value) || 0))}
+          />
           <input type="datetime-local" className="input" value={dueDateLocal} onChange={(e) => setDueDateLocal(e.target.value)} />
           <button className="btn-primary" disabled={!saleId || create.isPending} onClick={() => create.mutate()}>
             {create.isPending ? 'Création…' : 'Créer échéance'}
@@ -166,7 +181,8 @@ export function InstallmentsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr>
-                <th className="th">Echéance</th>
+                <th className="th">Pièce</th>
+                <th className="th">Échéance</th>
                 <th className="th text-right">Montant</th>
                 <th className="th">Statut</th>
                 <th className="th">Client</th>
@@ -175,16 +191,23 @@ export function InstallmentsPage() {
               </tr>
             </thead>
             <tbody>
-              {(installments.data ?? []).map((i) => (
-                <tr key={i._id}>
-                  <td className="td">{dateOnly(i.dueDate)}</td>
-                  <td className="td text-right">{money(i.amount)}</td>
-                  <td className="td capitalize">{i.status}</td>
-                  <td className="td">{typeof i.clientId === 'object' ? i.clientId.fullName : '—'}</td>
-                  <td className="td">{i.paidAt ? dateOnly(i.paidAt) : '—'}</td>
+              {(installments.data ?? []).map((installment) => (
+                <tr key={installment._id}>
                   <td className="td">
-                    {i.status !== 'paid' && (
-                      <button className="btn btn-secondary" onClick={() => pay.mutate(i._id)} disabled={pay.isPending}>
+                    {typeof installment.saleId === 'object' && installment.saleId
+                      ? installment.saleId.invoiceNumber || dateTime(installment.saleId.createdAt)
+                      : '—'}
+                  </td>
+                  <td className="td">{dateOnly(installment.dueDate)}</td>
+                  <td className="td text-right">{money(installment.amount)}</td>
+                  <td className="td"><span className={statusBadge(installment.status)}>{installment.status}</span></td>
+                  <td className="td">
+                    {typeof installment.clientId === 'object' && installment.clientId ? installment.clientId.fullName : '—'}
+                  </td>
+                  <td className="td">{installment.paidAt ? dateOnly(installment.paidAt) : '—'}</td>
+                  <td className="td">
+                    {installment.status !== 'paid' && (
+                      <button className="btn btn-secondary" onClick={() => pay.mutate(installment._id)} disabled={pay.isPending}>
                         Marquer payé
                       </button>
                     )}
@@ -193,7 +216,7 @@ export function InstallmentsPage() {
               ))}
               {!installments.isLoading && (installments.data?.length ?? 0) === 0 && (
                 <tr>
-                  <td className="td text-slate-400" colSpan={6}>Aucune échéance.</td>
+                  <td className="td text-slate-400" colSpan={7}>Aucune échéance.</td>
                 </tr>
               )}
             </tbody>

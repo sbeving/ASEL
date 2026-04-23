@@ -20,7 +20,7 @@ export function ScannerModal({ onScan, onClose, onError }: ScannerModalProps) {
           (decodedText) => {
             onScan(decodedText);
           },
-          (errorMessage) => {
+          (_errorMessage) => {
             // ignore scan frame errors
           }
         );
