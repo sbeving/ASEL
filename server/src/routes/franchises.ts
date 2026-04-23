@@ -17,6 +17,13 @@ const upsertSchema = z.object({
   address: z.string().max(255).trim().optional(),
   phone: z.string().max(50).trim().optional(),
   manager: z.string().max(100).trim().optional(),
+  gps: z
+    .object({
+      lat: z.number().min(-90).max(90),
+      lng: z.number().min(-180).max(180),
+    })
+    .nullable()
+    .optional(),
   active: z.boolean().optional(),
 });
 

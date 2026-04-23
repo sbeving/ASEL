@@ -21,6 +21,8 @@ import { MonthlyInventoryPage } from './pages/MonthlyInventoryPage';
 import { MapPage } from './pages/MapPage';
 import { ReturnsPage } from './pages/ReturnsPage';
 import { TimeLogsPage } from './pages/TimeLogsPage';
+import { DemandsPage } from './pages/DemandsPage';
+import { ServicesPage } from './pages/ServicesPage';
 
 export default function App() {
   return (
@@ -39,7 +41,9 @@ export default function App() {
         <Route path="sales" element={<SalesPage />} />
         <Route path="pos" element={<POSPage />} />
         <Route path="clients" element={<ClientsPage />} />
+        <Route path="services" element={<ServicesPage />} />
         <Route path="transfers" element={<TransfersPage />} />
+        <Route path="demands" element={<DemandsPage />} />
         <Route path="receptions" element={<ReceptionsPage />} />
         <Route path="returns" element={<ReturnsPage />} />
         <Route path="timelogs" element={<TimeLogsPage />} />

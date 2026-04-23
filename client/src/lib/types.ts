@@ -292,6 +292,53 @@ export interface ReturnSummary {
   totalQuantity: number;
 }
 
+export interface Demand {
+  _id: string;
+  franchiseId: Franchise | string;
+  sourceFranchiseId?: Franchise | string | null;
+  productId?: Product | string | null;
+  productName: string;
+  quantity: number;
+  urgency: 'normal' | 'urgent' | 'critical';
+  status: 'pending' | 'approved' | 'rejected' | 'delivered';
+  note?: string;
+  response?: string;
+  requestedBy?: User | string;
+  processedBy?: User | string | null;
+  processedAt?: string | null;
+  createdAt: string;
+}
+
+export interface DemandSummary {
+  pending: number;
+  urgent: number;
+  critical: number;
+}
+
+export interface Service {
+  _id: string;
+  name: string;
+  category: 'technique' | 'compte' | 'autre';
+  price: number;
+  description?: string;
+  durationMinutes: number;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface ServiceRecord {
+  _id: string;
+  serviceId:
+    | { _id: string; name: string; category: 'technique' | 'compte' | 'autre' }
+    | string;
+  franchiseId: Franchise | string;
+  clientId?: { _id: string; fullName: string; phone?: string } | string | null;
+  userId?: { _id: string; fullName?: string; username?: string; role?: string } | string;
+  billedPrice: number;
+  note?: string;
+  performedAt: string;
+}
+
 export interface ProductOverview {
   product: Omit<Product, 'categoryId' | 'supplierId'> & {
     categoryId?: { _id: string; name: string } | string;

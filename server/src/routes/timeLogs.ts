@@ -1,13 +1,16 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { isValidObjectId } from 'mongoose';
+import { franchiseScopeFilter, requireAuth, requirePermission } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { TimeLog } from '../models/TimeLog.js';
 import { audit } from '../services/audit.service.js';
-import { badRequest } from '../utils/AppError.js';
+import { badRequest, forbidden } from '../utils/AppError.js';
+import { isPermissionGranted } from '../utils/permissions.js';
 
 const router = Router();
+const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
 
 const logSchema = z.object({
   type: z.enum(['entree', 'sortie', 'pause_debut', 'pause_fin']),
@@ -18,6 +21,46 @@ const logSchema = z.object({
   }).optional(),
   note: z.string().max(500).optional()
 });
+
+const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const listQuery = z.object({
+  scope: z.enum(['self', 'team']).default('self'),
+  franchiseId: objectId.optional(),
+  userId: objectId.optional(),
+  from: dateOnly.optional(),
+  to: dateOnly.optional(),
+  month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(500).default(100),
+});
+
+function buildDateRange(input: {
+  from?: string;
+  to?: string;
+  month?: string;
+}): { $gte?: Date; $lte?: Date } | undefined {
+  if (input.month) {
+    const [yearText, monthText] = input.month.split('-');
+    const year = Number(yearText);
+    const month = Number(monthText);
+    if (!Number.isFinite(year) || !Number.isFinite(month)) return undefined;
+    const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+    const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+    return { $gte: start, $lte: end };
+  }
+
+  if (!input.from && !input.to) return undefined;
+  return {
+    ...(input.from ? { $gte: new Date(`${input.from}T00:00:00.000Z`) } : {}),
+    ...(input.to ? { $lte: new Date(`${input.to}T23:59:59.999Z`) } : {}),
+  };
+}
+
+function csvCell(value: string | number | null | undefined): string {
+  const raw = value === null || value === undefined ? '' : String(value);
+  const escaped = raw.replaceAll('"', '""');
+  return `"${escaped}"`;
+}
 
 router.post(
   '/',
@@ -52,11 +95,168 @@ router.post(
 router.get(
   '/',
   requireAuth,
-  requirePermission('timelogs.view.self'),
+  requirePermission('timelogs.view.self', 'timelogs.view.all'),
+  validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
-    const logs = await TimeLog.find({ userId: req.user!.sub }).sort({ timestamp: -1 }).limit(100);
-    res.json({ logs });
+    const { scope, franchiseId, userId, from, to, month, page, pageSize } =
+      req.query as unknown as z.infer<typeof listQuery>;
+    const canViewAll = isPermissionGranted(
+      req.user!.role,
+      'timelogs.view.all',
+      req.user!.customPermissions,
+    );
+    if (scope === 'team' && !canViewAll) {
+      throw forbidden('Team pointage view requires elevated permission');
+    }
+
+    const scopeFilter = franchiseScopeFilter(req.user);
+    const filter: Record<string, unknown> = { ...scopeFilter };
+    if (franchiseId) {
+      if (scopeFilter.franchiseId && scopeFilter.franchiseId !== franchiseId) throw forbidden();
+      filter.franchiseId = franchiseId;
+    }
+
+    if (scope === 'self' || !canViewAll) {
+      filter.userId = req.user!.sub;
+    } else if (userId) {
+      filter.userId = userId;
+    }
+
+    const timestampFilter = buildDateRange({ from, to, month });
+    if (timestampFilter) filter.timestamp = timestampFilter;
+
+    const skip = (page - 1) * pageSize;
+    const [total, logs, byTypeRows, activeUsers] = await Promise.all([
+      TimeLog.countDocuments(filter),
+      TimeLog.find(filter)
+        .sort({ timestamp: -1 })
+        .skip(skip)
+        .limit(pageSize)
+        .populate('userId', 'fullName username role')
+        .populate('franchiseId', 'name'),
+      TimeLog.aggregate<{ _id: string; count: number }>([
+        { $match: filter },
+        { $group: { _id: '$type', count: { $sum: 1 } } },
+      ]),
+      TimeLog.distinct('userId', filter),
+    ]);
+
+    const byType = byTypeRows.reduce<Record<string, number>>((acc, row) => {
+      acc[row._id] = row.count;
+      return acc;
+    }, {});
+
+    res.json({
+      logs,
+      summary: {
+        total,
+        activeUsers: activeUsers.length,
+        byType: {
+          entree: byType.entree ?? 0,
+          sortie: byType.sortie ?? 0,
+          pause_debut: byType.pause_debut ?? 0,
+          pause_fin: byType.pause_fin ?? 0,
+        },
+      },
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+    });
   })
+);
+
+const exportQuery = z.object({
+  scope: z.enum(['self', 'team']).default('team'),
+  franchiseId: objectId.optional(),
+  userId: objectId.optional(),
+  from: dateOnly.optional(),
+  to: dateOnly.optional(),
+  month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+});
+
+router.get(
+  '/export',
+  requireAuth,
+  requirePermission('timelogs.export'),
+  validate(exportQuery, 'query'),
+  asyncHandler(async (req, res) => {
+    const { scope, franchiseId, userId, from, to, month } =
+      req.query as unknown as z.infer<typeof exportQuery>;
+
+    const canViewAll = isPermissionGranted(
+      req.user!.role,
+      'timelogs.view.all',
+      req.user!.customPermissions,
+    );
+    if (scope === 'team' && !canViewAll) throw forbidden();
+
+    const scopeFilter = franchiseScopeFilter(req.user);
+    const filter: Record<string, unknown> = { ...scopeFilter };
+    if (franchiseId) {
+      if (scopeFilter.franchiseId && scopeFilter.franchiseId !== franchiseId) throw forbidden();
+      filter.franchiseId = franchiseId;
+    }
+    if (scope === 'self' || !canViewAll) {
+      filter.userId = req.user!.sub;
+    } else if (userId) {
+      filter.userId = userId;
+    }
+    const timestampFilter = buildDateRange({ from, to, month });
+    if (timestampFilter) filter.timestamp = timestampFilter;
+
+    const logs = await TimeLog.find(filter)
+      .sort({ timestamp: 1 })
+      .populate('userId', 'fullName username role')
+      .populate('franchiseId', 'name');
+
+    const filenameSuffix = month ?? from ?? new Date().toISOString().slice(0, 10);
+    const lines = [
+      '\uFEFFDate;Heure;Employe;Role;Franchise;Type;Latitude;Longitude;Adresse;Note',
+    ];
+
+    for (const log of logs) {
+      const at = log.timestamp instanceof Date ? log.timestamp : new Date(log.timestamp);
+      const userLabel =
+        typeof log.userId === 'object' && log.userId
+          ? ((log.userId as { fullName?: string; username?: string }).fullName ??
+            (log.userId as { fullName?: string; username?: string }).username ??
+            '')
+          : '';
+      const roleLabel =
+        typeof log.userId === 'object' && log.userId
+          ? ((log.userId as { role?: string }).role ?? '')
+          : '';
+      const franchiseLabel =
+        typeof log.franchiseId === 'object' && log.franchiseId
+          ? ((log.franchiseId as { name?: string }).name ?? '')
+          : '';
+
+      lines.push(
+        [
+          csvCell(at.toISOString().slice(0, 10)),
+          csvCell(at.toISOString().slice(11, 16)),
+          csvCell(userLabel),
+          csvCell(roleLabel),
+          csvCell(franchiseLabel),
+          csvCell(log.type),
+          csvCell(log.gps?.lat),
+          csvCell(log.gps?.lng),
+          csvCell(log.gps?.address),
+          csvCell(log.note),
+        ].join(';'),
+      );
+    }
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="pointage_${filenameSuffix}.csv"`,
+    );
+    res.status(200).send(lines.join('\n'));
+  }),
 );
 
 export default router;
