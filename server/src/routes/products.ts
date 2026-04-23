@@ -85,7 +85,8 @@ router.get(
   requireAuth,
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
-    const overview = await getProductOverview(req.params.id, req.user?.franchiseId ?? null);
+    const { id } = req.params as { id: string };
+    const overview = await getProductOverview(id, req.user?.franchiseId ?? null);
     if (!overview) throw notFound('Product not found');
     res.json(overview);
   }),

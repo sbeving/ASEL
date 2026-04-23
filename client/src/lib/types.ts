@@ -274,7 +274,7 @@ export interface Installment {
 }
 
 export interface ProductOverview {
-  product: Product & {
+  product: Omit<Product, 'categoryId' | 'supplierId'> & {
     categoryId?: { _id: string; name: string } | string;
     supplierId?: { _id: string; name: string } | string | null;
   };

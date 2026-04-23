@@ -255,6 +255,8 @@ function ProductOverviewModal({ product, onClose }: { product: Product; onClose:
     queryKey: ['product-overview', product._id],
     queryFn: async () => (await api.get<ProductOverview>(`/products/${product._id}/overview`)).data,
   });
+  const category = overview.data?.product.categoryId;
+  const supplier = overview.data?.product.supplierId;
 
   return (
     <Modal open size="lg" title={product.name} onClose={onClose}>
@@ -277,14 +279,14 @@ function ProductOverviewModal({ product, onClose }: { product: Product; onClose:
                 <div><span className="text-slate-400">Code-barres:</span> {overview.data.product.barcode || '—'}</div>
                 <div>
                   <span className="text-slate-400">Categorie:</span>{' '}
-                  {typeof overview.data.product.categoryId === 'object' && overview.data.product.categoryId
-                    ? overview.data.product.categoryId.name
+                  {typeof category === 'object' && category
+                    ? category.name
                     : '—'}
                 </div>
                 <div>
                   <span className="text-slate-400">Fournisseur:</span>{' '}
-                  {typeof overview.data.product.supplierId === 'object' && overview.data.product.supplierId
-                    ? overview.data.product.supplierId.name
+                  {typeof supplier === 'object' && supplier
+                    ? supplier.name
                     : '—'}
                 </div>
                 <div><span className="text-slate-400">Prix achat:</span> {money(overview.data.product.purchasePrice)}</div>

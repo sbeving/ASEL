@@ -209,7 +209,7 @@ export async function getProductOverview(productId: string, franchiseScopeId?: s
   return {
     product: {
       ...product,
-      totalStock,
+      stockTotal: totalStock,
       marginAmount: margin.marginAmount,
       marginPercent: margin.marginPercent,
     },
