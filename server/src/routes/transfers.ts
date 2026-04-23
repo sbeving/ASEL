@@ -6,8 +6,10 @@ import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Transfer } from '../models/Transfer.js';
 import { Franchise } from '../models/Franchise.js';
+import { Product } from '../models/Product.js';
 import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
+import { createNotification } from '../services/notification.service.js';
 import { badRequest, conflict, forbidden, notFound } from '../utils/AppError.js';
 
 const router = Router();
@@ -50,6 +52,24 @@ router.post(
       ...body,
       requestedBy: user.sub,
       status: 'pending',
+    });
+
+    const [sourceFranchise, destFranchise, product] = await Promise.all([
+      Franchise.findById(body.sourceFranchiseId).select('name'),
+      Franchise.findById(body.destFranchiseId).select('name'),
+      Product.findById(body.productId).select('name'),
+    ]);
+    await createNotification({
+      franchiseId: body.destFranchiseId,
+      title: 'Transfert en attente',
+      message: `${sourceFranchise?.name ?? 'Source'} -> ${destFranchise?.name ?? 'Destination'}: ${body.quantity} x ${product?.name ?? 'Produit'}`,
+      type: 'info',
+      link: '/transfers',
+      dedupeKey: `transfer-pending:${transfer._id.toString()}`,
+      metadata: {
+        kind: 'transfer_pending',
+        transferId: transfer._id.toString(),
+      },
     });
 
     await audit(req, {
@@ -159,6 +179,15 @@ router.post(
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const transfer = await transitionTransfer(req as any, req.params.id as string, 'accept');
+    await createNotification({
+      userId: transfer.requestedBy,
+      title: 'Transfert accepte',
+      message: 'Votre demande de transfert a ete acceptee.',
+      type: 'success',
+      link: '/transfers',
+      dedupeKey: `transfer-accepted:${transfer._id.toString()}`,
+      metadata: { kind: 'transfer_accepted', transferId: transfer._id.toString() },
+    });
     await audit(req, { action: 'transfer.accept', entity: 'Transfer', entityId: transfer._id.toString() });
     res.json({ transfer });
   }),
@@ -171,6 +200,15 @@ router.post(
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const transfer = await transitionTransfer(req as any, req.params.id as string, 'reject');
+    await createNotification({
+      userId: transfer.requestedBy,
+      title: 'Transfert refuse',
+      message: 'Votre demande de transfert a ete refusee.',
+      type: 'warning',
+      link: '/transfers',
+      dedupeKey: `transfer-rejected:${transfer._id.toString()}`,
+      metadata: { kind: 'transfer_rejected', transferId: transfer._id.toString() },
+    });
     await audit(req, { action: 'transfer.reject', entity: 'Transfer', entityId: transfer._id.toString() });
     res.json({ transfer });
   }),

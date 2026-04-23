@@ -24,6 +24,7 @@ import { TimeLogsPage } from './pages/TimeLogsPage';
 import { DemandsPage } from './pages/DemandsPage';
 import { ServicesPage } from './pages/ServicesPage';
 import { NetworkPointsPage } from './pages/NetworkPointsPage';
+import { NotificationsPage } from './pages/NotificationsPage';
 
 export default function App() {
   return (
@@ -45,6 +46,7 @@ export default function App() {
         <Route path="services" element={<ServicesPage />} />
         <Route path="transfers" element={<TransfersPage />} />
         <Route path="demands" element={<DemandsPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
         <Route
           path="network-points"
           element={

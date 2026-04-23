@@ -39,6 +39,7 @@ export const PERMISSIONS = [
   'timelogs.export',
   'cashflows.view',
   'cashflows.manage',
+  'notifications.view',
   'franchises.view',
   'franchises.manage',
   'map.manage',
@@ -95,6 +96,7 @@ const managerPermissions: readonly Permission[] = [
   'timelogs.export',
   'cashflows.view',
   'cashflows.manage',
+  'notifications.view',
   'franchises.view',
   'map.manage',
   'map.view',
@@ -132,6 +134,7 @@ const franchisePermissions: readonly Permission[] = [
   'timelogs.export',
   'cashflows.view',
   'cashflows.manage',
+  'notifications.view',
   'franchises.view',
 ];
 
@@ -151,6 +154,7 @@ const sellerPermissions: readonly Permission[] = [
   'returns.create',
   'timelogs.view.self',
   'timelogs.create',
+  'notifications.view',
   'franchises.view',
 ];
 
@@ -163,6 +167,7 @@ const viewerPermissions: readonly Permission[] = [
   'products.view',
   'returns.view',
   'services.view',
+  'notifications.view',
   'franchises.view',
 ];
 

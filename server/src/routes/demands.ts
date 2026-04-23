@@ -9,6 +9,7 @@ import { Product } from '../models/Product.js';
 import { Franchise } from '../models/Franchise.js';
 import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
+import { createNotification } from '../services/notification.service.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
 
 const router = Router();
@@ -138,6 +139,27 @@ router.post(
       requestedBy: req.user!.sub,
     });
 
+    await Promise.all([
+      createNotification({
+        roleTarget: 'admin',
+        title: 'Nouvelle demande produit',
+        message: `${productName} x ${input.quantity} (${input.urgency})`,
+        type: input.urgency === 'critical' ? 'danger' : input.urgency === 'urgent' ? 'warning' : 'info',
+        link: '/demands',
+        dedupeKey: `demand-create-admin:${demand._id.toString()}`,
+        metadata: { kind: 'demand_create', demandId: demand._id.toString() },
+      }),
+      createNotification({
+        roleTarget: 'manager',
+        title: 'Nouvelle demande produit',
+        message: `${productName} x ${input.quantity} (${input.urgency})`,
+        type: input.urgency === 'critical' ? 'danger' : input.urgency === 'urgent' ? 'warning' : 'info',
+        link: '/demands',
+        dedupeKey: `demand-create-manager:${demand._id.toString()}`,
+        metadata: { kind: 'demand_create', demandId: demand._id.toString() },
+      }),
+    ]);
+
     await audit(req, {
       action: 'demand.create',
       entity: 'Demand',
@@ -226,6 +248,34 @@ router.post(
       details: {
         decision: input.decision,
         sourceFranchiseId: input.sourceFranchiseId ?? null,
+      },
+    });
+
+    await createNotification({
+      userId: demand.requestedBy,
+      title:
+        input.decision === 'approved'
+          ? 'Demande approuvee'
+          : input.decision === 'rejected'
+            ? 'Demande rejetee'
+            : 'Demande livree',
+      message:
+        input.response?.trim() ||
+        (input.decision === 'delivered'
+          ? `Votre demande ${demand.productName} a ete livree`
+          : `Votre demande ${demand.productName} a ete traitee`),
+      type:
+        input.decision === 'approved'
+          ? 'success'
+          : input.decision === 'rejected'
+            ? 'warning'
+            : 'success',
+      link: '/demands',
+      dedupeKey: `demand-process:${demand._id.toString()}:${input.decision}`,
+      metadata: {
+        kind: 'demand_process',
+        demandId: demand._id.toString(),
+        decision: input.decision,
       },
     });
 

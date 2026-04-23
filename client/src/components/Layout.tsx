@@ -1,6 +1,8 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import clsx from 'clsx';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../auth/AuthContext';
+import { api } from '../lib/api';
 import type { Role } from '../lib/types';
 
 const nav: { to: string; label: string; roles?: Role[] }[] = [
@@ -9,6 +11,7 @@ const nav: { to: string; label: string; roles?: Role[] }[] = [
   { to: '/sales', label: 'Ventes' },
   { to: '/pos', label: 'Caisse (POS)' },
   { to: '/clients', label: 'Clients' },
+  { to: '/notifications', label: 'Notifications' },
   { to: '/services', label: 'Services', roles: ['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur', 'viewer'] },
   { to: '/transfers', label: 'Transferts' },
   { to: '/demands', label: 'Demandes', roles: ['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur', 'viewer'] },
@@ -32,6 +35,12 @@ export function Layout() {
   const { user, logout } = useAuth();
   if (!user) return null;
 
+  const unread = useQuery({
+    queryKey: ['notifications-unread-count'],
+    queryFn: async () => (await api.get<{ count: number }>('/notifications/unread-count')).data.count,
+    refetchInterval: 30000,
+  });
+
   const items = nav.filter((n) => !n.roles || n.roles.includes(user.role));
 
   return (
@@ -49,14 +58,19 @@ export function Layout() {
               end={n.to === '/'}
               className={({ isActive }) =>
                 clsx(
-                  'block px-5 py-2 text-sm',
+                  'flex items-center justify-between gap-2 px-5 py-2 text-sm',
                   isActive
                     ? 'bg-slate-800 text-white border-l-2 border-brand-500'
                     : 'text-slate-300 hover:bg-slate-800 hover:text-white',
                 )
               }
             >
-              {n.label}
+              <span>{n.label}</span>
+              {n.to === '/notifications' && (unread.data ?? 0) > 0 && (
+                <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  {(unread.data ?? 0) > 99 ? '99+' : unread.data}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

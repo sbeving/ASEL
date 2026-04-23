@@ -366,6 +366,19 @@ export interface NetworkPoint {
   createdAt?: string;
 }
 
+export interface AppNotification {
+  _id: string;
+  userId?: string | null;
+  franchiseId?: string | null;
+  roleTarget?: Role | 'all' | null;
+  title: string;
+  message: string;
+  type: 'info' | 'warning' | 'danger' | 'success';
+  link?: string;
+  readAt?: string | null;
+  createdAt: string;
+}
+
 export interface ProductOverview {
   product: Omit<Product, 'categoryId' | 'supplierId'> & {
     categoryId?: { _id: string; name: string } | string;
