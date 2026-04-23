@@ -1,5 +1,6 @@
 import { Schema, model, type InferSchemaType, type Types } from 'mongoose';
 import { ROLES } from '../utils/roles.js';
+import { PERMISSIONS } from '../utils/permissions.js';
 
 const userSchema = new Schema(
   {
@@ -8,6 +9,11 @@ const userSchema = new Schema(
     fullName: { type: String, required: true, trim: true, maxlength: 100 },
     role: { type: String, enum: ROLES, required: true },
     franchiseId: { type: Schema.Types.ObjectId, ref: 'Franchise', default: null },
+    customPermissions: {
+      grants: [{ type: String, enum: PERMISSIONS }],
+      revokes: [{ type: String, enum: PERMISSIONS }],
+    },
+    sessionVersion: { type: Number, min: 0, default: 0 },
     active: { type: Boolean, default: true },
     lastLoginAt: { type: Date, default: null },
   },

@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AuditLog } from '../models/AuditLog.js';
 
 const router = Router();
 
-router.use(requireAuth, requireRole('admin'));
+router.use(requireAuth, requirePermission('audit.view'));
 
 const listQuery = z.object({
   action: z.string().max(64).optional(),

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { TimeLog } from '../models/TimeLog.js';
@@ -22,6 +22,7 @@ const logSchema = z.object({
 router.post(
   '/',
   requireAuth,
+  requirePermission('timelogs.create'),
   validate(logSchema),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof logSchema>;
@@ -51,6 +52,7 @@ router.post(
 router.get(
   '/',
   requireAuth,
+  requirePermission('timelogs.view.self'),
   asyncHandler(async (req, res) => {
     const logs = await TimeLog.find({ userId: req.user!.sub }).sort({ timestamp: -1 }).limit(100);
     res.json({ logs });

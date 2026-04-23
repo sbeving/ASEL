@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import mongoose, { isValidObjectId } from 'mongoose';
-import { franchiseScopeFilter, requireAuth, requireRole } from '../middleware/auth.js';
+import { franchiseScopeFilter, requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Stock } from '../models/Stock.js';
@@ -41,6 +41,7 @@ const listQuery = z.object({
 router.get(
   '/',
   requireAuth,
+  requirePermission('stock.view'),
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
     const { franchiseId, lowOnly, q, page, pageSize, limit } = req.query as unknown as z.infer<typeof listQuery>;
@@ -116,6 +117,7 @@ router.post(
   '/entry',
   requireAuth,
   requireRole('admin', 'manager', 'franchise'),
+  requirePermission('stock.entry'),
   validate(entrySchema),
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof entrySchema>;
@@ -154,6 +156,7 @@ router.post(
   '/adjust',
   requireAuth,
   requireRole('admin', 'manager'),
+  requirePermission('stock.adjust'),
   validate(adjustSchema),
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof adjustSchema>;
@@ -185,6 +188,7 @@ const movementsQuery = z.object({
 router.get(
   '/movements',
   requireAuth,
+  requirePermission('stock.movements.view'),
   validate(movementsQuery, 'query'),
   asyncHandler(async (req, res) => {
     const { franchiseId, productId, limit } = req.query as unknown as z.infer<typeof movementsQuery>;

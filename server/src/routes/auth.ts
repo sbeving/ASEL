@@ -5,11 +5,12 @@ import { env } from '../config/env.js';
 import { AUTH_COOKIE, requireAuth, signSession } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { authLimiter } from '../middleware/rateLimit.js';
+import { authLimiter, sensitiveWriteLimiter } from '../middleware/rateLimit.js';
 import { User } from '../models/User.js';
 import { unauthorized, badRequest } from '../utils/AppError.js';
 import { audit } from '../services/audit.service.js';
 import type { Role } from '../utils/roles.js';
+import { normalizeCustomPermissionOverrides } from '../utils/permissions.js';
 
 const router = Router();
 
@@ -52,6 +53,8 @@ router.post(
       role: user.role as Role,
       franchiseId: user.franchiseId ? user.franchiseId.toString() : null,
       username: user.username,
+      sessionVersion: user.sessionVersion ?? 0,
+      customPermissions: normalizeCustomPermissionOverrides(user.customPermissions),
     });
 
     res.cookie(AUTH_COOKIE, token, cookieOptions);
@@ -65,6 +68,7 @@ router.post(
         fullName: user.fullName,
         role: user.role,
         franchiseId: user.franchiseId,
+        customPermissions: normalizeCustomPermissionOverrides(user.customPermissions),
       },
     });
   }),
@@ -94,6 +98,7 @@ router.get(
         fullName: user.fullName,
         role: user.role,
         franchiseId: user.franchiseId,
+        customPermissions: normalizeCustomPermissionOverrides(user.customPermissions),
       },
     });
   }),
@@ -112,6 +117,7 @@ const changePasswordSchema = z
 router.post(
   '/change-password',
   requireAuth,
+  sensitiveWriteLimiter,
   validate(changePasswordSchema),
   asyncHandler(async (req, res) => {
     const { currentPassword, newPassword } = req.body as z.infer<typeof changePasswordSchema>;
@@ -120,6 +126,7 @@ router.post(
     const ok = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!ok) throw badRequest('Current password is incorrect');
     user.passwordHash = await bcrypt.hash(newPassword, env.BCRYPT_ROUNDS);
+    user.sessionVersion = (user.sessionVersion ?? 0) + 1;
     await user.save();
     await audit(req, { action: 'auth.change_password' });
     res.json({ ok: true });

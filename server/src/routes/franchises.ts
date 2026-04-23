@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { isValidObjectId } from 'mongoose';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Franchise } from '../models/Franchise.js';
@@ -25,6 +25,7 @@ const upsertSchema = z.object({
 router.get(
   '/',
   requireAuth,
+  requirePermission('franchises.view'),
   asyncHandler(async (req, res) => {
     const user = req.user!;
     const filter = user.role === 'admin' || user.role === 'manager'
@@ -41,6 +42,7 @@ router.post(
   '/',
   requireAuth,
   requireRole('admin'),
+  requirePermission('franchises.manage'),
   validate(upsertSchema),
   asyncHandler(async (req, res) => {
     const franchise = await Franchise.create(req.body);
@@ -53,6 +55,7 @@ router.patch(
   '/:id',
   requireAuth,
   requireRole('admin'),
+  requirePermission('franchises.manage'),
   validate(z.object({ id: objectId }), 'params'),
   validate(upsertSchema.partial()),
   asyncHandler(async (req, res) => {

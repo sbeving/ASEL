@@ -3,20 +3,26 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { isValidObjectId } from 'mongoose';
 import { env } from '../config/env.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { User } from '../models/User.js';
 import { Franchise } from '../models/Franchise.js';
 import { audit } from '../services/audit.service.js';
 import { ROLES, isFranchiseScoped } from '../utils/roles.js';
+import { PERMISSIONS, normalizeCustomPermissionOverrides } from '../utils/permissions.js';
 import { badRequest, notFound } from '../utils/AppError.js';
 
 const router = Router();
 
-router.use(requireAuth, requireRole('admin'));
+router.use(requireAuth, requirePermission('users.manage'));
 
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
+const permissionEnum = z.enum(PERMISSIONS);
+const customPermissionsSchema = z.object({
+  grants: z.array(permissionEnum).max(300).default([]),
+  revokes: z.array(permissionEnum).max(300).default([]),
+});
 
 const baseUser = {
   username: z.string().min(3).max(50).trim().toLowerCase(),
@@ -24,6 +30,7 @@ const baseUser = {
   role: z.enum(ROLES),
   franchiseId: objectId.nullable().optional(),
   active: z.boolean().optional(),
+  customPermissions: customPermissionsSchema.optional(),
 };
 
 const createSchema = z.object({
@@ -37,6 +44,7 @@ const updateSchema = z.object({
   franchiseId: objectId.nullable().optional(),
   active: z.boolean().optional(),
   password: z.string().min(8).max(200).optional(),
+  customPermissions: customPermissionsSchema.optional(),
 });
 
 async function ensureFranchiseConsistency(role: string, franchiseId: unknown) {
@@ -74,6 +82,7 @@ router.post(
       role: input.role,
       franchiseId: input.franchiseId ?? null,
       active: input.active ?? true,
+      customPermissions: normalizeCustomPermissionOverrides(input.customPermissions),
     });
     await audit(req, { action: 'user.create', entity: 'User', entityId: user._id.toString() });
     res.status(201).json({ user });
@@ -100,8 +109,12 @@ router.patch(
     }
     if (input.fullName !== undefined) user.fullName = input.fullName;
     if (input.active !== undefined) user.active = input.active;
+    if (input.customPermissions !== undefined) {
+      user.customPermissions = normalizeCustomPermissionOverrides(input.customPermissions);
+    }
     if (input.password) {
       user.passwordHash = await bcrypt.hash(input.password, env.BCRYPT_ROUNDS);
+      user.sessionVersion = (user.sessionVersion ?? 0) + 1;
     }
 
     // Prevent admins from locking themselves out
