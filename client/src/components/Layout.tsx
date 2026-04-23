@@ -10,6 +10,8 @@ const nav: { to: string; label: string; roles?: Role[] }[] = [
   { to: '/pos', label: 'Caisse (POS)' },
   { to: '/clients', label: 'Clients' },
   { to: '/transfers', label: 'Transferts' },
+  { to: '/returns', label: 'Retours', roles: ['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur', 'viewer'] },
+  { to: '/timelogs', label: 'Pointage', roles: ['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur'] },
   { to: '/receptions', label: 'Bons de réception', roles: ['admin', 'superadmin', 'manager', 'franchise'] },
   { to: '/monthly-inventory', label: 'Inventaire mensuel', roles: ['admin', 'superadmin', 'manager', 'franchise'] },
   { to: '/closings', label: 'Clôtures', roles: ['admin', 'superadmin', 'manager', 'franchise'] },

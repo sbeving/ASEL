@@ -173,10 +173,10 @@ router.post(
     if (!product) throw badRequest('Product not found');
 
     const session = await mongoose.startSession();
-    let created: Awaited<ReturnType<typeof Return.create>>[number] | null = null;
+    let createdId: string | null = null;
 
     try {
-      await session.withTransaction(async () => {
+      const committedId = await session.withTransaction(async () => {
         const docs = await Return.create(
           [
             {
@@ -191,7 +191,7 @@ router.post(
           ],
           { session },
         );
-        created = docs[0] ?? null;
+        const created = docs[0];
         if (!created) throw badRequest('Failed to create return record');
 
         if (input.returnType === 'return') {
@@ -203,20 +203,22 @@ router.post(
             unitPrice: product.sellPrice ?? 0,
             note: input.reason,
             userId: req.user!.sub,
-            refId: created._id,
+            refId: created._id as mongoose.Types.ObjectId,
             session,
           });
         }
+        return created._id.toString();
       });
+      createdId = committedId ?? null;
     } finally {
       await session.endSession();
     }
 
-    if (!created) throw badRequest('Failed to create return record');
+    if (!createdId) throw badRequest('Failed to create return record');
     await audit(req, {
       action: 'return.create',
       entity: 'Return',
-      entityId: created._id.toString(),
+      entityId: createdId.toString(),
       franchiseId: fid,
       details: {
         productId: input.productId,
@@ -225,7 +227,7 @@ router.post(
       },
     });
 
-    const row = await Return.findById(created._id)
+    const row = await Return.findById(createdId)
       .populate('franchiseId', 'name')
       .populate('productId', 'name reference barcode')
       .populate('userId', 'fullName username')

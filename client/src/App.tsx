@@ -19,6 +19,8 @@ import { ClosingsPage } from './pages/ClosingsPage';
 import { InstallmentsPage } from './pages/InstallmentsPage';
 import { MonthlyInventoryPage } from './pages/MonthlyInventoryPage';
 import { MapPage } from './pages/MapPage';
+import { ReturnsPage } from './pages/ReturnsPage';
+import { TimeLogsPage } from './pages/TimeLogsPage';
 
 export default function App() {
   return (
@@ -39,6 +41,8 @@ export default function App() {
         <Route path="clients" element={<ClientsPage />} />
         <Route path="transfers" element={<TransfersPage />} />
         <Route path="receptions" element={<ReceptionsPage />} />
+        <Route path="returns" element={<ReturnsPage />} />
+        <Route path="timelogs" element={<TimeLogsPage />} />
         <Route path="closings" element={<ClosingsPage />} />
         <Route path="installments" element={<InstallmentsPage />} />
         <Route path="monthly-inventory" element={<MonthlyInventoryPage />} />
