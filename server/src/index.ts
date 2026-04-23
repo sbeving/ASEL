@@ -27,6 +27,7 @@ import installmentRoutes from './routes/installments.js';
 import monthlyInventoryRoutes from './routes/monthlyInventories.js';
 import timeLogRoutes from './routes/timeLogs.js';
 import cashFlowRoutes from './routes/cashFlows.js';
+import returnRoutes from './routes/returns.js';
 
 async function main() {
   await connectDb();
@@ -71,6 +72,7 @@ async function main() {
   app.use('/api/monthly-inventories', monthlyInventoryRoutes);
   app.use('/api/timelogs', timeLogRoutes);
   app.use('/api/cashflows', cashFlowRoutes);
+  app.use('/api/returns', returnRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

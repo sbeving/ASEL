@@ -273,6 +273,25 @@ export interface Installment {
   createdAt: string;
 }
 
+export interface ReturnRecord {
+  _id: string;
+  franchiseId: Franchise | string;
+  productId: { _id: string; name: string; reference?: string; barcode?: string } | string;
+  quantity: number;
+  returnType: 'return' | 'exchange';
+  unitPrice: number;
+  reason?: string;
+  userId?: { _id: string; fullName?: string; username?: string } | string;
+  createdAt: string;
+}
+
+export interface ReturnSummary {
+  returnCount: number;
+  exchangeCount: number;
+  returnedValue: number;
+  totalQuantity: number;
+}
+
 export interface ProductOverview {
   product: Omit<Product, 'categoryId' | 'supplierId'> & {
     categoryId?: { _id: string; name: string } | string;
