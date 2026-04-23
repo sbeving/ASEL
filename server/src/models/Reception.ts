@@ -27,6 +27,7 @@ const receptionSchema = new Schema(
       enum: ['draft', 'validated', 'cancelled'],
       default: 'draft',
     },
+    sourceDocumentPath: { type: String, trim: true, maxlength: 260, default: null },
     note: { type: String, trim: true, maxlength: 2000 },
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     validatedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },

@@ -9,6 +9,7 @@ const productSchema = new Schema(
     reference: { type: String, trim: true, maxlength: 80 },
     barcode: { type: String, trim: true, maxlength: 80 },
     description: { type: String, trim: true, maxlength: 1000 },
+    imagePath: { type: String, trim: true, maxlength: 260, default: null },
     purchasePrice: { type: Number, min: 0, default: 0 },
     sellPrice: { type: Number, min: 0, default: 0 },
     lowStockThreshold: { type: Number, min: 0, default: 3 },

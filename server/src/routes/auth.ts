@@ -68,6 +68,7 @@ router.post(
         fullName: user.fullName,
         role: user.role,
         franchiseId: user.franchiseId,
+        avatarPath: user.avatarPath,
         customPermissions: normalizeCustomPermissionOverrides(user.customPermissions),
       },
     });
@@ -98,6 +99,7 @@ router.get(
         fullName: user.fullName,
         role: user.role,
         franchiseId: user.franchiseId,
+        avatarPath: user.avatarPath,
         customPermissions: normalizeCustomPermissionOverrides(user.customPermissions),
       },
     });

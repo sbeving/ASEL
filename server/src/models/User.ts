@@ -9,6 +9,7 @@ const userSchema = new Schema(
     fullName: { type: String, required: true, trim: true, maxlength: 100 },
     role: { type: String, enum: ROLES, required: true },
     franchiseId: { type: Schema.Types.ObjectId, ref: 'Franchise', default: null },
+    avatarPath: { type: String, trim: true, maxlength: 260, default: null },
     customPermissions: {
       grants: [{ type: String, enum: PERMISSIONS }],
       revokes: [{ type: String, enum: PERMISSIONS }],

@@ -12,6 +12,7 @@ import { audit } from '../services/audit.service.js';
 import { ROLES, isFranchiseScoped } from '../utils/roles.js';
 import { PERMISSIONS, normalizeCustomPermissionOverrides } from '../utils/permissions.js';
 import { badRequest, notFound } from '../utils/AppError.js';
+import { userAvatarUpload, toUploadPath } from '../middleware/upload.js';
 
 const router = Router();
 
@@ -137,6 +138,29 @@ router.delete(
     const user = await User.findByIdAndUpdate(id, { active: false }, { new: true });
     if (!user) throw notFound('User not found');
     await audit(req, { action: 'user.deactivate', entity: 'User', entityId: id });
+    res.json({ user });
+  }),
+);
+
+router.post(
+  '/:id/avatar',
+  validate(z.object({ id: objectId }), 'params'),
+  userAvatarUpload.single('avatar'),
+  asyncHandler(async (req, res) => {
+    if (!req.file) throw badRequest('avatar file is required');
+    const { id } = req.params as { id: string };
+    const user = await User.findById(id);
+    if (!user) throw notFound('User not found');
+
+    user.avatarPath = toUploadPath('user-avatars', req.file.filename);
+    await user.save();
+
+    await audit(req, {
+      action: 'user.avatar.upload',
+      entity: 'User',
+      entityId: user._id.toString(),
+    });
+
     res.json({ user });
   }),
 );
