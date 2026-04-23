@@ -56,6 +56,12 @@ export interface Client {
   franchiseId?: Franchise | string | null;
   active: boolean;
   createdAt?: string;
+  totalSpent?: number;
+  saleCount?: number;
+  lastSaleAt?: string | null;
+  balanceDue?: number;
+  pendingInstallments?: number;
+  lateInstallments?: number;
 }
 
 export interface Product {
@@ -71,6 +77,13 @@ export interface Product {
   sellPrice: number;
   lowStockThreshold: number;
   active: boolean;
+  stockTotal?: number;
+  sales30d?: number;
+  sales90d?: number;
+  revenue30d?: number;
+  revenue90d?: number;
+  marginAmount?: number;
+  marginPercent?: number;
 }
 
 export interface StockItem {
@@ -85,7 +98,7 @@ export interface StockItem {
 
 export interface Movement {
   _id: string;
-  franchiseId: string;
+  franchiseId: Franchise | string;
   productId: Product | string;
   type: string;
   delta: number;
@@ -258,4 +271,40 @@ export interface Installment {
   note?: string;
   userId?: User | string;
   createdAt: string;
+}
+
+export interface ProductOverview {
+  product: Product & {
+    categoryId?: { _id: string; name: string } | string;
+    supplierId?: { _id: string; name: string } | string | null;
+  };
+  stockByFranchise: Array<{
+    franchiseId: string;
+    franchiseName: string;
+    quantity: number;
+  }>;
+  recentMovements: Movement[];
+  salesStats: {
+    sales30d: number;
+    sales90d: number;
+    revenue30d: number;
+    revenue90d: number;
+  };
+}
+
+export interface ClientOverview {
+  client: Client;
+  salesSummary: {
+    totalSpent: number;
+    saleCount: number;
+    lastSaleAt?: string | null;
+  };
+  installmentSummary: {
+    balanceDue: number;
+    pendingInstallments: number;
+    lateInstallments: number;
+    paidInstallments: number;
+  };
+  recentSales: Sale[];
+  recentInstallments: Installment[];
 }

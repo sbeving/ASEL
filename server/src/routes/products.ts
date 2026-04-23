@@ -6,6 +6,7 @@ import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Product } from '../models/Product.js';
 import { audit } from '../services/audit.service.js';
+import { attachProductListMetrics, getProductOverview } from '../services/productInsights.service.js';
 import { notFound } from '../utils/AppError.js';
 
 const router = Router();
@@ -64,9 +65,11 @@ router.get(
       Product.countDocuments(filter),
       Product.find(filter).sort({ name: 1 }).skip(skip).limit(effectivePageSize).lean(),
     ]);
+    const scopedFranchiseId = req.user?.franchiseId ?? null;
+    const items = await attachProductListMetrics(products, scopedFranchiseId);
 
     res.json({
-      products,
+      products: items,
       meta: {
         page,
         pageSize: effectivePageSize,
@@ -74,6 +77,17 @@ router.get(
         totalPages: Math.max(1, Math.ceil(total / effectivePageSize)),
       },
     });
+  }),
+);
+
+router.get(
+  '/:id/overview',
+  requireAuth,
+  validate(z.object({ id: objectId }), 'params'),
+  asyncHandler(async (req, res) => {
+    const overview = await getProductOverview(req.params.id, req.user?.franchiseId ?? null);
+    if (!overview) throw notFound('Product not found');
+    res.json(overview);
   }),
 );
 

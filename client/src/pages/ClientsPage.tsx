@@ -4,12 +4,13 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api, apiError } from '../lib/api';
+import { dateOnly, dateTime, money } from '../lib/money';
 import { PageHeader } from '../components/PageHeader';
 import { TablePagination } from '../components/TablePagination';
 import { Modal } from '../components/Modal';
 import { useDebouncedValue } from '../lib/hooks';
 import { useAuth } from '../auth/AuthContext';
-import type { Client, Franchise, PageMeta } from '../lib/types';
+import type { Client, ClientOverview, Franchise, PageMeta } from '../lib/types';
 
 const clientSchema = z.object({
   firstName: z.string().max(100).optional(),
@@ -49,6 +50,7 @@ export function ClientsPage() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   const [archiving, setArchiving] = useState<Client | null>(null);
+  const [viewing, setViewing] = useState<Client | null>(null);
   const pageSize = 25;
 
   const franchises = useQuery({
@@ -77,7 +79,7 @@ export function ClientsPage() {
     <>
       <PageHeader
         title="Clients"
-        subtitle="Répertoire client aligné sur le legacy, avec création et édition en modal"
+        subtitle="Repertoire client avec achat cumule, solde du et detail relationnel"
         actions={
           <button className="btn-primary" onClick={() => setCreating(true)}>
             + Nouveau client
@@ -89,7 +91,7 @@ export function ClientsPage() {
         <div className="grid gap-3 md:grid-cols-[minmax(0,1.6fr)_220px_180px]">
           <input
             className="input"
-            placeholder="Nom, téléphone, email, entreprise…"
+            placeholder="Nom, telephone, email, entreprise..."
             value={q}
             onChange={(e) => {
               setQ(e.target.value);
@@ -133,10 +135,11 @@ export function ClientsPage() {
           <thead>
             <tr>
               <th className="th">Client</th>
-              <th className="th">Type</th>
               <th className="th">Contact</th>
-              <th className="th">Entreprise</th>
+              <th className="th">Type</th>
               <th className="th">Franchise</th>
+              <th className="th text-right">Achats</th>
+              <th className="th text-right">Solde du</th>
               <th className="th">Statut</th>
               <th className="th text-right">Actions</th>
             </tr>
@@ -146,28 +149,42 @@ export function ClientsPage() {
               <tr key={client._id}>
                 <td className="td">
                   <div className="font-medium text-slate-900">{client.fullName}</div>
-                  <div className="text-xs text-slate-500">{client.cin || 'CIN non renseigné'}</div>
+                  <div className="text-xs text-slate-500">{client.company || client.cin || 'Sans detail'}</div>
                 </td>
-                <td className="td">{client.clientType ? clientTypeLabels[client.clientType] : '—'}</td>
                 <td className="td">
                   <div>{client.phone || '—'}</div>
                   <div className="text-xs text-slate-500">{client.email || client.phone2 || '—'}</div>
                 </td>
-                <td className="td text-slate-500">{client.company || '—'}</td>
+                <td className="td">{client.clientType ? clientTypeLabels[client.clientType] : '—'}</td>
                 <td className="td text-slate-500">
                   {typeof client.franchiseId === 'object' && client.franchiseId ? client.franchiseId.name : '—'}
                 </td>
+                <td className="td text-right font-medium">{money(client.totalSpent ?? 0)}</td>
+                <td className="td text-right">
+                  <span className={(client.balanceDue ?? 0) > 0 ? 'font-semibold text-rose-700' : 'text-slate-500'}>
+                    {money(client.balanceDue ?? 0)}
+                  </span>
+                </td>
                 <td className="td">
-                  {client.active ? <span className="badge-success">Actif</span> : <span className="badge-muted">Inactif</span>}
+                  {(client.lateInstallments ?? 0) > 0 ? (
+                    <span className="badge-danger">Retard</span>
+                  ) : client.active ? (
+                    <span className="badge-success">Actif</span>
+                  ) : (
+                    <span className="badge-muted">Inactif</span>
+                  )}
                 </td>
                 <td className="td">
                   <div className="flex justify-end gap-2">
+                    <button className="btn-secondary !px-3 !py-1.5" onClick={() => setViewing(client)}>
+                      Voir
+                    </button>
                     <button className="btn-secondary !px-3 !py-1.5" onClick={() => setEditing(client)}>
                       Modifier
                     </button>
                     {client.active && (
                       <button className="btn-danger !px-3 !py-1.5" onClick={() => setArchiving(client)}>
-                        Désactiver
+                        Desactiver
                       </button>
                     )}
                   </div>
@@ -176,13 +193,15 @@ export function ClientsPage() {
             ))}
             {!query.isLoading && (query.data?.clients.length ?? 0) === 0 && (
               <tr>
-                <td className="td text-slate-400" colSpan={7}>Aucun client trouvé.</td>
+                <td className="td text-slate-400" colSpan={8}>Aucun client trouve.</td>
               </tr>
             )}
           </tbody>
         </table>
         <TablePagination meta={query.data?.meta} onPageChange={setPage} className="px-4 py-3" />
       </section>
+
+      {viewing && <ClientOverviewModal client={viewing} onClose={() => setViewing(null)} />}
 
       {(creating || editing) && (
         <ClientFormModal
@@ -213,6 +232,142 @@ export function ClientsPage() {
         />
       )}
     </>
+  );
+}
+
+function ClientOverviewModal({ client, onClose }: { client: Client; onClose: () => void }) {
+  const overview = useQuery({
+    queryKey: ['client-overview', client._id],
+    queryFn: async () => (await api.get<ClientOverview>(`/clients/${client._id}/overview`)).data,
+  });
+
+  return (
+    <Modal open size="lg" title={client.fullName} onClose={onClose}>
+      {overview.isLoading || !overview.data ? (
+        <div className="text-sm text-slate-500">Chargement...</div>
+      ) : (
+        <div className="space-y-5">
+          <div className="grid gap-3 sm:grid-cols-4">
+            <MetricCard label="Total achats" value={money(overview.data.salesSummary.totalSpent)} />
+            <MetricCard label="Ventes" value={String(overview.data.salesSummary.saleCount)} />
+            <MetricCard label="Solde du" value={money(overview.data.installmentSummary.balanceDue)} />
+            <MetricCard label="Retards" value={String(overview.data.installmentSummary.lateInstallments)} />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-[1fr_1.2fr]">
+            <section className="rounded-2xl border border-slate-200 p-4">
+              <h3 className="text-sm font-semibold text-slate-900">Coordonnees</h3>
+              <div className="mt-3 space-y-2 text-sm text-slate-600">
+                <div><span className="text-slate-400">Telephone:</span> {overview.data.client.phone || '—'}</div>
+                <div><span className="text-slate-400">Telephone 2:</span> {overview.data.client.phone2 || '—'}</div>
+                <div><span className="text-slate-400">Email:</span> {overview.data.client.email || '—'}</div>
+                <div><span className="text-slate-400">Entreprise:</span> {overview.data.client.company || '—'}</div>
+                <div><span className="text-slate-400">Matricule fiscal:</span> {overview.data.client.taxId || '—'}</div>
+                <div><span className="text-slate-400">Adresse:</span> {overview.data.client.address || '—'}</div>
+                {overview.data.client.notes && (
+                  <div className="rounded-xl bg-slate-50 px-3 py-2">{overview.data.client.notes}</div>
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 p-4">
+              <h3 className="text-sm font-semibold text-slate-900">Echeances</h3>
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-sm">
+                  <span className="text-slate-600">En attente</span>
+                  <span className="font-semibold text-slate-900">{overview.data.installmentSummary.pendingInstallments}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-sm">
+                  <span className="text-slate-600">En retard</span>
+                  <span className="font-semibold text-rose-700">{overview.data.installmentSummary.lateInstallments}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-sm">
+                  <span className="text-slate-600">Payees</span>
+                  <span className="font-semibold text-emerald-700">{overview.data.installmentSummary.paidInstallments}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl bg-slate-900 px-3 py-2 text-sm text-white">
+                  <span>Solde restant</span>
+                  <span className="font-semibold">{money(overview.data.installmentSummary.balanceDue)}</span>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <section className="rounded-2xl border border-slate-200 p-4">
+            <h3 className="text-sm font-semibold text-slate-900">Ventes recentes</h3>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="th">Piece</th>
+                    <th className="th">Date</th>
+                    <th className="th">Paiement</th>
+                    <th className="th text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overview.data.recentSales.map((sale) => (
+                    <tr key={sale._id}>
+                      <td className="td">{sale.invoiceNumber || sale.saleType}</td>
+                      <td className="td text-slate-500">{dateTime(sale.createdAt)}</td>
+                      <td className="td">{sale.paymentMethod}</td>
+                      <td className="td text-right font-medium">{money(sale.total)}</td>
+                    </tr>
+                  ))}
+                  {overview.data.recentSales.length === 0 && (
+                    <tr><td className="td text-slate-400" colSpan={4}>Aucune vente recente.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 p-4">
+            <h3 className="text-sm font-semibold text-slate-900">Echeances recentes</h3>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="th">Piece</th>
+                    <th className="th">Due date</th>
+                    <th className="th">Statut</th>
+                    <th className="th text-right">Montant</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overview.data.recentInstallments.map((installment) => (
+                    <tr key={installment._id}>
+                      <td className="td">
+                        {typeof installment.saleId === 'object' && installment.saleId ? installment.saleId.invoiceNumber || '—' : '—'}
+                      </td>
+                      <td className="td text-slate-500">{dateOnly(installment.dueDate)}</td>
+                      <td className="td">
+                        <span className={installment.status === 'late' ? 'badge-danger' : installment.status === 'paid' ? 'badge-success' : 'badge-warning'}>
+                          {installment.status}
+                        </span>
+                      </td>
+                      <td className="td text-right font-medium">{money(installment.amount)}</td>
+                    </tr>
+                  ))}
+                  {overview.data.recentInstallments.length === 0 && (
+                    <tr><td className="td text-slate-400" colSpan={4}>Aucune echeance.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-xl font-semibold text-slate-900">{value}</div>
+    </div>
   );
 }
 
@@ -284,11 +439,8 @@ function ClientFormModal({
         email: values.email || '',
       };
 
-      if (initial) {
-        await api.patch(`/clients/${initial._id}`, payload);
-      } else {
-        await api.post('/clients', payload);
-      }
+      if (initial) await api.patch(`/clients/${initial._id}`, payload);
+      else await api.post('/clients', payload);
     },
     onSuccess: onSaved,
     onError: (err) => setError(apiError(err).message),
@@ -304,7 +456,7 @@ function ClientFormModal({
         <div className="flex justify-end gap-2">
           <button className="btn-secondary" onClick={onClose}>Annuler</button>
           <button className="btn-primary" form="client-form" disabled={isSubmitting || save.isPending}>
-            {isSubmitting || save.isPending ? 'Enregistrement…' : 'Enregistrer'}
+            {isSubmitting || save.isPending ? 'Enregistrement...' : 'Enregistrer'}
           </button>
         </div>
       }
@@ -327,7 +479,7 @@ function ClientFormModal({
           {errors.lastName && <p className="mt-1 text-xs text-rose-600">{errors.lastName.message}</p>}
         </div>
         <div>
-          <label className="label">Prénom</label>
+          <label className="label">Prenom</label>
           <input className="input" {...register('firstName')} />
         </div>
         <div>
@@ -345,11 +497,11 @@ function ClientFormModal({
           <input className="input" {...register('cin')} />
         </div>
         <div>
-          <label className="label">Téléphone</label>
+          <label className="label">Telephone</label>
           <input className="input" {...register('phone')} />
         </div>
         <div>
-          <label className="label">Téléphone 2</label>
+          <label className="label">Telephone 2</label>
           <input className="input" {...register('phone2')} />
         </div>
         <div>
@@ -408,23 +560,21 @@ function ArchiveClientModal({
     <Modal
       open
       size="sm"
-      title="Désactiver le client"
+      title="Desactiver le client"
       onClose={onClose}
       footer={
         <div className="flex justify-end gap-2">
           <button className="btn-secondary" onClick={onClose}>Annuler</button>
           <button className="btn-danger" onClick={() => archive.mutate()} disabled={archive.isPending}>
-            {archive.isPending ? 'Traitement…' : 'Désactiver'}
+            {archive.isPending ? 'Traitement...' : 'Desactiver'}
           </button>
         </div>
       }
     >
       <div className="space-y-3 text-sm text-slate-600">
         <p>
-          Le client <span className="font-semibold text-slate-900">{client.fullName}</span> sera retiré des listes actives,
-          sans supprimer son historique de ventes ou d’échéances.
+          Le client <span className="font-semibold text-slate-900">{client.fullName}</span> sera retire des listes actives sans supprimer son historique de ventes ou d'echeances.
         </p>
-        <p>Le legacy PHP suivait déjà cette logique de conservation métier. On garde donc une désactivation sûre plutôt qu’un hard delete.</p>
         {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">{error}</div>}
       </div>
     </Modal>

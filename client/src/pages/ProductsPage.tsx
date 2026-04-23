@@ -4,17 +4,17 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api, apiError } from '../lib/api';
-import { money } from '../lib/money';
+import { dateTime, money } from '../lib/money';
 import { useAuth } from '../auth/AuthContext';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import { TablePagination } from '../components/TablePagination';
 import { useDebouncedValue } from '../lib/hooks';
-import type { Category, PageMeta, Product, Supplier } from '../lib/types';
+import type { Category, PageMeta, Product, ProductOverview, Supplier } from '../lib/types';
 
 const schema = z.object({
   name: z.string().min(1, 'Nom requis').max(150),
-  categoryId: z.string().min(1, 'Catégorie requise'),
+  categoryId: z.string().min(1, 'Categorie requise'),
   supplierId: z.string().optional().nullable(),
   brand: z.string().max(80).optional(),
   reference: z.string().max(80).optional(),
@@ -40,6 +40,7 @@ export function ProductsPage() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [creating, setCreating] = useState(false);
   const [archiving, setArchiving] = useState<Product | null>(null);
+  const [viewing, setViewing] = useState<Product | null>(null);
   const qc = useQueryClient();
 
   const products = useQuery({
@@ -57,12 +58,10 @@ export function ProductsPage() {
         })
       ).data,
   });
-
   const categories = useQuery({
     queryKey: ['categories'],
     queryFn: async () => (await api.get<{ categories: Category[] }>('/categories')).data.categories,
   });
-
   const suppliers = useQuery({
     queryKey: ['suppliers'],
     queryFn: async () => (await api.get<{ suppliers: Supplier[] }>('/suppliers')).data.suppliers,
@@ -72,16 +71,21 @@ export function ProductsPage() {
     () => new Map((categories.data ?? []).map((category) => [category._id, category.name])),
     [categories.data],
   );
-  const suppliersById = useMemo(
-    () => new Map((suppliers.data ?? []).map((supplier) => [supplier._id, supplier.name])),
-    [suppliers.data],
-  );
+
+  const summary = useMemo(() => {
+    const rows = products.data?.products ?? [];
+    return {
+      count: products.data?.meta.total ?? 0,
+      stock: rows.reduce((sum, product) => sum + (product.stockTotal ?? 0), 0),
+      revenue30d: rows.reduce((sum, product) => sum + (product.revenue30d ?? 0), 0),
+    };
+  }, [products.data]);
 
   return (
     <>
       <PageHeader
         title="Produits"
-        subtitle={`${products.data?.meta.total ?? 0} produits dans le catalogue`}
+        subtitle="Catalogue enrichi avec stock, rotation et detail produit"
         actions={canEdit && (
           <button className="btn-primary" onClick={() => setCreating(true)}>
             + Nouveau produit
@@ -89,11 +93,29 @@ export function ProductsPage() {
         )}
       />
 
+      <section className="mb-5 grid gap-4 md:grid-cols-3">
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wide text-slate-500">Catalogue</div>
+          <div className="mt-2 text-2xl font-semibold text-slate-900">{summary.count}</div>
+          <div className="mt-1 text-sm text-slate-500">Produits sur le filtre courant</div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wide text-slate-500">Stock cumule</div>
+          <div className="mt-2 text-2xl font-semibold text-slate-900">{summary.stock}</div>
+          <div className="mt-1 text-sm text-slate-500">Quantites consolidees</div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wide text-slate-500">CA 30 jours</div>
+          <div className="mt-2 text-2xl font-semibold text-slate-900">{money(summary.revenue30d)}</div>
+          <div className="mt-1 text-sm text-slate-500">Rotation recente du catalogue visible</div>
+        </div>
+      </section>
+
       <section className="card mb-5 p-4">
         <div className="grid gap-3 md:grid-cols-[minmax(0,1.6fr)_220px_180px]">
           <input
             type="search"
-            placeholder="Nom, référence, code-barres, marque…"
+            placeholder="Nom, reference, code-barres, marque..."
             className="input"
             value={search}
             onChange={(e) => {
@@ -109,7 +131,7 @@ export function ProductsPage() {
               setPage(1);
             }}
           >
-            <option value="">Toutes catégories</option>
+            <option value="">Toutes categories</option>
             {(categories.data ?? []).map((category) => (
               <option key={category._id} value={category._id}>{category.name}</option>
             ))}
@@ -134,14 +156,13 @@ export function ProductsPage() {
           <thead>
             <tr>
               <th className="th">Produit</th>
-              <th className="th">Catégorie</th>
-              <th className="th">Référence</th>
-              <th className="th">Fournisseur</th>
-              <th className="th text-right">Prix achat</th>
+              <th className="th">Categorie</th>
+              <th className="th text-right">Stock</th>
+              <th className="th text-right">Ventes 30j</th>
+              <th className="th text-right">Marge</th>
               <th className="th text-right">Prix vente</th>
-              <th className="th text-center">Seuil</th>
               <th className="th">Statut</th>
-              {canEdit && <th className="th text-right">Actions</th>}
+              <th className="th text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -150,43 +171,53 @@ export function ProductsPage() {
                 <td className="td">
                   <div className="font-medium text-slate-900">{product.name}</div>
                   <div className="text-xs text-slate-500">
-                    {[product.brand, product.barcode].filter(Boolean).join(' · ') || 'Sans marque ni code-barres'}
+                    {[product.reference, product.brand].filter(Boolean).join(' · ') || 'Sans reference'}
                   </div>
                 </td>
                 <td className="td text-slate-500">{categoriesById.get(product.categoryId) ?? '—'}</td>
-                <td className="td text-slate-500">{product.reference ?? '—'}</td>
-                <td className="td text-slate-500">{product.supplierId ? suppliersById.get(product.supplierId) ?? '—' : '—'}</td>
-                <td className="td text-right">{money(product.purchasePrice)}</td>
+                <td className="td text-right font-medium">{product.stockTotal ?? 0}</td>
+                <td className="td text-right">{product.sales30d ?? 0}</td>
+                <td className="td text-right">
+                  <span className={product.marginPercent != null && product.marginPercent >= 30 ? 'text-emerald-700 font-semibold' : 'text-slate-600'}>
+                    {product.marginPercent != null ? `${product.marginPercent.toFixed(1)}%` : '—'}
+                  </span>
+                </td>
                 <td className="td text-right font-medium">{money(product.sellPrice)}</td>
-                <td className="td text-center">{product.lowStockThreshold}</td>
                 <td className="td">
                   {product.active ? <span className="badge-success">Actif</span> : <span className="badge-muted">Inactif</span>}
                 </td>
-                {canEdit && (
-                  <td className="td">
-                    <div className="flex justify-end gap-2">
-                      <button className="btn-secondary !px-3 !py-1.5" onClick={() => setEditing(product)}>
-                        Modifier
-                      </button>
-                      {product.active && (
-                        <button className="btn-danger !px-3 !py-1.5" onClick={() => setArchiving(product)}>
-                          Désactiver
+                <td className="td">
+                  <div className="flex justify-end gap-2">
+                    <button className="btn-secondary !px-3 !py-1.5" onClick={() => setViewing(product)}>
+                      Voir
+                    </button>
+                    {canEdit && (
+                      <>
+                        <button className="btn-secondary !px-3 !py-1.5" onClick={() => setEditing(product)}>
+                          Modifier
                         </button>
-                      )}
-                    </div>
-                  </td>
-                )}
+                        {product.active && (
+                          <button className="btn-danger !px-3 !py-1.5" onClick={() => setArchiving(product)}>
+                            Desactiver
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </td>
               </tr>
             ))}
             {!products.isLoading && (products.data?.products.length ?? 0) === 0 && (
               <tr>
-                <td className="td text-slate-400" colSpan={canEdit ? 9 : 8}>Aucun produit.</td>
+                <td className="td text-slate-400" colSpan={8}>Aucun produit.</td>
               </tr>
             )}
           </tbody>
         </table>
         <TablePagination meta={products.data?.meta} onPageChange={setPage} className="px-4 py-3" />
       </div>
+
+      {viewing && <ProductOverviewModal product={viewing} onClose={() => setViewing(null)} />}
 
       {canEdit && (creating || editing) && (
         <ProductFormModal
@@ -216,6 +247,119 @@ export function ProductsPage() {
         />
       )}
     </>
+  );
+}
+
+function ProductOverviewModal({ product, onClose }: { product: Product; onClose: () => void }) {
+  const overview = useQuery({
+    queryKey: ['product-overview', product._id],
+    queryFn: async () => (await api.get<ProductOverview>(`/products/${product._id}/overview`)).data,
+  });
+
+  return (
+    <Modal open size="lg" title={product.name} onClose={onClose}>
+      {overview.isLoading || !overview.data ? (
+        <div className="text-sm text-slate-500">Chargement...</div>
+      ) : (
+        <div className="space-y-5">
+          <div className="grid gap-3 sm:grid-cols-4">
+            <MetricCard label="Stock total" value={String(overview.data.product.stockTotal ?? 0)} />
+            <MetricCard label="Ventes 30j" value={String(overview.data.salesStats.sales30d)} />
+            <MetricCard label="CA 30j" value={money(overview.data.salesStats.revenue30d)} />
+            <MetricCard label="Marge unite" value={money(overview.data.product.marginAmount ?? 0)} />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-[1.2fr_1fr]">
+            <section className="rounded-2xl border border-slate-200 p-4">
+              <h3 className="text-sm font-semibold text-slate-900">Fiche produit</h3>
+              <div className="mt-3 space-y-2 text-sm text-slate-600">
+                <div><span className="text-slate-400">Reference:</span> {overview.data.product.reference || '—'}</div>
+                <div><span className="text-slate-400">Code-barres:</span> {overview.data.product.barcode || '—'}</div>
+                <div>
+                  <span className="text-slate-400">Categorie:</span>{' '}
+                  {typeof overview.data.product.categoryId === 'object' && overview.data.product.categoryId
+                    ? overview.data.product.categoryId.name
+                    : '—'}
+                </div>
+                <div>
+                  <span className="text-slate-400">Fournisseur:</span>{' '}
+                  {typeof overview.data.product.supplierId === 'object' && overview.data.product.supplierId
+                    ? overview.data.product.supplierId.name
+                    : '—'}
+                </div>
+                <div><span className="text-slate-400">Prix achat:</span> {money(overview.data.product.purchasePrice)}</div>
+                <div><span className="text-slate-400">Prix vente:</span> {money(overview.data.product.sellPrice)}</div>
+                <div><span className="text-slate-400">Seuil d'alerte:</span> {overview.data.product.lowStockThreshold}</div>
+                {overview.data.product.description && (
+                  <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                    {overview.data.product.description}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 p-4">
+              <h3 className="text-sm font-semibold text-slate-900">Stock par franchise</h3>
+              <div className="mt-3 space-y-2">
+                {overview.data.stockByFranchise.map((row) => (
+                  <div key={row.franchiseId} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-sm">
+                    <span className="text-slate-600">{row.franchiseName}</span>
+                    <span className="font-semibold text-slate-900">{row.quantity}</span>
+                  </div>
+                ))}
+                {overview.data.stockByFranchise.length === 0 && (
+                  <div className="text-sm text-slate-400">Aucune ligne de stock.</div>
+                )}
+              </div>
+            </section>
+          </div>
+
+          <section className="rounded-2xl border border-slate-200 p-4">
+            <h3 className="text-sm font-semibold text-slate-900">Mouvements recents</h3>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="th">Date</th>
+                    <th className="th">Type</th>
+                    <th className="th">Franchise</th>
+                    <th className="th text-right">Delta</th>
+                    <th className="th">Utilisateur</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overview.data.recentMovements.map((movement) => (
+                    <tr key={movement._id}>
+                      <td className="td text-slate-500">{dateTime(movement.createdAt)}</td>
+                      <td className="td">{movement.type}</td>
+                      <td className="td">
+                        {typeof movement.franchiseId === 'object' && movement.franchiseId ? movement.franchiseId.name : '—'}
+                      </td>
+                      <td className="td text-right font-medium">{movement.delta}</td>
+                      <td className="td">
+                        {typeof movement.userId === 'object' && movement.userId ? movement.userId.fullName : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                  {overview.data.recentMovements.length === 0 && (
+                    <tr><td className="td text-slate-400" colSpan={5}>Aucun mouvement recent.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-xl font-semibold text-slate-900">{value}</div>
+    </div>
   );
 }
 
@@ -274,11 +418,8 @@ function ProductFormModal({
         ...values,
         supplierId: values.supplierId || null,
       };
-      if (initial) {
-        await api.patch(`/products/${initial._id}`, payload);
-      } else {
-        await api.post('/products', payload);
-      }
+      if (initial) await api.patch(`/products/${initial._id}`, payload);
+      else await api.post('/products', payload);
     },
     onSuccess: onSaved,
     onError: (err) => setError(apiError(err).message),
@@ -294,7 +435,7 @@ function ProductFormModal({
         <div className="flex justify-end gap-2">
           <button className="btn-secondary" onClick={onClose}>Annuler</button>
           <button className="btn-primary" form="product-form" disabled={isSubmitting || save.isPending}>
-            {isSubmitting || save.isPending ? 'Enregistrement…' : 'Enregistrer'}
+            {isSubmitting || save.isPending ? 'Enregistrement...' : 'Enregistrer'}
           </button>
         </div>
       }
@@ -306,9 +447,9 @@ function ProductFormModal({
           {errors.name && <p className="mt-1 text-xs text-rose-600">{errors.name.message}</p>}
         </div>
         <div>
-          <label className="label">Catégorie</label>
+          <label className="label">Categorie</label>
           <select className="input" {...register('categoryId')}>
-            <option value="">Sélectionner</option>
+            <option value="">Selectionner</option>
             {categories.map((category) => (
               <option key={category._id} value={category._id}>{category.name}</option>
             ))}
@@ -329,7 +470,7 @@ function ProductFormModal({
           <input className="input" {...register('brand')} />
         </div>
         <div>
-          <label className="label">Référence</label>
+          <label className="label">Reference</label>
           <input className="input" {...register('reference')} />
         </div>
         <div>
@@ -337,15 +478,15 @@ function ProductFormModal({
           <input className="input" {...register('barcode')} />
         </div>
         <div>
-          <label className="label">Seuil d’alerte</label>
+          <label className="label">Seuil d'alerte</label>
           <input type="number" min={0} className="input" {...register('lowStockThreshold')} />
         </div>
         <div>
-          <label className="label">Prix achat (TND)</label>
+          <label className="label">Prix achat</label>
           <input type="number" step="0.01" min={0} className="input" {...register('purchasePrice')} />
         </div>
         <div>
-          <label className="label">Prix vente (TND)</label>
+          <label className="label">Prix vente</label>
           <input type="number" step="0.01" min={0} className="input" {...register('sellPrice')} />
         </div>
         <div className="sm:col-span-2">
@@ -387,23 +528,21 @@ function ArchiveProductModal({
     <Modal
       open
       size="sm"
-      title="Désactiver le produit"
+      title="Desactiver le produit"
       onClose={onClose}
       footer={
         <div className="flex justify-end gap-2">
           <button className="btn-secondary" onClick={onClose}>Annuler</button>
           <button className="btn-danger" onClick={() => archive.mutate()} disabled={archive.isPending}>
-            {archive.isPending ? 'Traitement…' : 'Désactiver'}
+            {archive.isPending ? 'Traitement...' : 'Desactiver'}
           </button>
         </div>
       }
     >
       <div className="space-y-3 text-sm text-slate-600">
         <p>
-          Le produit <span className="font-semibold text-slate-900">{product.name}</span> sera retiré des listes actives
-          sans casser l’historique des ventes et du stock.
+          Le produit <span className="font-semibold text-slate-900">{product.name}</span> sera retire des listes actives sans casser l'historique des ventes et du stock.
         </p>
-        <p>Ce comportement reprend la logique du legacy PHP, qui désactivait les produits au lieu de les supprimer physiquement.</p>
         {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">{error}</div>}
       </div>
     </Modal>

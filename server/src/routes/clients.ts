@@ -7,6 +7,7 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Client } from '../models/Client.js';
 import { Franchise } from '../models/Franchise.js';
 import { audit } from '../services/audit.service.js';
+import { attachClientListMetrics, getClientOverview } from '../services/clientInsights.service.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
 
 const router = Router();
@@ -57,8 +58,9 @@ router.get(
         .populate('franchiseId', 'name')
         .lean(),
     ]);
+    const items = await attachClientListMetrics(clients, req.user?.franchiseId ?? null);
     res.json({
-      clients,
+      clients: items,
       meta: {
         page,
         pageSize: effectivePageSize,
@@ -66,6 +68,18 @@ router.get(
         totalPages: Math.max(1, Math.ceil(total / effectivePageSize)),
       },
     });
+  }),
+);
+
+router.get(
+  '/:id/overview',
+  requireAuth,
+  validate(z.object({ id: objectId }), 'params'),
+  asyncHandler(async (req, res) => {
+    const overview = await getClientOverview(req.params.id, req.user?.franchiseId ?? null);
+    if (!overview) throw notFound('Client not found');
+    if (overview === 'forbidden') throw forbidden();
+    res.json(overview);
   }),
 );
 
