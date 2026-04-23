@@ -13,6 +13,7 @@ import { UsersPage } from './pages/UsersPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { SuppliersPage } from './pages/SuppliersPage';
 import { AuditPage } from './pages/AuditPage';
+import { NotFoundPage } from './pages/NotFoundPage';
 
 export default function App() {
   return (
@@ -72,7 +73,9 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="*" element={<NotFoundPage />} />
       </Route>
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
 }

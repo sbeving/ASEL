@@ -1,3 +1,5 @@
+name: asel
+
 services:
   mongo:
     image: mongo:7
@@ -6,15 +8,63 @@ services:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-asel}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-asel-dev-password}
       MONGO_INITDB_DATABASE: ${MONGO_DB:-asel}
-    ports:
-      - "27017:27017"
     volumes:
       - mongo-data:/data/db
+    # Port intentionally NOT published on the host for production. To connect
+    # a local GUI during dev: `docker compose --profile dev up -d`.
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks: [asel]
+
+  mongo-expose:
+    # Opt-in helper that publishes mongo's port on the host for local tools.
+    # `docker compose --profile dev up -d` to enable.
+    image: alpine/socat
+    profiles: [dev]
+    command: TCP-LISTEN:27017,fork,reuseaddr TCP:mongo:27017
+    ports: ["127.0.0.1:27017:27017"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks: [asel]
+
+  server:
+    build:
+      context: ./server
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      MONGODB_URI: mongodb://${MONGO_ROOT_USER:-asel}:${MONGO_ROOT_PASSWORD:-asel-dev-password}@mongo:27017/${MONGO_DB:-asel}?authSource=admin
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      JWT_EXPIRES: ${JWT_EXPIRES:-12h}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-ChangeMeNow!2024}
+    networks: [asel]
+
+  client:
+    build:
+      context: ./client
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_started
+    ports:
+      - "${CLIENT_PORT:-8080}:80"
+    networks: [asel]
 
 volumes:
   mongo-data:
+
+networks:
+  asel:
+    driver: bridge

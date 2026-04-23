@@ -8,6 +8,7 @@ import { dateTime } from '../lib/money';
 import { useAuth } from '../auth/AuthContext';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
+import { useToast } from '../components/Toast';
 import type { Franchise, Product, Transfer } from '../lib/types';
 
 const schema = z.object({
@@ -32,6 +33,7 @@ function statusBadge(status: Transfer['status']) {
 export function TransfersPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const toast = useToast();
   const canCreate = user?.role !== 'seller';
   const [open, setOpen] = useState(false);
 
@@ -43,7 +45,13 @@ export function TransfersPage() {
   const resolve = useMutation({
     mutationFn: async ({ id, action }: { id: string; action: 'accept' | 'reject' }) =>
       api.post(`/transfers/${id}/${action}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['transfers'] }),
+    onSuccess: (_res, vars) => {
+      qc.invalidateQueries({ queryKey: ['transfers'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      qc.invalidateQueries({ queryKey: ['stock'] });
+      toast.success(vars.action === 'accept' ? 'Transfert accepté' : 'Transfert rejeté');
+    },
+    onError: (err) => toast.error(apiError(err).message),
   });
 
   return (

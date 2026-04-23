@@ -1,84 +1,125 @@
 # ASEL Mobile — Stock Management (React + Node + MongoDB)
 
-Secure, multi-franchise stock management for ASEL Mobile. Rewritten from the
-legacy PHP/MySQL app to a modern React + Node + MongoDB stack with proper
-RBAC, audit logging, and franchise-scoped data isolation.
+Secure, multi-franchise stock management for ASEL Mobile. A production-ready
+rewrite of the legacy PHP/MySQL app to a modern React + Node + MongoDB stack
+with proper RBAC, audit logging, franchise-scoped data isolation, and
+containerised deployment.
 
 ## Stack
 
 - **Backend** — Node 20, Express, TypeScript, Mongoose (MongoDB 7), Zod, JWT
 - **Frontend** — React 18, Vite, TypeScript, React Router, TanStack Query,
-  React Hook Form, Tailwind CSS
-- **Security** — bcrypt password hashing, httpOnly SameSite=strict cookies,
-  Helmet headers, CORS allow-list, rate-limited auth, input validation on every
-  route, role-based + franchise-scoped authorization, audit trail for mutations
+  React Hook Form + Zod, Tailwind CSS
+- **Ops** — Docker Compose, nginx, GitHub Actions CI, integration tests
+  (vitest + supertest + `mongodb-memory-server`)
 
 ## Repository layout
 
 ```
-server/     Node + Express + Mongoose API
-client/     React + Vite SPA
-docker-compose.yml   MongoDB service
+server/        Node + Express + Mongoose API (Dockerfile, tests)
+client/        React + Vite SPA (Dockerfile, nginx config)
+legacy/        Frozen legacy PHP + Streamlit code (not deployed)
+.github/       CI workflow
+docker-compose.yml
+SECURITY.md    Production security checklist
 ```
 
-Legacy PHP and Streamlit files remain at the repo root for reference until the
-new stack reaches feature parity. They are not wired into the new app.
-
-## Quick start
+## Quick start — Docker (recommended)
 
 ```bash
-# 1. Start MongoDB
+# 1. Create an .env at the repo root — JWT_SECRET is required
 cp .env.example .env
-docker compose up -d mongo
+# Generate a strong secret:
+echo "JWT_SECRET=$(openssl rand -base64 48)" >> .env
 
-# 2. Server
-cd server
-cp .env.example .env           # edit JWT_SECRET at minimum
-npm install
-npm run seed                   # creates initial admin + demo data
-npm run dev                    # http://localhost:4000
+# 2. Bring up the whole stack (mongo + server + client)
+docker compose up --build -d
 
-# 3. Client (in another terminal)
-cd client
-cp .env.example .env
-npm install
-npm run dev                    # http://localhost:5173
+# 3. Seed initial admin + demo data (one-off, idempotent)
+docker compose exec server node dist/seed.js
+
+# App available at http://localhost:8080
+# Default admin: "admin" / "ChangeMeNow!2024" — change immediately after login.
 ```
 
-Default admin credentials created by the seed are printed to stdout — change
-the password immediately after first login.
+Logs: `docker compose logs -f`. Tear down: `docker compose down`.
+
+For local tools that need direct Mongo access, enable the `dev` profile:
+`docker compose --profile dev up -d` exposes port 27017 on the host loopback.
+
+## Quick start — local dev (no Docker)
+
+```bash
+# Root convenience scripts run per-package installs/builds.
+npm run install:all
+
+# In one terminal:
+cd server && cp .env.example .env && npm run seed && npm run dev
+# In another:
+cd client && cp .env.example .env && npm run dev
+# http://localhost:5173 (proxies /api to http://localhost:4000)
+```
+
+You'll still need a MongoDB; start one with `docker compose up -d mongo` if
+you don't have one locally.
 
 ## Roles
 
-| Role       | Scope            | Permissions |
-|------------|------------------|-------------|
-| `admin`    | All franchises   | Full CRUD, user management, audit, settings |
-| `manager`  | All franchises   | Products, stock, sales, transfers, reports |
-| `franchise`| One franchise    | Stock, sales, returns, local transfers, closings |
-| `seller`   | One franchise    | POS / sales only |
+| Role        | Scope            | Permissions |
+|-------------|------------------|-------------|
+| `admin`     | All franchises   | Full CRUD, user management, audit, settings |
+| `manager`   | All franchises   | Products, stock, sales, transfers, reports |
+| `franchise` | One franchise    | Stock, sales, returns, local transfers, closings |
+| `seller`    | One franchise    | POS / sales only |
 
 Franchise- and seller-scoped users only ever see data from their own franchise,
 enforced at the query level in every domain route.
 
-## Feature coverage (first cut)
+## Feature coverage
 
 Implemented:
 
-- Authentication with bcrypt + JWT in httpOnly cookie
-- Users, franchises, categories, suppliers, products CRUD
-- Stock per franchise, stock entries (IN) and adjustments (OUT)
-- Sales (creates movement, decrements stock atomically)
-- Transfers (pending → accepted / rejected with atomic stock swap)
-- Dashboard KPIs (totals, low stock, recent activity)
-- Audit log for every mutation
+- Authentication (bcrypt + JWT in httpOnly cookie) with change-password flow
+- Users, franchises, categories, suppliers, products CRUD with RBAC
+- Stock per franchise, stock entries, manual adjustments
+- Sales / POS with guarded stock decrements and multi-line rollback
+- Transfers with atomic pending → accepted stock swap
+- Dashboard KPIs, low-stock watch, recent activity
+- Audit log for every mutation, redacted in application logs
+- Request ID propagation + structured logs (pino)
+- Graceful shutdown, DB-aware `/api/health`
 
-Deferred (legacy features that need domain follow-up before rebuilding):
+Deferred (legacy features to re-implement as needed):
 
 - Invoicing (`factures`), installments (`échéances` / `avances`), PDF receipts
-- Monthly treasury / closings beyond the daily count
-- SMS reminders / cron
+- Monthly treasury closings beyond daily count
+- SMS reminders / cron jobs
 - OCR product import
 - Map of franchise locations
 
-See `server/src/routes/` for the route boundaries — each deferred feature has a
-clean place to slot in.
+## Development commands
+
+From the repo root:
+
+```bash
+npm run typecheck       # server + client
+npm test                # server integration suite
+npm run build           # server + client production bundles
+npm run seed            # run seed.ts against the configured MONGODB_URI
+npm run docker:up       # build + start all containers
+npm run docker:down     # stop + remove containers
+npm run docker:seed     # idempotent one-off seed inside the server container
+npm run docker:logs     # tail all container logs
+```
+
+## CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and
+every PR:
+
+1. Server typecheck + full integration test suite
+2. Client typecheck + production build
+3. Docker build for both `server/` and `client/` images (cached)
+
+See `SECURITY.md` for the production deployment checklist and the action
+items on the legacy PHP credentials.

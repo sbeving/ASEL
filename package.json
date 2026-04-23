@@ -1,0 +1,19 @@
+{
+  "name": "asel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ASEL Mobile — stock management (React + Node + MongoDB)",
+  "scripts": {
+    "install:all": "npm --prefix server install && npm --prefix client install",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "seed": "npm --prefix server run seed",
+    "typecheck": "npm --prefix server run typecheck && npm --prefix client run typecheck",
+    "test": "npm --prefix server test",
+    "build": "npm --prefix server run build && npm --prefix client run build",
+    "docker:up": "docker compose up --build -d",
+    "docker:down": "docker compose down",
+    "docker:seed": "docker compose exec server node dist/seed.js",
+    "docker:logs": "docker compose logs -f"
+  }
+}

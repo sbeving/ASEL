@@ -8,6 +8,7 @@ import { env } from './config/env.js';
 import { logger } from './utils/logger.js';
 import { apiLimiter } from './middleware/rateLimit.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
+import { requestId } from './middleware/requestId.js';
 
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
@@ -35,7 +36,28 @@ export function createApp(opts: CreateAppOptions = {}): Express {
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:', 'blob:'],
+          connectSrc: ["'self'"],
+          fontSrc: ["'self'", 'data:'],
+          objectSrc: ["'none'"],
+          frameAncestors: ["'none'"],
+          baseUri: ["'self'"],
+          formAction: ["'self'"],
+          upgradeInsecureRequests: env.NODE_ENV === 'production' ? [] : null,
+        },
+      },
+      crossOriginOpenerPolicy: { policy: 'same-origin' },
+      crossOriginResourcePolicy: { policy: 'same-origin' },
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    }),
+  );
   app.use(
     cors({
       origin: (origin, cb) => {
@@ -48,7 +70,15 @@ export function createApp(opts: CreateAppOptions = {}): Express {
   );
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
-  if (!quiet) app.use(pinoHttp({ logger }));
+  app.use(requestId);
+  if (!quiet) {
+    app.use(
+      pinoHttp({
+        logger,
+        customProps: (req) => ({ reqId: (req as { id?: string }).id }),
+      }),
+    );
+  }
   if (rateLimits) app.use(apiLimiter);
 
   app.get('/api/health', (_req, res) => {

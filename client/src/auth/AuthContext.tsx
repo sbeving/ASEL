@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { api } from '../lib/api';
+import { useNavigate } from 'react-router-dom';
+import { api, setUnauthorizedHandler } from '../lib/api';
 import type { User } from '../lib/types';
 
 interface AuthState {
@@ -15,6 +16,7 @@ const AuthCtx = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   const refresh = async () => {
     try {
@@ -31,6 +33,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refresh();
   }, []);
 
+  // Register a global 401 handler: when any request is rejected with 401
+  // (other than the /auth/me boot probe), clear the user and bounce them
+  // to the login page rather than silently returning empty data.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setUser(null);
+      navigate('/login', { replace: true });
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [navigate]);
+
   const login = async (username: string, password: string) => {
     const { data } = await api.post<{ user: User }>('/auth/login', { username, password });
     setUser(data.user);
@@ -41,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await api.post('/auth/logout');
     } finally {
       setUser(null);
+      navigate('/login', { replace: true });
     }
   };
 
