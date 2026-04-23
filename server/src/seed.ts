@@ -8,6 +8,13 @@ import { Category } from './models/Category.js';
 import { Supplier } from './models/Supplier.js';
 import { Product } from './models/Product.js';
 import { Stock } from './models/Stock.js';
+import { Sale } from './models/Sale.js';
+import { Transfer } from './models/Transfer.js';
+import { Reception } from './models/Reception.js';
+import { Client } from './models/Client.js';
+import { Closing } from './models/Closing.js';
+import { Installment } from './models/Installment.js';
+import { MonthlyInventory } from './models/MonthlyInventory.js';
 import { logger } from './utils/logger.js';
 
 async function seed() {
@@ -64,7 +71,7 @@ async function seed() {
 
   // --- Users ---
   const rounds = env.BCRYPT_ROUNDS;
-  await User.insertMany([
+  const users = await User.insertMany([
     {
       username: env.SEED_ADMIN_USERNAME,
       passwordHash: await bcrypt.hash(env.SEED_ADMIN_PASSWORD, rounds),
@@ -88,11 +95,297 @@ async function seed() {
     },
   ]);
 
+  const adminUser = users.find((u) => u.role === 'admin');
+  const mouroujUser = users.find((u) => u.username === 'mourouj');
+  const soukraUser = users.find((u) => u.username === 'soukra');
+  if (!adminUser || !mouroujUser || !soukraUser) {
+    throw new Error('Seed users are missing');
+  }
+
+  // --- Clients ---
+  const clients = await Client.insertMany([
+    {
+      firstName: 'Ahmed',
+      lastName: 'Trabelsi',
+      fullName: 'Ahmed Trabelsi',
+      phone: '52111222',
+      email: 'ahmed.trabelsi@example.com',
+      clientType: 'walkin',
+      franchiseId: franchises[0]!._id,
+      active: true,
+    },
+    {
+      firstName: 'Sarra',
+      lastName: 'Ben Ali',
+      fullName: 'Sarra Ben Ali',
+      phone: '53122334',
+      clientType: 'boutique',
+      company: 'SB Telecom',
+      franchiseId: franchises[0]!._id,
+      active: true,
+    },
+    {
+      firstName: 'Nour',
+      lastName: 'Hammami',
+      fullName: 'Nour Hammami',
+      phone: '54133445',
+      clientType: 'walkin',
+      franchiseId: franchises[1]!._id,
+      active: true,
+    },
+  ]);
+
+  const cable = products.find((p) => p.reference === 'BC03CC') || products[0];
+  const charger = products.find((p) => p.reference === 'S22') || products[1];
+  const phone = products.find((p) => p.reference === 'GPS50-XR13') || products[2];
+  const powerBank = products.find((p) => p.reference === 'KSC-1083') || products[3];
+  if (!cable || !charger || !phone || !powerBank) {
+    throw new Error('Seed products are missing');
+  }
+
+  // --- Sales (for dashboard + installments) ---
+  const sales = await Sale.insertMany([
+    {
+      franchiseId: franchises[0]!._id,
+      userId: mouroujUser._id,
+      items: [
+        { productId: cable._id, quantity: 1, unitPrice: cable.sellPrice, total: cable.sellPrice },
+        { productId: charger._id, quantity: 1, unitPrice: charger.sellPrice, total: charger.sellPrice },
+      ],
+      subtotal: cable.sellPrice + charger.sellPrice,
+      discount: 5,
+      total: cable.sellPrice + charger.sellPrice - 5,
+      paymentMethod: 'cash',
+      note: 'Vente comptoir seed',
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+    },
+    {
+      franchiseId: franchises[1]!._id,
+      userId: soukraUser._id,
+      items: [{ productId: powerBank._id, quantity: 2, unitPrice: powerBank.sellPrice, total: powerBank.sellPrice * 2 }],
+      subtotal: powerBank.sellPrice * 2,
+      discount: 0,
+      total: powerBank.sellPrice * 2,
+      paymentMethod: 'card',
+      note: 'Vente accessoire seed',
+      createdAt: new Date(Date.now() - 75 * 60 * 1000),
+      updatedAt: new Date(Date.now() - 75 * 60 * 1000),
+    },
+  ]);
+
+  await Stock.bulkWrite([
+    {
+      updateOne: {
+        filter: { franchiseId: franchises[0]!._id, productId: cable._id },
+        update: { $inc: { quantity: -1 } },
+      },
+    },
+    {
+      updateOne: {
+        filter: { franchiseId: franchises[0]!._id, productId: charger._id },
+        update: { $inc: { quantity: -1 } },
+      },
+    },
+    {
+      updateOne: {
+        filter: { franchiseId: franchises[1]!._id, productId: powerBank._id },
+        update: { $inc: { quantity: -2 } },
+      },
+    },
+  ]);
+
+  // --- Transfers ---
+  await Transfer.insertMany([
+    {
+      sourceFranchiseId: franchises[0]!._id,
+      destFranchiseId: franchises[1]!._id,
+      productId: charger._id,
+      quantity: 1,
+      status: 'accepted',
+      requestedBy: mouroujUser._id,
+      resolvedBy: adminUser._id,
+      note: 'Rééquilibrage stock chargeurs',
+      resolvedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      createdAt: new Date(Date.now() - 26 * 60 * 60 * 1000),
+      updatedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    },
+    {
+      sourceFranchiseId: franchises[1]!._id,
+      destFranchiseId: franchises[0]!._id,
+      productId: powerBank._id,
+      quantity: 1,
+      status: 'pending',
+      requestedBy: soukraUser._id,
+      note: 'Demande urgente power bank',
+      createdAt: new Date(Date.now() - 50 * 60 * 1000),
+      updatedAt: new Date(Date.now() - 50 * 60 * 1000),
+    },
+  ]);
+
+  await Stock.bulkWrite([
+    {
+      updateOne: {
+        filter: { franchiseId: franchises[0]!._id, productId: charger._id },
+        update: { $inc: { quantity: -1 } },
+      },
+    },
+    {
+      updateOne: {
+        filter: { franchiseId: franchises[1]!._id, productId: charger._id },
+        update: { $inc: { quantity: 1 } },
+      },
+    },
+  ]);
+
+  // --- Receptions ---
+  await Reception.insertMany([
+    {
+      number: `BR-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-1001`,
+      franchiseId: franchises[0]!._id,
+      supplierId: suppliers[0]!._id,
+      receptionDate: new Date(Date.now() - 8 * 60 * 60 * 1000),
+      totalHt: 50,
+      vat: 9.5,
+      totalTtc: 59.5,
+      status: 'validated',
+      note: 'Réception validée seed',
+      userId: adminUser._id,
+      validatedBy: adminUser._id,
+      validatedAt: new Date(Date.now() - 8 * 60 * 60 * 1000),
+      lines: [
+        {
+          productId: cable._id,
+          quantity: 5,
+          unitPriceHt: 10,
+          vatRate: 19,
+          unitPriceTtc: 11.9,
+          totalHt: 50,
+          totalTtc: 59.5,
+        },
+      ],
+      createdAt: new Date(Date.now() - 8 * 60 * 60 * 1000),
+      updatedAt: new Date(Date.now() - 8 * 60 * 60 * 1000),
+    },
+    {
+      number: `BR-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-1002`,
+      franchiseId: franchises[1]!._id,
+      supplierId: suppliers[1]!._id,
+      receptionDate: new Date(Date.now() - 60 * 60 * 1000),
+      totalHt: 120,
+      vat: 22.8,
+      totalTtc: 142.8,
+      status: 'draft',
+      note: 'Brouillon à valider',
+      userId: soukraUser._id,
+      lines: [
+        {
+          productId: phone._id,
+          quantity: 1,
+          unitPriceHt: 120,
+          vatRate: 19,
+          unitPriceTtc: 142.8,
+          totalHt: 120,
+          totalTtc: 142.8,
+        },
+      ],
+      createdAt: new Date(Date.now() - 60 * 60 * 1000),
+      updatedAt: new Date(Date.now() - 60 * 60 * 1000),
+    },
+  ]);
+
+  await Stock.updateOne(
+    { franchiseId: franchises[0]!._id, productId: cable._id },
+    { $inc: { quantity: 5 } },
+  );
+
+  // --- Closings ---
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  yesterday.setHours(0, 0, 0, 0);
+  await Closing.insertMany([
+    {
+      franchiseId: franchises[0]!._id,
+      closingDate: yesterday,
+      declaredSalesTotal: 95,
+      declaredItemsTotal: 3,
+      systemSalesTotal: 90,
+      systemItemsTotal: 2,
+      comment: 'Ecart caisse mineur constaté',
+      validated: false,
+      submittedBy: mouroujUser._id,
+      createdAt: new Date(Date.now() - 20 * 60 * 60 * 1000),
+      updatedAt: new Date(Date.now() - 20 * 60 * 60 * 1000),
+    },
+  ]);
+
+  // --- Installments ---
+  await Installment.insertMany([
+    {
+      saleId: sales[0]!._id,
+      franchiseId: franchises[0]!._id,
+      clientId: clients[1]!._id,
+      amount: 40,
+      dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+      status: 'pending',
+      note: '1ère échéance',
+      userId: mouroujUser._id,
+    },
+    {
+      saleId: sales[0]!._id,
+      franchiseId: franchises[0]!._id,
+      clientId: clients[1]!._id,
+      amount: 45,
+      dueDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+      status: 'late',
+      note: '2ème échéance en retard',
+      userId: mouroujUser._id,
+    },
+  ]);
+
+  // --- Monthly inventory ---
+  const latestStock = await Stock.find({ franchiseId: franchises[0]!._id, productId: { $in: [cable._id, charger._id, phone._id] } })
+    .select('productId quantity');
+  const stockMap = new Map(latestStock.map((s) => [s.productId.toString(), s.quantity]));
+
+  const month = new Date().toISOString().slice(0, 7);
+  await MonthlyInventory.insertMany([
+    {
+      franchiseId: franchises[0]!._id,
+      month,
+      status: 'draft',
+      totalSystemQuantity: (stockMap.get(cable._id.toString()) ?? 0) + (stockMap.get(charger._id.toString()) ?? 0),
+      totalCountedQuantity: (stockMap.get(cable._id.toString()) ?? 0) + (stockMap.get(charger._id.toString()) ?? 0) - 1,
+      totalVariance: -1,
+      appliedAdjustments: false,
+      note: 'Brouillon inventaire mensuel',
+      createdBy: adminUser._id,
+      lines: [
+        {
+          productId: cable._id,
+          systemQuantity: stockMap.get(cable._id.toString()) ?? 0,
+          countedQuantity: stockMap.get(cable._id.toString()) ?? 0,
+          variance: 0,
+          note: 'RAS',
+        },
+        {
+          productId: charger._id,
+          systemQuantity: stockMap.get(charger._id.toString()) ?? 0,
+          countedQuantity: Math.max(0, (stockMap.get(charger._id.toString()) ?? 0) - 1),
+          variance: -1,
+          note: '1 pièce manquante',
+        },
+      ],
+    },
+  ]);
+
   logger.info(
     {
       franchises: franchises.length,
       categories: categories.length,
       products: products.length,
+      clients: clients.length,
+      sales: sales.length,
     },
     'Seed complete',
   );

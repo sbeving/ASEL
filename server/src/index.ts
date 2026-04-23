@@ -20,6 +20,13 @@ import saleRoutes from './routes/sales.js';
 import transferRoutes from './routes/transfers.js';
 import dashboardRoutes from './routes/dashboard.js';
 import auditRoutes from './routes/audit.js';
+import clientRoutes from './routes/clients.js';
+import receptionRoutes from './routes/receptions.js';
+import closingRoutes from './routes/closings.js';
+import installmentRoutes from './routes/installments.js';
+import monthlyInventoryRoutes from './routes/monthlyInventories.js';
+import timeLogRoutes from './routes/timeLogs.js';
+import cashFlowRoutes from './routes/cashFlows.js';
 
 async function main() {
   await connectDb();
@@ -57,6 +64,13 @@ async function main() {
   app.use('/api/transfers', transferRoutes);
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/audit', auditRoutes);
+  app.use('/api/clients', clientRoutes);
+  app.use('/api/receptions', receptionRoutes);
+  app.use('/api/closings', closingRoutes);
+  app.use('/api/installments', installmentRoutes);
+  app.use('/api/monthly-inventories', monthlyInventoryRoutes);
+  app.use('/api/timelogs', timeLogRoutes);
+  app.use('/api/cashflows', cashFlowRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

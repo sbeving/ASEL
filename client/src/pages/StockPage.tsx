@@ -8,7 +8,9 @@ import { money } from '../lib/money';
 import { useAuth } from '../auth/AuthContext';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
-import type { Franchise, Product, StockItem } from '../lib/types';
+import { TablePagination } from '../components/TablePagination';
+import { useDebouncedValue } from '../lib/hooks';
+import type { Franchise, PageMeta, Product, StockItem } from '../lib/types';
 
 export function StockPage() {
   const { user } = useAuth();
@@ -22,19 +24,28 @@ export function StockPage() {
 
   const [selectedFid, setSelectedFid] = useState<string>('');
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 250);
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
   const [lowOnly, setLowOnly] = useState(false);
   const [entryOpen, setEntryOpen] = useState(false);
 
   const effectiveFid = isGlobal ? selectedFid : user?.franchiseId ?? '';
   const stock = useQuery({
     enabled: !!effectiveFid,
-    queryKey: ['stock', effectiveFid, search, lowOnly],
+    queryKey: ['stock', effectiveFid, debouncedSearch, lowOnly, page],
     queryFn: async () =>
       (
-        await api.get<{ items: StockItem[] }>('/stock', {
-          params: { franchiseId: effectiveFid, q: search || undefined, lowOnly: lowOnly || undefined },
+        await api.get<{ items: StockItem[]; meta: PageMeta }>('/stock', {
+          params: {
+            franchiseId: effectiveFid,
+            q: debouncedSearch || undefined,
+            lowOnly: lowOnly || undefined,
+            page,
+            pageSize,
+          },
         })
-      ).data.items,
+      ).data,
   });
 
   const canEnter = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'franchise';
@@ -65,10 +76,20 @@ export function StockPage() {
           placeholder="Rechercher un produit…"
           className="input max-w-md"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
         />
         <label className="inline-flex items-center gap-2 text-sm text-slate-600">
-          <input type="checkbox" checked={lowOnly} onChange={(e) => setLowOnly(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={lowOnly}
+            onChange={(e) => {
+              setLowOnly(e.target.checked);
+              setPage(1);
+            }}
+          />
           Stock faible seulement
         </label>
       </div>
@@ -90,7 +111,7 @@ export function StockPage() {
               </tr>
             </thead>
             <tbody>
-              {(stock.data ?? []).map((s) => {
+              {(stock.data?.items ?? []).map((s) => {
                 const low = s.quantity <= s.product.lowStockThreshold;
                 return (
                   <tr key={s._id} className={low ? 'bg-rose-50/50' : undefined}>
@@ -106,13 +127,14 @@ export function StockPage() {
                   </tr>
                 );
               })}
-              {!stock.isLoading && (stock.data?.length ?? 0) === 0 && (
+              {!stock.isLoading && (stock.data?.items.length ?? 0) === 0 && (
                 <tr><td className="td text-slate-400" colSpan={7}>Aucun stock pour cette franchise.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       )}
+      <TablePagination meta={stock.data?.meta} onPageChange={setPage} />
 
       {entryOpen && effectiveFid && (
         <StockEntryModal

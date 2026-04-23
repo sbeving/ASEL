@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'manager' | 'franchise' | 'seller';
+export type Role = 'admin' | 'superadmin' | 'manager' | 'franchise' | 'seller' | 'vendeur' | 'viewer';
 
 export interface User {
   id: string;
@@ -32,6 +32,17 @@ export interface Supplier {
   phone?: string;
   email?: string;
   address?: string;
+  active: boolean;
+}
+
+export interface Client {
+  _id: string;
+  firstName?: string;
+  lastName?: string;
+  fullName: string;
+  phone?: string;
+  email?: string;
+  franchiseId?: Franchise | string | null;
   active: boolean;
 }
 
@@ -130,5 +141,95 @@ export interface AuditLog {
   entityId?: string | null;
   details?: unknown;
   ip?: string;
+  createdAt: string;
+}
+
+export interface PageMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface MonthlyInventoryLine {
+  productId: Product | string;
+  systemQuantity: number;
+  countedQuantity: number;
+  variance: number;
+  note?: string;
+}
+
+export interface MonthlyInventory {
+  _id: string;
+  franchiseId: Franchise | string;
+  month: string;
+  status: 'draft' | 'finalized';
+  totalSystemQuantity: number;
+  totalCountedQuantity: number;
+  totalVariance: number;
+  appliedAdjustments: boolean;
+  note?: string;
+  lines: MonthlyInventoryLine[];
+  createdBy?: User | string;
+  finalizedBy?: User | string | null;
+  finalizedAt?: string | null;
+  createdAt: string;
+}
+
+export interface ReceptionLine {
+  productId: Product | string;
+  quantity: number;
+  unitPriceHt: number;
+  unitPriceTtc: number;
+  vatRate: number;
+  totalHt: number;
+  totalTtc: number;
+}
+
+export interface Reception {
+  _id: string;
+  number: string;
+  franchiseId: Franchise | string;
+  supplierId?: Supplier | string | null;
+  status: 'draft' | 'validated' | 'cancelled';
+  totalHt: number;
+  vat: number;
+  totalTtc: number;
+  note?: string;
+  userId?: User | string;
+  validatedBy?: User | string | null;
+  validatedAt?: string | null;
+  lines: ReceptionLine[];
+  createdAt: string;
+}
+
+export interface Closing {
+  _id: string;
+  franchiseId: Franchise | string;
+  closingDate: string;
+  declaredSalesTotal: number;
+  declaredItemsTotal: number;
+  systemSalesTotal: number;
+  systemItemsTotal: number;
+  comment?: string;
+  validated: boolean;
+  submittedBy?: User | string;
+  validatedBy?: User | string | null;
+  validatedAt?: string | null;
+  createdAt: string;
+}
+
+export interface Installment {
+  _id: string;
+  saleId: Sale | string;
+  franchiseId: Franchise | string;
+  clientId?: Client | string | null;
+  amount: number;
+  dueDate: string;
+  status: 'pending' | 'paid' | 'late';
+  paidAt?: string | null;
+  paymentMethod?: string | null;
+  note?: string;
+  userId?: User | string;
   createdAt: string;
 }

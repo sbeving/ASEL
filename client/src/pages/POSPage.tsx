@@ -4,7 +4,9 @@ import { api, apiError } from '../lib/api';
 import { money } from '../lib/money';
 import { useAuth } from '../auth/AuthContext';
 import { PageHeader } from '../components/PageHeader';
+import { useDebouncedValue } from '../lib/hooks';
 import type { Franchise, StockItem } from '../lib/types';
+import { ScannerModal } from '../components/ScannerModal';
 
 interface CartLine {
   productId: string;
@@ -29,16 +31,20 @@ export function POSPage() {
   const effectiveFid = isGlobal ? selectedFid : user?.franchiseId ?? '';
 
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 250);
   const stock = useQuery({
     enabled: !!effectiveFid,
-    queryKey: ['stock-pos', effectiveFid, search],
+    queryKey: ['stock-pos', effectiveFid, debouncedSearch],
     queryFn: async () =>
       (
         await api.get<{ items: StockItem[] }>('/stock', {
-          params: { franchiseId: effectiveFid, q: search || undefined },
+          params: { franchiseId: effectiveFid, q: debouncedSearch || undefined, pageSize: 100 },
         })
       ).data.items,
   });
+
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
 
   const [cart, setCart] = useState<CartLine[]>([]);
   const [discount, setDiscount] = useState(0);
@@ -126,6 +132,31 @@ export function POSPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setCameraError(null);
+                  setCameraOpen(true);
+                }}
+              >
+                Scanner code-barres (camera)
+              </button>
+              {cameraError && <span className="text-xs text-rose-600">{cameraError}</span>}
+            </div>
+            {cameraOpen && (
+              <ScannerModal 
+                onScan={(raw) => {
+                  if (raw) {
+                    setSearch(raw);
+                    setCameraOpen(false);
+                  }
+                }} 
+                onClose={() => setCameraOpen(false)}
+                onError={(err) => setCameraError(err)}
+              />
+            )}
             <div className="max-h-[60vh] overflow-y-auto divide-y divide-slate-100">
               {(stock.data ?? []).map((s) => (
                 <button

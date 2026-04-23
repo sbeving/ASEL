@@ -2,7 +2,7 @@ import type { RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { forbidden, unauthorized } from '../utils/AppError.js';
-import type { Role } from '../utils/roles.js';
+import { isGlobalRole, type Role } from '../utils/roles.js';
 
 export const AUTH_COOKIE = 'asel_session';
 
@@ -46,6 +46,7 @@ export const requireAuth: RequestHandler = (req, _res, next) => {
 export function requireRole(...roles: Role[]): RequestHandler {
   return (req, _res, next) => {
     if (!req.user) return next(unauthorized());
+    if (req.user.role === 'superadmin') return next();
     if (!roles.includes(req.user.role)) return next(forbidden());
     next();
   };
@@ -62,7 +63,7 @@ export function franchiseScopeFilter(
   field = 'franchiseId',
 ): Record<string, unknown> {
   if (!user) return { _neverMatch: true };
-  if (user.role === 'admin' || user.role === 'manager') return {};
+  if (isGlobalRole(user.role)) return {};
   if (!user.franchiseId) return { _neverMatch: true };
   return { [field]: user.franchiseId };
 }

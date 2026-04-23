@@ -29,6 +29,9 @@ const listQuery = z.object({
   franchiseId: objectId.optional(),
   lowOnly: z.enum(['true', 'false']).optional().transform((v) => v === 'true'),
   q: z.string().max(100).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(500).default(50),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
 /**
@@ -40,7 +43,9 @@ router.get(
   requireAuth,
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
-    const { franchiseId, lowOnly, q } = req.query as unknown as z.infer<typeof listQuery>;
+    const { franchiseId, lowOnly, q, page, pageSize, limit } = req.query as unknown as z.infer<typeof listQuery>;
+    const effectivePageSize = limit ?? pageSize;
+    const skip = (page - 1) * effectivePageSize;
     const fid = resolveFranchiseId(req.user, franchiseId);
 
     const pipeline: mongoose.PipelineStage[] = [
@@ -78,10 +83,24 @@ router.get(
       pipeline.push({ $match: { $expr: { $lte: ['$quantity', '$product.lowStockThreshold'] } } });
     }
 
-    pipeline.push({ $sort: { 'product.name': 1 } });
+    const countPipeline: mongoose.PipelineStage[] = [...pipeline, { $count: 'total' }];
+    pipeline.push({ $sort: { 'product.name': 1 } }, { $skip: skip }, { $limit: effectivePageSize });
 
-    const items = await Stock.aggregate(pipeline);
-    res.json({ franchiseId: fid, items });
+    const [items, totalResult] = await Promise.all([
+      Stock.aggregate(pipeline),
+      Stock.aggregate(countPipeline),
+    ]);
+    const total = totalResult[0]?.total ?? 0;
+    res.json({
+      franchiseId: fid,
+      items,
+      meta: {
+        page,
+        pageSize: effectivePageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / effectivePageSize)),
+      },
+    });
   }),
 );
 

@@ -32,7 +32,9 @@ const listQuery = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
-  limit: z.coerce.number().int().min(1).max(500).default(200),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(500).default(50),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
 router.get(
@@ -40,16 +42,38 @@ router.get(
   requireAuth,
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
-    const { q, categoryId, active, limit } = req.query as unknown as z.infer<typeof listQuery>;
+    const { q, categoryId, active, page, pageSize, limit } = req.query as unknown as z.infer<typeof listQuery>;
+    const effectivePageSize = limit ?? pageSize;
+    const skip = (page - 1) * effectivePageSize;
     const filter: Record<string, unknown> = {};
     if (categoryId) filter.categoryId = categoryId;
     if (active !== undefined) filter.active = active;
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      filter.$or = [{ name: rx }, { reference: rx }, { barcode: rx }, { brand: rx }];
+      filter.$or = [
+        { barcode: q },
+        { reference: q },
+        { name: rx },
+        { reference: rx },
+        { barcode: rx },
+        { brand: rx },
+      ];
     }
-    const products = await Product.find(filter).sort({ name: 1 }).limit(limit);
-    res.json({ products });
+
+    const [total, products] = await Promise.all([
+      Product.countDocuments(filter),
+      Product.find(filter).sort({ name: 1 }).skip(skip).limit(effectivePageSize).lean(),
+    ]);
+
+    res.json({
+      products,
+      meta: {
+        page,
+        pageSize: effectivePageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / effectivePageSize)),
+      },
+    });
   }),
 );
 

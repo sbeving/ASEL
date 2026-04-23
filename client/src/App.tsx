@@ -13,6 +13,11 @@ import { UsersPage } from './pages/UsersPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { SuppliersPage } from './pages/SuppliersPage';
 import { AuditPage } from './pages/AuditPage';
+import { ClientsPage } from './pages/ClientsPage';
+import { ReceptionsPage } from './pages/ReceptionsPage';
+import { ClosingsPage } from './pages/ClosingsPage';
+import { InstallmentsPage } from './pages/InstallmentsPage';
+import { MonthlyInventoryPage } from './pages/MonthlyInventoryPage';
 
 export default function App() {
   return (
@@ -30,12 +35,17 @@ export default function App() {
         <Route path="stock" element={<StockPage />} />
         <Route path="sales" element={<SalesPage />} />
         <Route path="pos" element={<POSPage />} />
+        <Route path="clients" element={<ClientsPage />} />
         <Route path="transfers" element={<TransfersPage />} />
+        <Route path="receptions" element={<ReceptionsPage />} />
+        <Route path="closings" element={<ClosingsPage />} />
+        <Route path="installments" element={<InstallmentsPage />} />
+        <Route path="monthly-inventory" element={<MonthlyInventoryPage />} />
         <Route path="products" element={<ProductsPage />} />
         <Route
           path="categories"
           element={
-            <ProtectedRoute roles={['admin', 'manager']}>
+            <ProtectedRoute roles={['admin', 'superadmin', 'manager']}>
               <CategoriesPage />
             </ProtectedRoute>
           }
@@ -43,7 +53,7 @@ export default function App() {
         <Route
           path="suppliers"
           element={
-            <ProtectedRoute roles={['admin', 'manager']}>
+            <ProtectedRoute roles={['admin', 'superadmin', 'manager']}>
               <SuppliersPage />
             </ProtectedRoute>
           }
@@ -51,7 +61,7 @@ export default function App() {
         <Route
           path="franchises"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute roles={['admin', 'superadmin']}>
               <FranchisesPage />
             </ProtectedRoute>
           }
@@ -59,7 +69,7 @@ export default function App() {
         <Route
           path="users"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute roles={['admin', 'superadmin']}>
               <UsersPage />
             </ProtectedRoute>
           }
@@ -67,7 +77,7 @@ export default function App() {
         <Route
           path="audit"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute roles={['admin', 'superadmin']}>
               <AuditPage />
             </ProtectedRoute>
           }

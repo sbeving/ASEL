@@ -8,7 +8,9 @@ import { money } from '../lib/money';
 import { useAuth } from '../auth/AuthContext';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
-import type { Category, Product, Supplier } from '../lib/types';
+import { TablePagination } from '../components/TablePagination';
+import { useDebouncedValue } from '../lib/hooks';
+import type { Category, PageMeta, Product, Supplier } from '../lib/types';
 
 const schema = z.object({
   name: z.string().min(1, 'Nom requis').max(150),
@@ -29,13 +31,21 @@ export function ProductsPage() {
   const { user } = useAuth();
   const canEdit = user?.role === 'admin' || user?.role === 'manager';
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 250);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
   const [editing, setEditing] = useState<Product | null>(null);
   const [creating, setCreating] = useState(false);
   const qc = useQueryClient();
 
   const products = useQuery({
-    queryKey: ['products', search],
-    queryFn: async () => (await api.get<{ products: Product[] }>('/products', { params: { q: search || undefined } })).data.products,
+    queryKey: ['products', debouncedSearch, page],
+    queryFn: async () =>
+      (
+        await api.get<{ products: Product[]; meta: PageMeta }>('/products', {
+          params: { q: debouncedSearch || undefined, page, pageSize },
+        })
+      ).data,
   });
   const categories = useQuery({
     queryKey: ['categories'],
@@ -55,7 +65,7 @@ export function ProductsPage() {
     <>
       <PageHeader
         title="Produits"
-        subtitle={`${products.data?.length ?? 0} produits au catalogue`}
+        subtitle={`${products.data?.meta.total ?? 0} produits au catalogue`}
         actions={canEdit && (
           <button className="btn-primary" onClick={() => setCreating(true)}>+ Nouveau produit</button>
         )}
@@ -66,7 +76,10 @@ export function ProductsPage() {
           placeholder="Recherche par nom, référence, code-barres, marque…"
           className="input max-w-md"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
         />
       </div>
       <div className="card overflow-x-auto">
@@ -84,7 +97,7 @@ export function ProductsPage() {
             </tr>
           </thead>
           <tbody>
-            {(products.data ?? []).map((p) => (
+            {(products.data?.products ?? []).map((p) => (
               <tr key={p._id}>
                 <td className="td font-medium">{p.name}</td>
                 <td className="td text-slate-500">{categoriesById.get(p.categoryId) ?? '—'}</td>
@@ -104,12 +117,13 @@ export function ProductsPage() {
                 )}
               </tr>
             ))}
-            {!products.isLoading && (products.data?.length ?? 0) === 0 && (
+            {!products.isLoading && (products.data?.products.length ?? 0) === 0 && (
               <tr><td className="td text-slate-400" colSpan={canEdit ? 8 : 7}>Aucun produit.</td></tr>
             )}
           </tbody>
         </table>
       </div>
+      <TablePagination meta={products.data?.meta} onPageChange={setPage} className="mt-3 px-3 pb-3" />
 
       {canEdit && (creating || editing) && (
         <ProductForm

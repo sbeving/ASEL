@@ -8,13 +8,18 @@ const nav: { to: string; label: string; roles?: Role[] }[] = [
   { to: '/stock', label: 'Stock' },
   { to: '/sales', label: 'Ventes' },
   { to: '/pos', label: 'Caisse (POS)' },
+  { to: '/clients', label: 'Clients' },
   { to: '/transfers', label: 'Transferts' },
+  { to: '/receptions', label: 'Bons de réception', roles: ['admin', 'superadmin', 'manager', 'franchise'] },
+  { to: '/monthly-inventory', label: 'Inventaire mensuel', roles: ['admin', 'superadmin', 'manager', 'franchise'] },
+  { to: '/closings', label: 'Clôtures', roles: ['admin', 'superadmin', 'manager', 'franchise'] },
+  { to: '/installments', label: 'Echéances', roles: ['admin', 'superadmin', 'manager', 'franchise'] },
   { to: '/products', label: 'Produits' },
-  { to: '/categories', label: 'Catégories', roles: ['admin', 'manager'] },
-  { to: '/suppliers', label: 'Fournisseurs', roles: ['admin', 'manager'] },
-  { to: '/franchises', label: 'Franchises', roles: ['admin'] },
-  { to: '/users', label: 'Utilisateurs', roles: ['admin'] },
-  { to: '/audit', label: 'Journal d’audit', roles: ['admin'] },
+  { to: '/categories', label: 'Catégories', roles: ['admin', 'superadmin', 'manager'] },
+  { to: '/suppliers', label: 'Fournisseurs', roles: ['admin', 'superadmin', 'manager'] },
+  { to: '/franchises', label: 'Franchises', roles: ['admin', 'superadmin'] },
+  { to: '/users', label: 'Utilisateurs', roles: ['admin', 'superadmin'] },
+  { to: '/audit', label: 'Journal d’audit', roles: ['admin', 'superadmin'] },
 ];
 
 export function Layout() {

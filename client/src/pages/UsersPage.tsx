@@ -9,12 +9,12 @@ import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import type { Franchise, Role, User } from '../lib/types';
 
-const ROLES: Role[] = ['admin', 'manager', 'franchise', 'seller'];
+const ROLES: Role[] = ['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur', 'viewer'];
 
 const createSchema = z.object({
   username: z.string().min(3).max(50),
   fullName: z.string().min(1).max(100),
-  role: z.enum(['admin', 'manager', 'franchise', 'seller']),
+  role: z.enum(['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur', 'viewer']),
   franchiseId: z.string().optional().nullable(),
   password: z.string().min(8).max(200),
   active: z.boolean().optional(),
@@ -22,10 +22,10 @@ const createSchema = z.object({
 const editSchema = createSchema.partial().extend({
   password: z.string().min(8).max(200).optional().or(z.literal('')),
 });
-type CreateValues = z.infer<typeof createSchema>;
+type EditValues = z.infer<typeof editSchema>;
 
 function isScoped(role: Role) {
-  return role === 'franchise' || role === 'seller';
+  return role === 'franchise' || role === 'seller' || role === 'vendeur' || role === 'viewer';
 }
 
 export function UsersPage() {
@@ -127,7 +127,7 @@ function UserForm({
     handleSubmit,
     watch,
     formState: { isSubmitting },
-  } = useForm<CreateValues>({
+  } = useForm<EditValues>({
     resolver: zodResolver(initial ? editSchema : createSchema) as never,
     defaultValues: initial
       ? {
@@ -141,11 +141,11 @@ function UserForm({
       : { username: '', fullName: '', role: 'franchise', franchiseId: '', password: '', active: true },
   });
 
-  const role = watch('role');
+  const role = watch('role') ?? 'franchise';
   const scoped = isScoped(role);
 
   const save = useMutation({
-    mutationFn: async (values: CreateValues) => {
+    mutationFn: async (values: EditValues) => {
       const payload: Record<string, unknown> = {
         ...values,
         franchiseId: scoped ? values.franchiseId || null : null,
