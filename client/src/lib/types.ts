@@ -45,9 +45,17 @@ export interface Client {
   lastName?: string;
   fullName: string;
   phone?: string;
+  phone2?: string;
   email?: string;
+  address?: string;
+  clientType?: 'walkin' | 'boutique' | 'wholesale' | 'passager' | 'other';
+  company?: string;
+  taxId?: string;
+  cin?: string;
+  notes?: string;
   franchiseId?: Franchise | string | null;
   active: boolean;
+  createdAt?: string;
 }
 
 export interface Product {

@@ -115,4 +115,28 @@ router.patch(
   }),
 );
 
+router.delete(
+  '/:id',
+  requireAuth,
+  requireRole('admin', 'manager'),
+  validate(z.object({ id: objectId }), 'params'),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as { id: string };
+    const product = await Product.findById(id);
+    if (!product) throw notFound('Product not found');
+
+    product.active = false;
+    await product.save();
+
+    await audit(req, {
+      action: 'product.archive',
+      entity: 'Product',
+      entityId: id,
+      details: { name: product.name },
+    });
+
+    res.json({ product });
+  }),
+);
+
 export default router;

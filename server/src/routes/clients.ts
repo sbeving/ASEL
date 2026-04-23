@@ -154,4 +154,32 @@ router.patch(
   }),
 );
 
+router.delete(
+  '/:id',
+  requireAuth,
+  requireRole('admin', 'manager', 'franchise', 'seller'),
+  validate(z.object({ id: objectId }), 'params'),
+  asyncHandler(async (req, res) => {
+    const id = req.params.id;
+    const client = await Client.findById(id);
+    if (!client) throw notFound('Client not found');
+
+    const scope = franchiseScopeFilter(req.user);
+    if (scope.franchiseId && client.franchiseId?.toString() !== scope.franchiseId) throw forbidden();
+
+    client.active = false;
+    await client.save();
+
+    await audit(req, {
+      action: 'client.archive',
+      entity: 'Client',
+      entityId: id,
+      franchiseId: client.franchiseId?.toString() ?? null,
+      details: { fullName: client.fullName },
+    });
+
+    res.json({ client });
+  }),
+);
+
 export default router;
