@@ -7,7 +7,8 @@ const schema = z.object({
   MONGODB_URI: z.string().min(1),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 chars'),
   JWT_EXPIRES: z.string().default('12h'),
-  BCRYPT_ROUNDS: z.coerce.number().int().min(10).max(14).default(12),
+  // Default 12 (~200ms/hash). Lower values allowed for fast test suites only.
+  BCRYPT_ROUNDS: z.coerce.number().int().min(4).max(14).default(12),
   COOKIE_SECURE: z
     .string()
     .default('false')

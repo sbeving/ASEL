@@ -5,7 +5,9 @@ import { franchiseScopeFilter, requireAuth, requireRole } from '../middleware/au
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Sale } from '../models/Sale.js';
+import { Movement } from '../models/Movement.js';
 import { Product } from '../models/Product.js';
+import { Stock } from '../models/Stock.js';
 import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
@@ -66,9 +68,10 @@ router.post(
     if (discount > subtotal) throw badRequest('Discount cannot exceed subtotal');
     const total = Math.max(0, Math.round((subtotal - discount) * 100) / 100);
 
-    // Note: replica set required for real transactions. We fall back to best-effort
-    // ordering when running against a standalone mongod — stock guard still prevents
-    // negative stock even without a transaction.
+    // A real transaction would need a Mongo replica set. To stay
+    // correct against a standalone mongod, we apply deltas one by one and
+    // roll back any successful ones if a later line fails. Movements are
+    // tagged with the sale id so rollback can wipe them by refId.
     const sale = await Sale.create({
       franchiseId: fid,
       userId: req.user!.sub,
@@ -80,6 +83,7 @@ router.post(
       note: input.note,
     });
 
+    const applied: Array<{ productId: mongoose.Types.ObjectId; delta: number }> = [];
     try {
       for (const item of computedItems) {
         await applyStockDelta({
@@ -91,9 +95,16 @@ router.post(
           unitPrice: item.unitPrice,
           refId: sale._id,
         });
+        applied.push({ productId: item.productId, delta: -item.quantity });
       }
     } catch (err) {
-      // Roll back sale header if stock guard rejected
+      for (const a of applied) {
+        await Stock.updateOne(
+          { franchiseId: fid, productId: a.productId },
+          { $inc: { quantity: -a.delta } },
+        );
+      }
+      await Movement.deleteMany({ refId: sale._id });
       await Sale.deleteOne({ _id: sale._id });
       throw err;
     }
