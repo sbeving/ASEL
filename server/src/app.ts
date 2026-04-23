@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import pinoHttp from 'pino-http';
+import mongoose from 'mongoose';
 import { env } from './config/env.js';
 import { logger } from './utils/logger.js';
 import { apiLimiter } from './middleware/rateLimit.js';
@@ -50,7 +51,17 @@ export function createApp(opts: CreateAppOptions = {}): Express {
   if (!quiet) app.use(pinoHttp({ logger }));
   if (rateLimits) app.use(apiLimiter);
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+  app.get('/api/health', (_req, res) => {
+    // 1 = connected. Surface the state so a load balancer can mark the
+    // instance unhealthy while the driver is reconnecting.
+    const dbState = mongoose.connection.readyState;
+    const ok = dbState === 1;
+    res.status(ok ? 200 : 503).json({
+      ok,
+      db: ok ? 'up' : 'down',
+      time: new Date().toISOString(),
+    });
+  });
 
   app.use('/api/auth', authRoutes);
   app.use('/api/users', userRoutes);
