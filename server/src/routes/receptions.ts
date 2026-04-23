@@ -9,6 +9,8 @@ import { Supplier } from '../models/Supplier.js';
 import { Product } from '../models/Product.js';
 import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
+import { extractTextFromDocument, parseReceptionOcr } from '../services/ocr.service.js';
+import { receptionOcrUpload, toUploadPath } from '../middleware/upload.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
 
 const router = Router();
@@ -39,6 +41,7 @@ const payload = z.object({
   supplierId: objectId.nullable().optional(),
   receptionDate: z.string().datetime().optional(),
   note: z.string().trim().max(2000).optional(),
+  sourceDocumentPath: z.string().trim().max(260).optional(),
   status: z.enum(['draft', 'validated']).default('draft'),
   lines: z.array(lineSchema).default([]),
 });
@@ -116,6 +119,7 @@ router.post(
       totalTtc,
       status: input.status,
       note: input.note,
+      sourceDocumentPath: input.sourceDocumentPath,
       userId: req.user!.sub,
       lines,
     });
@@ -150,6 +154,59 @@ router.post(
   }),
 );
 
+router.post(
+  '/ocr',
+  requireAuth,
+  requireRole('admin', 'manager', 'franchise'),
+  receptionOcrUpload.single('document'),
+  asyncHandler(async (req, res) => {
+    if (!req.file) throw badRequest('document file is required');
+
+    const extraction = await extractTextFromDocument(req.file.path, req.file.mimetype);
+    const products = await Product.find({ active: true })
+      .select('name reference barcode')
+      .sort({ name: 1 })
+      .lean();
+    const parsed = parseReceptionOcr(
+      extraction.text,
+      products.map((p) => ({
+        id: p._id.toString(),
+        name: p.name,
+        reference: p.reference,
+        barcode: p.barcode,
+      })),
+    );
+
+    let suggestedSupplierId: string | null = null;
+    if (parsed.header.supplierName) {
+      const escaped = parsed.header.supplierName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const supplier = await Supplier.findOne({
+        name: { $regex: escaped, $options: 'i' },
+        active: true,
+      })
+        .select('_id name')
+        .lean();
+      if (supplier?._id) suggestedSupplierId = supplier._id.toString();
+    }
+
+    res.json({
+      documentPath: toUploadPath('reception-ocr', req.file.filename),
+      extraction: {
+        engine: extraction.engine,
+        warnings: extraction.warnings,
+        textPreview: extraction.text.slice(0, 6000),
+      },
+      suggestion: {
+        ...parsed,
+        header: {
+          ...parsed.header,
+          supplierId: suggestedSupplierId,
+        },
+      },
+    });
+  }),
+);
+
 router.patch(
   '/:id',
   requireAuth,
@@ -173,6 +230,7 @@ router.patch(
     if (input.receptionDate) reception.receptionDate = new Date(input.receptionDate);
     if (input.note !== undefined) reception.note = input.note;
     if (input.number) reception.number = input.number;
+    if (input.sourceDocumentPath !== undefined) reception.sourceDocumentPath = input.sourceDocumentPath;
 
     if (input.lines) {
       const productIds = input.lines.map((l) => l.productId);

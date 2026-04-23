@@ -20,3 +20,14 @@ export function apiError(err: unknown): ApiErrorPayload {
   }
   return { code: 'UNKNOWN', message: 'Unexpected error' };
 }
+
+export function uploadUrl(path?: string | null): string {
+  if (!path) return '';
+  const clean = path.replace(/^\/+/, '');
+  const encoded = clean
+    .split('/')
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join('/');
+  return `/api/uploads/${encoded}`;
+}

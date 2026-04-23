@@ -7,7 +7,7 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { CashFlow } from '../models/CashFlow.js';
 import { audit } from '../services/audit.service.js';
 import { treasuryAttachmentUpload, toUploadPath } from '../middleware/upload.js';
-import { forbidden } from '../utils/AppError.js';
+import { badRequest, forbidden } from '../utils/AppError.js';
 
 const router = Router();
 
@@ -17,6 +17,7 @@ const flowBodySchema = z.object({
   amount: z.coerce.number().positive(),
   reason: z.string().trim().min(1).max(255),
   reference: z.string().trim().max(120).optional(),
+  date: z.string().trim().optional(),
 });
 
 const listQuerySchema = z.object({
@@ -35,13 +36,15 @@ router.post(
   asyncHandler(async (req, res) => {
     const parsed = flowBodySchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new Error(parsed.error.issues.map((issue) => issue.message).join('; '));
+      throw badRequest('Invalid cashflow payload', parsed.error.flatten());
     }
     const input = parsed.data;
 
     const fid = req.user!.franchiseId || input.franchiseId;
     if (!fid) throw forbidden('franchiseId required');
     if (req.user!.franchiseId && req.user!.franchiseId !== fid) throw forbidden();
+    const movementDate = input.date ? new Date(input.date) : new Date();
+    if (Number.isNaN(movementDate.getTime())) throw badRequest('Invalid date');
 
     const flow = await CashFlow.create({
       franchiseId: fid,
@@ -50,6 +53,7 @@ router.post(
       amount: input.amount,
       reason: input.reason,
       reference: input.reference ?? '',
+      date: movementDate,
       ...(req.file
         ? {
             attachmentPath: toUploadPath('treasury-docs', req.file.filename),
