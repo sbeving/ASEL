@@ -7,7 +7,8 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Product } from '../models/Product.js';
 import { audit } from '../services/audit.service.js';
 import { attachProductListMetrics, getProductOverview } from '../services/productInsights.service.js';
-import { notFound } from '../utils/AppError.js';
+import { badRequest, notFound } from '../utils/AppError.js';
+import { productImageUpload, toUploadPath } from '../middleware/upload.js';
 
 const router = Router();
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
@@ -150,6 +151,30 @@ router.delete(
       details: { name: product.name },
     });
 
+    res.json({ product });
+  }),
+);
+
+router.post(
+  '/:id/image',
+  requireAuth,
+  requireRole('admin', 'manager'),
+  validate(z.object({ id: objectId }), 'params'),
+  productImageUpload.single('image'),
+  asyncHandler(async (req, res) => {
+    if (!req.file) throw badRequest('image file is required');
+    const { id } = req.params as { id: string };
+    const product = await Product.findById(id);
+    if (!product) throw notFound('Product not found');
+
+    product.imagePath = toUploadPath('product-images', req.file.filename);
+    await product.save();
+
+    await audit(req, {
+      action: 'product.image.upload',
+      entity: 'Product',
+      entityId: id,
+    });
     res.json({ product });
   }),
 );

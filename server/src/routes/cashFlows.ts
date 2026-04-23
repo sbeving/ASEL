@@ -1,29 +1,44 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { isValidObjectId } from 'mongoose';
-import { requireAuth, franchiseScopeFilter } from '../middleware/auth.js';
+import { franchiseScopeFilter, requireAuth, requirePermission } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { CashFlow } from '../models/CashFlow.js';
 import { audit } from '../services/audit.service.js';
+import { treasuryAttachmentUpload, toUploadPath } from '../middleware/upload.js';
 import { forbidden } from '../utils/AppError.js';
 
 const router = Router();
 
-const flowSchema = z.object({
+const flowBodySchema = z.object({
   franchiseId: z.string().refine(isValidObjectId).optional(),
   type: z.enum(['encaissement', 'decaissement']),
-  amount: z.number().positive(),
-  reason: z.string().min(1).max(255),
-  reference: z.string().max(100).optional(),
+  amount: z.coerce.number().positive(),
+  reason: z.string().trim().min(1).max(255),
+  reference: z.string().trim().max(120).optional(),
+});
+
+const listQuerySchema = z.object({
+  franchiseId: z.string().refine(isValidObjectId).optional(),
+  type: z.enum(['encaissement', 'decaissement']).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 
 router.post(
   '/',
   requireAuth,
-  validate(flowSchema),
+  requirePermission('cashflows.manage'),
+  treasuryAttachmentUpload.single('attachment'),
   asyncHandler(async (req, res) => {
-    const input = req.body as z.infer<typeof flowSchema>;
+    const parsed = flowBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new Error(parsed.error.issues.map((issue) => issue.message).join('; '));
+    }
+    const input = parsed.data;
+
     const fid = req.user!.franchiseId || input.franchiseId;
     if (!fid) throw forbidden('franchiseId required');
     if (req.user!.franchiseId && req.user!.franchiseId !== fid) throw forbidden();
@@ -34,7 +49,14 @@ router.post(
       type: input.type,
       amount: input.amount,
       reason: input.reason,
-      reference: input.reference,
+      reference: input.reference ?? '',
+      ...(req.file
+        ? {
+            attachmentPath: toUploadPath('treasury-docs', req.file.filename),
+            attachmentMimeType: req.file.mimetype,
+            attachmentOriginalName: req.file.originalname,
+          }
+        : {}),
     });
 
     await audit(req, {
@@ -42,21 +64,41 @@ router.post(
       entity: 'CashFlow',
       entityId: flow._id.toString(),
       franchiseId: fid,
-      details: { type: input.type, amount: input.amount }
+      details: { type: input.type, amount: input.amount },
     });
 
     res.status(201).json({ flow });
-  })
+  }),
 );
 
 router.get(
   '/',
   requireAuth,
+  requirePermission('cashflows.view'),
+  validate(listQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
+    const query = req.query as unknown as z.infer<typeof listQuerySchema>;
     const scope = franchiseScopeFilter(req.user);
-    const flows = await CashFlow.find(scope).sort({ date: -1 }).limit(100).populate('userId', 'fullName username');
+    const filter: Record<string, unknown> = { ...scope };
+    if (query.franchiseId) {
+      if (scope.franchiseId && scope.franchiseId !== query.franchiseId) throw forbidden();
+      filter.franchiseId = query.franchiseId;
+    }
+    if (query.type) filter.type = query.type;
+    if (query.from || query.to) {
+      filter.date = {
+        ...(query.from ? { $gte: new Date(`${query.from}T00:00:00.000Z`) } : {}),
+        ...(query.to ? { $lte: new Date(`${query.to}T23:59:59.999Z`) } : {}),
+      };
+    }
+
+    const flows = await CashFlow.find(filter)
+      .sort({ date: -1 })
+      .limit(query.limit)
+      .populate('userId', 'fullName username')
+      .populate('franchiseId', 'name');
     res.json({ flows });
-  })
+  }),
 );
 
 export default router;
