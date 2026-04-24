@@ -171,6 +171,31 @@ export interface DashboardPayload {
   };
   lowStock: StockItem[];
   recentSales: Sale[];
+  roleProfile: {
+    role: Role;
+    scope: 'global' | 'franchise';
+    primaryGoal: string;
+    recommendedActions: string[];
+  };
+  reports: {
+    topProducts: Array<{
+      productId: string;
+      name: string;
+      quantity: number;
+      revenue: number;
+    }>;
+    paymentBreakdown: Array<{
+      paymentMethod: Sale['paymentMethod'];
+      count: number;
+      total: number;
+    }>;
+    cashToday: {
+      in: number;
+      out: number;
+      net: number;
+    };
+    pendingInstallments: number;
+  };
 }
 
 export interface AuditLog {

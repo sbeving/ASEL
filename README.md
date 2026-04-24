@@ -1,28 +1,22 @@
-# ASEL Mobile — Stock Management (React + Node + MongoDB)
+# ASEL Mobile - Stock Management (React + Node + MongoDB)
 
-Secure, multi-franchise stock management for ASEL Mobile. Rewritten from the
-legacy PHP/MySQL app to a modern React + Node + MongoDB stack with proper
-RBAC, audit logging, and franchise-scoped data isolation.
+Secure, multi-franchise stock and operations management for ASEL Mobile.
+This repo is the modern rewrite of the legacy PHP/MySQL platform.
 
 ## Stack
 
-- **Backend** — Node 20, Express, TypeScript, Mongoose (MongoDB 7), Zod, JWT
-- **Frontend** — React 18, Vite, TypeScript, React Router, TanStack Query,
-  React Hook Form, Tailwind CSS
-- **Security** — bcrypt password hashing, httpOnly SameSite=strict cookies,
-  Helmet headers, CORS allow-list, rate-limited auth, input validation on every
-  route, role-based + franchise-scoped authorization, audit trail for mutations
+- Backend: Node 20, Express, TypeScript, Mongoose (MongoDB), Zod, JWT
+- Frontend: React 18, Vite, TypeScript, React Router, TanStack Query, Tailwind
+- Security: bcrypt password hashing, httpOnly cookies, Helmet, CORS allowlist,
+  rate limiting, RBAC + franchise scoping, and audit logging
 
 ## Repository layout
 
+```text
+server/   Node + Express + MongoDB API
+client/   React + Vite SPA
+old/      Legacy PHP reference source
 ```
-server/     Node + Express + Mongoose API
-client/     React + Vite SPA
-docker-compose.yml   MongoDB service
-```
-
-Legacy PHP and Streamlit files remain at the repo root for reference until the
-new stack reaches feature parity. They are not wired into the new app.
 
 ## Quick start
 
@@ -33,52 +27,67 @@ docker compose up -d mongo
 
 # 2. Server
 cd server
-cp .env.example .env           # edit JWT_SECRET at minimum
+cp .env.example .env
 npm install
-npm run seed                   # creates initial admin + demo data
-npm run dev                    # http://localhost:4000
+npm run seed
+npm run dev
 
-# 3. Client (in another terminal)
+# 3. Client (new terminal)
 cd client
 cp .env.example .env
 npm install
-npm run dev                    # http://localhost:5173
+npm run dev
 ```
 
-Default admin credentials created by the seed are printed to stdout — change
-the password immediately after first login.
+## Seed behavior
 
-## Roles
+`npm run seed` now bootstraps a full, cross-module dataset:
 
-| Role       | Scope            | Permissions |
-|------------|------------------|-------------|
-| `admin`    | All franchises   | Full CRUD, user management, audit, settings |
-| `manager`  | All franchises   | Products, stock, sales, transfers, reports |
-| `franchise`| One franchise    | Stock, sales, returns, local transfers, closings |
-| `seller`   | One franchise    | POS / sales only |
+- Users / roles
+- Franchises, categories, suppliers, products
+- Stock + movements
+- Sales, transfers, receptions, returns
+- Installments, closings, monthly inventories
+- Cashflow, demands, services + prestations
+- Time logs, network points, notifications, audit logs
 
-Franchise- and seller-scoped users only ever see data from their own franchise,
-enforced at the query level in every domain route.
+Default mode resets seeded collections, then inserts fresh data.
 
-## Feature coverage (first cut)
+```bash
+npm run seed
+```
 
-Implemented:
+To skip reset (only seed if DB is empty):
 
-- Authentication with bcrypt + JWT in httpOnly cookie
-- Users, franchises, categories, suppliers, products CRUD
-- Stock per franchise, stock entries (IN) and adjustments (OUT)
-- Sales (creates movement, decrements stock atomically)
-- Transfers (pending → accepted / rejected with atomic stock swap)
-- Dashboard KPIs (totals, low stock, recent activity)
-- Audit log for every mutation
+```bash
+npm run seed -- --no-reset
+```
 
-Deferred (legacy features that need domain follow-up before rebuilding):
+## Seed credentials
 
-- Invoicing (`factures`), installments (`échéances` / `avances`), PDF receipts
-- Monthly treasury / closings beyond the daily count
-- SMS reminders / cron
-- OCR product import
-- Map of franchise locations
+- Admin username: from `SEED_ADMIN_USERNAME`
+- Admin password: from `SEED_ADMIN_PASSWORD`
+- Other seeded users share password: `Asel@2026!`
 
-See `server/src/routes/` for the route boundaries — each deferred feature has a
-clean place to slot in.
+Change all passwords after first bootstrap.
+
+## Feature coverage
+
+Implemented modules include:
+
+- Authentication + RBAC
+- Products/catalog
+- Stock and stock movements
+- POS sales and installments
+- Transfers and receptions
+- Returns and clients
+- Closings and monthly inventories
+- Treasury/cashflow
+- Time logs (pointage)
+- Demands workflow
+- Services + prestations
+- Network points
+- Notifications
+- Audit logging
+
+OCR-assisted reception parsing and Multer-based file uploads are also integrated.

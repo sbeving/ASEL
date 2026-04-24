@@ -7,6 +7,7 @@ import { PageHeader } from '../components/PageHeader';
 import { useDebouncedValue } from '../lib/hooks';
 import type { Client, Franchise, Installment, Sale, StockItem } from '../lib/types';
 import { ScannerModal } from '../components/ScannerModal';
+import { SearchableSelect, type SearchableSelectOption } from '../components/SearchableSelect';
 
 interface CartLine {
   productId: string;
@@ -125,6 +126,17 @@ export function POSPage() {
   );
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  const clientOptions: SearchableSelectOption[] = useMemo(
+    () =>
+      (clients.data ?? []).map((client) => ({
+        value: client._id,
+        label: client.fullName,
+        subtitle: [client.phone, client.clientType].filter(Boolean).join(' | ') || undefined,
+        keywords: [client.phone, client.email, client.company, client.cin].filter(Boolean).join(' '),
+      })),
+    [clients.data],
+  );
 
   function addToCart(item: StockItem) {
     if (item.quantity <= 0) return;
@@ -366,12 +378,14 @@ export function POSPage() {
 
                 <div>
                   <label className="label">Client</label>
-                  <select className="input" value={clientId} onChange={(e) => setClientId(e.target.value)}>
-                    <option value="">{isInstallment ? '— Client requis —' : 'Sans client'}</option>
-                    {(clients.data ?? []).map((client) => (
-                      <option key={client._id} value={client._id}>{client.fullName}</option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    value={clientId}
+                    options={clientOptions}
+                    onChange={setClientId}
+                    allowClear
+                    placeholder={isInstallment ? 'Client requis...' : 'Sans client'}
+                    emptyMessage="Aucun client"
+                  />
                 </div>
 
                 <div>

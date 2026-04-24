@@ -107,7 +107,7 @@ export default function App() {
         <Route
           path="map"
           element={
-            <ProtectedRoute roles={['admin', 'manager']}>
+            <ProtectedRoute roles={['admin', 'superadmin', 'manager']}>
               <MapPage />
             </ProtectedRoute>
           }

@@ -231,9 +231,16 @@ router.post(
 
 const listQuery = z.object({
   franchiseId: objectId.optional(),
+  clientId: objectId.optional(),
+  saleType: z.enum(['ticket', 'facture', 'devis']).optional(),
+  paymentMethod: z.enum(['cash', 'card', 'transfer', 'installment', 'other']).optional(),
+  paymentStatus: z.enum(['paid', 'partial', 'pending']).optional(),
+  q: z.string().trim().max(120).optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
-  limit: z.coerce.number().int().min(1).max(500).default(100),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(500).default(40),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
 router.get(
@@ -241,27 +248,79 @@ router.get(
   requireAuth,
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
-    const { franchiseId, from, to, limit } = req.query as unknown as z.infer<typeof listQuery>;
+    const {
+      franchiseId,
+      clientId,
+      saleType,
+      paymentMethod,
+      paymentStatus,
+      q,
+      from,
+      to,
+      page,
+      pageSize,
+      limit,
+    } = req.query as unknown as z.infer<typeof listQuery>;
     const scope = franchiseScopeFilter(req.user);
+    const effectivePageSize = limit ?? pageSize;
+    const skip = (page - 1) * effectivePageSize;
     const filter: Record<string, unknown> = { ...scope };
     if (franchiseId) {
       if (scope.franchiseId && scope.franchiseId !== franchiseId) throw forbidden();
       filter.franchiseId = franchiseId;
     }
+    if (clientId) filter.clientId = clientId;
+    if (saleType) filter.saleType = saleType;
+    if (paymentMethod) filter.paymentMethod = paymentMethod;
+    if (paymentStatus) filter.paymentStatus = paymentStatus;
     if (from || to) {
       filter.createdAt = {
         ...(from ? { $gte: new Date(from) } : {}),
         ...(to ? { $lte: new Date(to) } : {}),
       };
     }
-    const sales = await Sale.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .populate('franchiseId', 'name')
-      .populate('clientId', 'fullName phone clientType')
-      .populate('userId', 'username fullName')
-      .populate('items.productId', 'name reference');
-    res.json({ sales });
+
+    if (q) {
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const rx = new RegExp(escaped, 'i');
+      const [clientMatches, productMatches] = await Promise.all([
+        Client.find({ $or: [{ fullName: rx }, { phone: rx }] }).select('_id').limit(80).lean(),
+        Product.find({
+          $or: [{ name: rx }, { reference: rx }, { barcode: rx }, { brand: rx }],
+        }).select('_id').limit(80).lean(),
+      ]);
+
+      const clientIds = clientMatches.map((entry) => entry._id);
+      const productIds = productMatches.map((entry) => entry._id);
+      filter.$or = [
+        { invoiceNumber: rx },
+        { note: rx },
+        ...(clientIds.length > 0 ? [{ clientId: { $in: clientIds } }] : []),
+        ...(productIds.length > 0 ? [{ 'items.productId': { $in: productIds } }] : []),
+      ];
+    }
+
+    const [total, sales] = await Promise.all([
+      Sale.countDocuments(filter),
+      Sale.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(effectivePageSize)
+        .populate('franchiseId', 'name')
+        .populate('clientId', 'fullName phone clientType')
+        .populate('userId', 'username fullName')
+        .populate('items.productId', 'name reference'),
+    ]);
+
+    res.json({
+      sales,
+      meta: {
+        page,
+        pageSize: effectivePageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / effectivePageSize)),
+      },
+    });
   }),
 );
 

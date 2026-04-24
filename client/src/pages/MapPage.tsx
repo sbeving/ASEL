@@ -101,7 +101,7 @@ export function MapPage() {
       </section>
 
       <section className="card overflow-hidden p-0">
-        <div className="h-[calc(100vh-290px)] min-h-[460px]">
+        <div className="relative z-0 h-[calc(100vh-290px)] min-h-[460px]">
           <MapContainer center={[36.8, 10.1]} zoom={7} scrollWheelZoom className="h-full w-full">
             <FitBounds points={points} />
             <TileLayer

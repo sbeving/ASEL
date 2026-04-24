@@ -33,8 +33,8 @@ export function SearchableSelect({
   value,
   options,
   onChange,
-  placeholder = 'Search...',
-  emptyMessage = 'No result',
+  placeholder = 'Rechercher...',
+  emptyMessage = 'Aucun resultat',
   disabled = false,
   className,
   maxResults = 80,
@@ -146,7 +146,7 @@ export function SearchableSelect({
         </button>
       )}
       {open && !disabled && (
-        <div className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+        <div className="absolute z-[125] mt-1 max-h-64 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
           {filtered.length > 0 ? (
             filtered.map((option, index) => (
               <button

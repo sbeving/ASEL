@@ -85,7 +85,10 @@ router.post(
 const listQuery = z.object({
   status: z.enum(['pending', 'accepted', 'rejected', 'cancelled']).optional(),
   franchiseId: objectId.optional(),
-  limit: z.coerce.number().int().min(1).max(500).default(100),
+  q: z.string().trim().max(120).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(500).default(30),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
 router.get(
@@ -93,8 +96,10 @@ router.get(
   requireAuth,
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
-    const { status, franchiseId, limit } = req.query as unknown as z.infer<typeof listQuery>;
+    const { status, franchiseId, q, page, pageSize, limit } = req.query as unknown as z.infer<typeof listQuery>;
     const user = req.user!;
+    const effectivePageSize = limit ?? pageSize;
+    const skip = (page - 1) * effectivePageSize;
 
     const filter: Record<string, unknown> = {};
     if (status) filter.status = status;
@@ -110,15 +115,45 @@ router.get(
       filter.$or = [{ sourceFranchiseId: franchiseId }, { destFranchiseId: franchiseId }];
     }
 
-    const transfers = await Transfer.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .populate('productId', 'name reference')
-      .populate('sourceFranchiseId', 'name')
-      .populate('destFranchiseId', 'name')
-      .populate('requestedBy', 'username fullName')
-      .populate('resolvedBy', 'username fullName');
-    res.json({ transfers });
+    if (q) {
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const rx = new RegExp(escaped, 'i');
+      const productMatches = await Product.find({
+        $or: [{ name: rx }, { reference: rx }, { barcode: rx }, { brand: rx }],
+      }).select('_id').limit(80).lean();
+      const productIds = productMatches.map((entry) => entry._id);
+      filter.$and = [
+        ...(Array.isArray(filter.$and) ? filter.$and : []),
+        {
+          $or: [
+            { note: rx },
+            ...(productIds.length > 0 ? [{ productId: { $in: productIds } }] : []),
+          ],
+        },
+      ];
+    }
+
+    const [total, transfers] = await Promise.all([
+      Transfer.countDocuments(filter),
+      Transfer.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(effectivePageSize)
+        .populate('productId', 'name reference')
+        .populate('sourceFranchiseId', 'name')
+        .populate('destFranchiseId', 'name')
+        .populate('requestedBy', 'username fullName')
+        .populate('resolvedBy', 'username fullName'),
+    ]);
+    res.json({
+      transfers,
+      meta: {
+        page,
+        pageSize: effectivePageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / effectivePageSize)),
+      },
+    });
   }),
 );
 
