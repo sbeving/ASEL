@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { isValidObjectId } from 'mongoose';
+import mongoose, { isValidObjectId } from 'mongoose';
 import { franchiseScopeFilter, requireAuth, requirePermission } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -54,6 +54,27 @@ function buildDateRange(input: {
     ...(input.from ? { $gte: new Date(`${input.from}T00:00:00.000Z`) } : {}),
     ...(input.to ? { $lte: new Date(`${input.to}T23:59:59.999Z`) } : {}),
   };
+}
+
+function toRad(value: number) {
+  return (value * Math.PI) / 180;
+}
+
+function distanceMeters(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number,
+): number {
+  const earth = 6_371_000;
+  const dLat = toRad(toLat - fromLat);
+  const dLng = toRad(toLng - fromLng);
+  const lat1 = toRad(fromLat);
+  const lat2 = toRad(toLat);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * earth * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function csvCell(value: string | number | null | undefined): string {
@@ -123,7 +144,7 @@ router.get(
     }
 
     const timestampFilter = buildDateRange({ from, to, month });
-    if (timestampFilter) filter.timestamp = timestampFilter;
+    if (timestampFilter) filter.timestamp = mongoose.trusted(timestampFilter);
 
     const skip = (page - 1) * pageSize;
     const [total, logs, byTypeRows, activeUsers] = await Promise.all([
@@ -168,6 +189,138 @@ router.get(
   })
 );
 
+const mapQuery = z.object({
+  scope: z.enum(['self', 'team']).default('team'),
+  franchiseId: objectId.optional(),
+  userId: objectId.optional(),
+  from: dateOnly.optional(),
+  to: dateOnly.optional(),
+  month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  limit: z.coerce.number().int().min(1).max(2000).default(1000),
+  radiusMeters: z.coerce.number().int().min(20).max(5000).default(300),
+});
+
+router.get(
+  '/map',
+  requireAuth,
+  requirePermission('timelogs.view.self', 'timelogs.view.all'),
+  validate(mapQuery, 'query'),
+  asyncHandler(async (req, res) => {
+    const { scope, franchiseId, userId, from, to, month, limit, radiusMeters } =
+      req.query as unknown as z.infer<typeof mapQuery>;
+
+    const canViewAll = isPermissionGranted(
+      req.user!.role,
+      'timelogs.view.all',
+      req.user!.customPermissions,
+    );
+    if (scope === 'team' && !canViewAll) {
+      throw forbidden('Team pointage view requires elevated permission');
+    }
+
+    const scopeFilter = franchiseScopeFilter(req.user);
+    const filter: Record<string, unknown> = {
+      ...scopeFilter,
+      'gps.lat': mongoose.trusted({ $ne: null }),
+      'gps.lng': mongoose.trusted({ $ne: null }),
+    };
+
+    if (franchiseId) {
+      if (scopeFilter.franchiseId && scopeFilter.franchiseId !== franchiseId) throw forbidden();
+      filter.franchiseId = franchiseId;
+    }
+
+    if (scope === 'self' || !canViewAll) {
+      filter.userId = req.user!.sub;
+    } else if (userId) {
+      filter.userId = userId;
+    }
+
+    const timestampFilter = buildDateRange({ from, to, month });
+    if (timestampFilter) filter.timestamp = mongoose.trusted(timestampFilter);
+
+    const logs = await TimeLog.find(filter)
+      .sort({ timestamp: -1 })
+      .limit(limit)
+      .populate('userId', 'fullName username role')
+      .populate('franchiseId', 'name gps');
+
+    const points = logs
+      .map((log) => {
+        const lat = log.gps?.lat;
+        const lng = log.gps?.lng;
+        if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+
+        const franchise =
+          typeof log.franchiseId === 'object' && log.franchiseId ? (log.franchiseId as any) : null;
+        const fLat = franchise?.gps?.lat;
+        const fLng = franchise?.gps?.lng;
+        const distance =
+          typeof fLat === 'number' && typeof fLng === 'number'
+            ? Math.round(distanceMeters(lat, lng, fLat, fLng))
+            : null;
+
+        return {
+          _id: log._id.toString(),
+          type: log.type,
+          timestamp: log.timestamp,
+          note: log.note || '',
+          device: log.device || '',
+          gps: { lat, lng, address: log.gps?.address || '' },
+          user:
+            typeof log.userId === 'object' && log.userId
+              ? {
+                  _id: (log.userId as any)._id?.toString?.() ?? '',
+                  fullName: (log.userId as any).fullName || (log.userId as any).username || '',
+                  role: (log.userId as any).role || '',
+                }
+              : null,
+          franchise: franchise
+            ? {
+                _id: franchise._id?.toString?.() ?? '',
+                name: franchise.name || '',
+                gps:
+                  typeof fLat === 'number' && typeof fLng === 'number'
+                    ? { lat: fLat, lng: fLng }
+                    : null,
+              }
+            : null,
+          inZone: distance == null ? null : distance <= radiusMeters,
+          distanceMeters: distance,
+        };
+      })
+      .filter(Boolean);
+
+    const zonesMap = new Map<
+      string,
+      { _id: string; name: string; gps: { lat: number; lng: number } }
+    >();
+    for (const point of points) {
+      if (!point?.franchise?.gps) continue;
+      zonesMap.set(point.franchise._id, {
+        _id: point.franchise._id,
+        name: point.franchise.name,
+        gps: point.franchise.gps,
+      });
+    }
+
+    res.json({
+      points,
+      zones: [...zonesMap.values()],
+      summary: {
+        total: points.length,
+        inZone:
+          points.filter((point) => point?.inZone === true).length,
+        outOfZone:
+          points.filter((point) => point?.inZone === false).length,
+        unknownZone:
+          points.filter((point) => point?.inZone == null).length,
+        radiusMeters,
+      },
+    });
+  }),
+);
+
 const exportQuery = z.object({
   scope: z.enum(['self', 'team']).default('team'),
   franchiseId: objectId.optional(),
@@ -205,7 +358,7 @@ router.get(
       filter.userId = userId;
     }
     const timestampFilter = buildDateRange({ from, to, month });
-    if (timestampFilter) filter.timestamp = timestampFilter;
+    if (timestampFilter) filter.timestamp = mongoose.trusted(timestampFilter);
 
     const logs = await TimeLog.find(filter)
       .sort({ timestamp: 1 })

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { isValidObjectId } from 'mongoose';
+import mongoose, { isValidObjectId } from 'mongoose';
 import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -43,12 +43,15 @@ function buildPointFilter(input: z.infer<typeof listQuery>): Record<string, unkn
   const filter: Record<string, unknown> = {};
   if (input.type) filter.type = input.type;
   if (input.status) filter.status = input.status;
-  if (input.city) filter.city = { $regex: input.city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+  if (input.city) {
+    const escaped = input.city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    filter.city = mongoose.trusted({ $regex: escaped, $options: 'i' });
+  }
   if (input.active !== undefined) filter.active = input.active;
   else filter.active = true;
   if (input.onlyMapped) {
-    filter['gps.lat'] = { $ne: null };
-    filter['gps.lng'] = { $ne: null };
+    filter['gps.lat'] = mongoose.trusted({ $ne: null });
+    filter['gps.lng'] = mongoose.trusted({ $ne: null });
   }
   if (input.q) {
     const escaped = input.q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -88,8 +91,8 @@ router.get(
       ]),
       NetworkPoint.countDocuments({
         ...filter,
-        'gps.lat': { $ne: null },
-        'gps.lng': { $ne: null },
+        'gps.lat': mongoose.trusted({ $ne: null }),
+        'gps.lng': mongoose.trusted({ $ne: null }),
       }),
     ]);
 
@@ -138,8 +141,8 @@ router.get(
     const input = req.query as unknown as z.infer<typeof mapQuery>;
     const pointFilter: Record<string, unknown> = {
       active: true,
-      'gps.lat': { $ne: null },
-      'gps.lng': { $ne: null },
+      'gps.lat': mongoose.trusted({ $ne: null }),
+      'gps.lng': mongoose.trusted({ $ne: null }),
     };
     if (input.type) pointFilter.type = input.type;
     if (input.status) pointFilter.status = input.status;
@@ -154,8 +157,8 @@ router.get(
 
     const franchises = await Franchise.find({
       active: true,
-      'gps.lat': { $ne: null },
-      'gps.lng': { $ne: null },
+      'gps.lat': mongoose.trusted({ $ne: null }),
+      'gps.lng': mongoose.trusted({ $ne: null }),
     })
       .sort({ name: 1 })
       .select('name address phone manager gps');

@@ -120,6 +120,7 @@ export function NetworkPointsPage() {
           },
         })
       ).data,
+    refetchInterval: 15_000,
   });
 
   const mapData = useQuery({
@@ -134,13 +135,19 @@ export function NetworkPointsPage() {
           },
         })
       ).data,
+    refetchInterval: 15_000,
   });
 
   const pointsWithGps = useMemo(
     () =>
-      (mapData.data?.points ?? []).filter(
-        (point) => point.gps?.lat != null && point.gps?.lng != null,
-      ) as Array<NetworkPoint & { gps: { lat: number; lng: number } }>,
+      (mapData.data?.points ?? [])
+        .map((point) => {
+          const lat = Number(point.gps?.lat);
+          const lng = Number(point.gps?.lng);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+          return { ...point, gps: { lat, lng } };
+        })
+        .filter(Boolean) as Array<NetworkPoint & { gps: { lat: number; lng: number } }>,
     [mapData.data?.points],
   );
 
@@ -158,6 +165,12 @@ export function NetworkPointsPage() {
 
       <section className="card mb-5 p-0 overflow-hidden">
         <div className="h-[420px]">
+          {mapData.isLoading && (
+            <div className="flex h-full items-center justify-center bg-slate-50">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-brand-600" />
+            </div>
+          )}
+          {!mapData.isLoading && (
           <MapContainer center={[36.8, 10.1]} zoom={7} scrollWheelZoom className="h-full w-full">
             <FitBounds points={pointsWithGps} />
             <TileLayer
@@ -168,8 +181,13 @@ export function NetworkPointsPage() {
               <CircleMarker
                 key={point._id}
                 center={[point.gps.lat, point.gps.lng]}
-                radius={9}
-                pathOptions={{ color: typeColor[point.type], fillColor: typeColor[point.type], fillOpacity: 0.85 }}
+                radius={11}
+                pathOptions={{
+                  color: '#ffffff',
+                  weight: 2,
+                  fillColor: typeColor[point.type],
+                  fillOpacity: 0.95,
+                }}
               >
                 <Popup>
                   <div className="space-y-1 text-sm">
@@ -183,6 +201,7 @@ export function NetworkPointsPage() {
               </CircleMarker>
             ))}
           </MapContainer>
+          )}
         </div>
       </section>
 

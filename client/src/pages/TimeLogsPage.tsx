@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Circle, CircleMarker, MapContainer, Popup, TileLayer, useMap } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 import { api, apiError } from '../lib/api';
 import { dateTime } from '../lib/money';
 import { PageHeader } from '../components/PageHeader';
@@ -21,6 +23,24 @@ interface TimeLogRow {
   franchiseId?: { _id: string; name: string } | string;
 }
 
+interface TimeLogMapPoint {
+  _id: string;
+  type: TimeLogType;
+  timestamp: string;
+  note: string;
+  gps: { lat: number; lng: number; address: string };
+  user: { _id: string; fullName: string; role: string } | null;
+  franchise: { _id: string; name: string; gps: { lat: number; lng: number } | null } | null;
+  inZone: boolean | null;
+  distanceMeters: number | null;
+}
+
+interface TimeLogZone {
+  _id: string;
+  name: string;
+  gps: { lat: number; lng: number };
+}
+
 const labels: Record<TimeLogType, string> = {
   entree: 'Entree',
   sortie: 'Sortie',
@@ -33,6 +53,13 @@ const badgeByType: Record<TimeLogType, string> = {
   sortie: 'badge-danger',
   pause_debut: 'badge-warning',
   pause_fin: 'badge-info',
+};
+
+const mapTypeColor: Record<TimeLogType, string> = {
+  entree: '#16A34A',
+  sortie: '#DC2626',
+  pause_debut: '#F59E0B',
+  pause_fin: '#0284C7',
 };
 
 export function TimeLogsPage() {
@@ -54,6 +81,9 @@ export function TimeLogsPage() {
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
   const [geoError, setGeoError] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [live, setLive] = useState(true);
+  const [radiusMeters, setRadiusMeters] = useState(300);
+  const [selectedMapPointId, setSelectedMapPointId] = useState('');
 
   const franchises = useQuery({
     enabled: isGlobal,
@@ -83,7 +113,34 @@ export function TimeLogsPage() {
           },
         })
       ).data,
+    refetchInterval: live ? 12_000 : false,
   });
+
+  const mapData = useQuery({
+    queryKey: ['timelogs-map', scope, month, franchiseId, radiusMeters],
+    queryFn: async () =>
+      (
+        await api.get<{
+          points: TimeLogMapPoint[];
+          zones: TimeLogZone[];
+          summary: { total: number; inZone: number; outOfZone: number; unknownZone: number; radiusMeters: number };
+        }>('/timelogs/map', {
+          params: {
+            scope,
+            month: month || undefined,
+            franchiseId: isGlobal ? franchiseId || undefined : undefined,
+            radiusMeters,
+            limit: 1200,
+          },
+        })
+      ).data,
+    refetchInterval: live ? 12_000 : false,
+  });
+
+  const selectedMapPoint = useMemo(
+    () => mapData.data?.points.find((point) => point._id === selectedMapPointId) ?? null,
+    [mapData.data?.points, selectedMapPointId],
+  );
 
   const summary = useMemo(() => {
     const fallback = { entree: 0, sortie: 0, pause_debut: 0, pause_fin: 0 };
@@ -134,6 +191,7 @@ export function TimeLogsPage() {
       setErr(null);
       setNote('');
       qc.invalidateQueries({ queryKey: ['timelogs'] });
+      qc.invalidateQueries({ queryKey: ['timelogs-map'] });
     },
     onError: (error) => setErr(apiError(error).message),
   });
@@ -161,11 +219,13 @@ export function TimeLogsPage() {
     }
   };
 
+  const zoneSummary = mapData.data?.summary;
+
   return (
     <>
       <PageHeader
         title="Pointage employes"
-        subtitle="Entree, sortie et pauses avec reporting equipe + export CSV"
+        subtitle="Suivi realtime + carte in-zone / out-of-zone"
         actions={
           canExport ? (
             <button className="btn-secondary" onClick={exportCsv}>
@@ -175,25 +235,24 @@ export function TimeLogsPage() {
         }
       />
 
-      <section className="mb-5 grid gap-4 md:grid-cols-5">
+      <section className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <MetricCard label="Total pointages" value={String(summary.total)} />
         <MetricCard label="Entrees" value={String(summary.byType.entree)} />
         <MetricCard label="Sorties" value={String(summary.byType.sortie)} />
         <MetricCard label="Pauses" value={String(summary.byType.pause_debut)} />
         <MetricCard
           label={scope === 'team' ? 'Employes actifs' : 'Dernier pointage'}
-          value={
-            scope === 'team'
-              ? String(summary.activeUsers)
-              : summary.last
-                ? labels[summary.last.type]
-                : 'Aucun'
-          }
+          value={scope === 'team' ? String(summary.activeUsers) : summary.last ? labels[summary.last.type] : 'Aucun'}
+        />
+        <MetricCard
+          label="In-zone"
+          value={zoneSummary ? `${zoneSummary.inZone}/${zoneSummary.total}` : '0/0'}
+          accent={zoneSummary && zoneSummary.outOfZone > 0 ? 'text-amber-700' : 'text-emerald-700'}
         />
       </section>
 
       <section className="card mb-5 p-4">
-        <div className="grid gap-3 md:grid-cols-[170px_170px_minmax(0,1fr)]">
+        <div className="grid gap-3 md:grid-cols-[170px_170px_minmax(0,1fr)_150px_120px]">
           <select
             className="input"
             value={scope}
@@ -225,23 +284,36 @@ export function TimeLogsPage() {
             >
               <option value="">Toutes franchises</option>
               {(franchises.data ?? []).map((franchise) => (
-                <option key={franchise._id} value={franchise._id}>{franchise.name}</option>
+                <option key={franchise._id} value={franchise._id}>
+                  {franchise.name}
+                </option>
               ))}
             </select>
           ) : (
             <input className="input" disabled value={scope === 'team' ? 'Franchise scope' : 'Filtre equipe indisponible'} />
           )}
+          <input
+            type="number"
+            min={50}
+            max={1000}
+            step={50}
+            className="input"
+            value={radiusMeters}
+            onChange={(event) => setRadiusMeters(Math.max(50, Math.min(1000, Number(event.target.value) || 300)))}
+          />
+          <button
+            type="button"
+            className={`btn-secondary ${live ? '!bg-slate-800 !text-white' : ''}`}
+            onClick={() => setLive((v) => !v)}
+          >
+            {live ? 'Live ON' : 'Live OFF'}
+          </button>
         </div>
       </section>
 
       <section className="card mb-5 p-4">
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
-          <input
-            className="input"
-            placeholder="Note (optionnelle)"
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-          />
+          <input className="input" placeholder="Note (optionnelle)" value={note} onChange={(event) => setNote(event.target.value)} />
           <button className="btn-secondary" onClick={capturePosition}>
             Capturer GPS
           </button>
@@ -253,15 +325,94 @@ export function TimeLogsPage() {
 
       <section className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {(Object.keys(labels) as TimeLogType[]).map((type) => (
-          <button
-            key={type}
-            className="btn-primary !justify-start !px-4 !py-3"
-            disabled={addLog.isPending}
-            onClick={() => addLog.mutate(type)}
-          >
+          <button key={type} className="btn-primary !justify-start !px-4 !py-3" disabled={addLog.isPending} onClick={() => addLog.mutate(type)}>
             Pointer: {labels[type]}
           </button>
         ))}
+      </section>
+
+      <section className="mb-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="card overflow-hidden p-0">
+          <div className="h-[420px]">
+            {mapData.isLoading ? (
+              <div className="flex h-full items-center justify-center bg-slate-50">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-brand-600" />
+              </div>
+            ) : (
+              <MapContainer center={[36.8, 10.1]} zoom={7} scrollWheelZoom className="h-full w-full">
+                <MapViewport points={mapData.data?.points ?? []} selected={selectedMapPoint} />
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                {(mapData.data?.zones ?? []).map((zone) => (
+                  <Circle
+                    key={zone._id}
+                    center={[zone.gps.lat, zone.gps.lng]}
+                    radius={radiusMeters}
+                    pathOptions={{ color: '#2AABE2', weight: 1.5, fillColor: '#2AABE2', fillOpacity: 0.08 }}
+                  />
+                ))}
+                {(mapData.data?.points ?? []).map((point) => (
+                  <CircleMarker
+                    key={point._id}
+                    center={[point.gps.lat, point.gps.lng]}
+                    radius={selectedMapPointId === point._id ? 9 : 7}
+                    eventHandlers={{ click: () => setSelectedMapPointId(point._id) }}
+                    pathOptions={{
+                      color: '#ffffff',
+                      weight: 1.5,
+                      fillColor:
+                        point.inZone == null
+                          ? mapTypeColor[point.type]
+                          : point.inZone
+                            ? '#10B981'
+                            : '#EF4444',
+                      fillOpacity: 0.95,
+                    }}
+                  >
+                    <Popup>
+                      <div className="space-y-1 text-sm">
+                        <div className="font-semibold text-slate-900">{point.user?.fullName || 'Employe'}</div>
+                        <div className="text-xs text-slate-500">{labels[point.type]} - {dateTime(point.timestamp)}</div>
+                        <div>{point.franchise?.name || 'Franchise inconnue'}</div>
+                        <div className="text-xs">
+                          {point.distanceMeters == null ? 'Zone inconnue' : `${point.distanceMeters} m du point franchise`}
+                        </div>
+                      </div>
+                    </Popup>
+                  </CircleMarker>
+                ))}
+              </MapContainer>
+            )}
+          </div>
+        </div>
+
+        <aside className="card p-3">
+          <div className="mb-2 text-sm font-semibold text-slate-900">Incidents hors zone</div>
+          <div className="max-h-[390px] space-y-2 overflow-y-auto">
+            {(mapData.data?.points ?? [])
+              .filter((point) => point.inZone === false)
+              .slice(0, 80)
+              .map((point) => (
+                <button
+                  key={point._id}
+                  type="button"
+                  onClick={() => setSelectedMapPointId(point._id)}
+                  className={`w-full rounded-xl border px-3 py-2 text-left ${
+                    selectedMapPointId === point._id ? 'border-rose-300 bg-rose-50' : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="text-sm font-medium text-slate-900">{point.user?.fullName || 'Employe'}</div>
+                  <div className="text-xs text-slate-500">{point.franchise?.name || '-'}</div>
+                  <div className="mt-1 text-xs text-rose-600">{point.distanceMeters ?? '-'} m</div>
+                </button>
+              ))}
+            {((mapData.data?.summary.outOfZone ?? 0) === 0) && (
+              <div className="px-2 py-4 text-sm text-emerald-700">Aucun point hors zone.</div>
+            )}
+          </div>
+        </aside>
       </section>
 
       <section className="card overflow-x-auto">
@@ -286,14 +437,12 @@ export function TimeLogsPage() {
                 </td>
                 {scope === 'team' && (
                   <td className="td text-slate-600">
-                    {typeof log.userId === 'object' && log.userId
-                      ? log.userId.fullName || log.userId.username || '—'
-                      : '—'}
+                    {typeof log.userId === 'object' && log.userId ? log.userId.fullName || log.userId.username || '-' : '-'}
                   </td>
                 )}
                 {scope === 'team' && (
                   <td className="td text-slate-600">
-                    {typeof log.franchiseId === 'object' && log.franchiseId ? log.franchiseId.name : '—'}
+                    {typeof log.franchiseId === 'object' && log.franchiseId ? log.franchiseId.name : '-'}
                   </td>
                 )}
                 <td className="td text-slate-600">
@@ -318,11 +467,33 @@ export function TimeLogsPage() {
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
+function MetricCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
     <div className="card p-4">
       <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div>
+      <div className={`mt-1 text-2xl font-semibold ${accent ?? 'text-slate-900'}`}>{value}</div>
     </div>
   );
+}
+
+function MapViewport({
+  points,
+  selected,
+}: {
+  points: Array<{ gps: { lat: number; lng: number } }>;
+  selected: { gps: { lat: number; lng: number } } | null;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (selected) {
+      map.flyTo([selected.gps.lat, selected.gps.lng], 14, { duration: 0.6 });
+      return;
+    }
+    if (points.length === 0) return;
+    const bounds = points.map((point) => [point.gps.lat, point.gps.lng]) as [number, number][];
+    map.fitBounds(bounds, { padding: [30, 30] });
+  }, [map, points, selected]);
+
+  return null;
 }
