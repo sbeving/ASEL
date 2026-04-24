@@ -6,6 +6,7 @@ export interface User {
   fullName: string;
   role: Role;
   franchiseId: string | null;
+  avatarPath?: string | null;
   active?: boolean;
   lastLoginAt?: string | null;
   createdAt?: string;
@@ -69,6 +70,7 @@ export interface Product {
   name: string;
   categoryId: string;
   supplierId?: string | null;
+  imagePath?: string | null;
   brand?: string;
   reference?: string;
   barcode?: string;
@@ -230,15 +232,32 @@ export interface Reception {
   number: string;
   franchiseId: Franchise | string;
   supplierId?: Supplier | string | null;
+  receptionDate?: string;
   status: 'draft' | 'validated' | 'cancelled';
   totalHt: number;
   vat: number;
   totalTtc: number;
+  sourceDocumentPath?: string | null;
   note?: string;
   userId?: User | string;
   validatedBy?: User | string | null;
   validatedAt?: string | null;
   lines: ReceptionLine[];
+  createdAt: string;
+}
+
+export interface CashFlow {
+  _id: string;
+  franchiseId: Franchise | string;
+  type: 'encaissement' | 'decaissement';
+  amount: number;
+  reason: string;
+  reference?: string;
+  date: string;
+  userId?: User | string;
+  attachmentPath?: string | null;
+  attachmentMimeType?: string | null;
+  attachmentOriginalName?: string | null;
   createdAt: string;
 }
 
