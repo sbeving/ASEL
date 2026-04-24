@@ -146,7 +146,7 @@ async function seed() {
   }
 
   const adminPassword = env.SEED_ADMIN_PASSWORD;
-  const sharedPassword = 'Asel@2026!';
+  const sharedPassword = env.SEED_SHARED_PASSWORD;
   const adminHash = await bcrypt.hash(adminPassword, env.BCRYPT_ROUNDS);
   const sharedHash = await bcrypt.hash(sharedPassword, env.BCRYPT_ROUNDS);
 
@@ -1277,8 +1277,8 @@ async function seed() {
     'Full seed complete.',
   );
 
-  logger.info(`Admin credentials: username="${env.SEED_ADMIN_USERNAME}" password="${adminPassword}"`);
-  logger.info(`Other seeded users password: "${sharedPassword}"`);
+  logger.info({ username: env.SEED_ADMIN_USERNAME }, 'Admin seed user created. Password sourced from environment.');
+  logger.info('Shared seeded user password sourced from environment.');
 
   await disconnectDb();
 }

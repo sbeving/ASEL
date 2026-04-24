@@ -54,7 +54,14 @@ export default function App() {
         />
         <Route path="clients" element={<ClientsPage />} />
         <Route path="services" element={<ServicesPage />} />
-        <Route path="transfers" element={<TransfersPage />} />
+        <Route
+          path="transfers"
+          element={
+            <ProtectedRoute roles={['admin', 'superadmin', 'manager', 'franchise']}>
+              <TransfersPage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="demands"
           element={
@@ -72,13 +79,55 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="receptions" element={<ReceptionsPage />} />
+        <Route
+          path="receptions"
+          element={
+            <ProtectedRoute roles={['admin', 'superadmin', 'manager', 'franchise']}>
+              <ReceptionsPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="returns" element={<ReturnsPage />} />
-        <Route path="timelogs" element={<TimeLogsPage />} />
-        <Route path="cashflows" element={<CashFlowsPage />} />
-        <Route path="closings" element={<ClosingsPage />} />
-        <Route path="installments" element={<InstallmentsPage />} />
-        <Route path="monthly-inventory" element={<MonthlyInventoryPage />} />
+        <Route
+          path="timelogs"
+          element={
+            <ProtectedRoute roles={['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur']}>
+              <TimeLogsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="cashflows"
+          element={
+            <ProtectedRoute roles={['admin', 'superadmin', 'manager', 'franchise']}>
+              <CashFlowsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="closings"
+          element={
+            <ProtectedRoute roles={['admin', 'superadmin', 'manager', 'franchise']}>
+              <ClosingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="installments"
+          element={
+            <ProtectedRoute roles={['admin', 'superadmin', 'manager', 'franchise']}>
+              <InstallmentsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="monthly-inventory"
+          element={
+            <ProtectedRoute roles={['admin', 'superadmin', 'manager', 'franchise']}>
+              <MonthlyInventoryPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="products" element={<ProductsPage />} />
         <Route
           path="categories"

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { isValidObjectId } from 'mongoose';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Product } from '../models/Product.js';
@@ -42,6 +42,7 @@ const listQuery = z.object({
 router.get(
   '/',
   requireAuth,
+  requirePermission('products.view'),
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
     const { q, categoryId, active, page, pageSize, limit } = req.query as unknown as z.infer<typeof listQuery>;
@@ -84,6 +85,7 @@ router.get(
 router.get(
   '/:id/overview',
   requireAuth,
+  requirePermission('products.view'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const { id } = req.params as { id: string };
@@ -96,6 +98,7 @@ router.get(
 router.get(
   '/:id',
   requireAuth,
+  requirePermission('products.view'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const product = await Product.findById(req.params.id);
@@ -108,6 +111,7 @@ router.post(
   '/',
   requireAuth,
   requireRole('admin', 'manager'),
+  requirePermission('products.manage'),
   validate(upsertSchema),
   asyncHandler(async (req, res) => {
     const product = await Product.create(req.body);
@@ -120,6 +124,7 @@ router.patch(
   '/:id',
   requireAuth,
   requireRole('admin', 'manager'),
+  requirePermission('products.manage'),
   validate(z.object({ id: objectId }), 'params'),
   validate(upsertSchema.partial()),
   asyncHandler(async (req, res) => {
@@ -135,6 +140,7 @@ router.delete(
   '/:id',
   requireAuth,
   requireRole('admin', 'manager'),
+  requirePermission('products.manage'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const { id } = req.params as { id: string };
@@ -159,6 +165,7 @@ router.post(
   '/:id/image',
   requireAuth,
   requireRole('admin', 'manager'),
+  requirePermission('products.manage'),
   validate(z.object({ id: objectId }), 'params'),
   productImageUpload.single('image'),
   asyncHandler(async (req, res) => {

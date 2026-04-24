@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { isValidObjectId } from 'mongoose';
-import { requireAuth, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Reception } from '../models/Reception.js';
@@ -55,6 +55,7 @@ const querySchema = z.object({
 router.get(
   '/',
   requireAuth,
+  requirePermission('receptions.view'),
   validate(querySchema, 'query'),
   asyncHandler(async (req, res) => {
     const { franchiseId, status, limit } = req.query as unknown as z.infer<typeof querySchema>;
@@ -82,6 +83,7 @@ router.post(
   '/',
   requireAuth,
   requireRole('admin', 'manager', 'franchise'),
+  requirePermission('receptions.manage'),
   validate(payload),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof payload>;
@@ -158,6 +160,7 @@ router.post(
   '/ocr',
   requireAuth,
   requireRole('admin', 'manager', 'franchise'),
+  requirePermission('receptions.manage'),
   receptionOcrUpload.single('document'),
   asyncHandler(async (req, res) => {
     if (!req.file) throw badRequest('document file is required');
@@ -211,6 +214,7 @@ router.patch(
   '/:id',
   requireAuth,
   requireRole('admin', 'manager', 'franchise'),
+  requirePermission('receptions.manage'),
   validate(z.object({ id: objectId }), 'params'),
   validate(payload.omit({ franchiseId: true, status: true }).partial()),
   asyncHandler(async (req, res) => {
@@ -260,6 +264,7 @@ router.post(
   '/:id/validate',
   requireAuth,
   requireRole('admin', 'manager', 'franchise'),
+  requirePermission('receptions.manage'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const id = req.params.id;
@@ -304,6 +309,7 @@ router.delete(
   '/:id',
   requireAuth,
   requireRole('admin', 'manager', 'franchise'),
+  requirePermission('receptions.manage'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const id = req.params.id;

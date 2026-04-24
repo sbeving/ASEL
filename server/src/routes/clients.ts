@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { isValidObjectId } from 'mongoose';
-import { requireAuth, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Client } from '../models/Client.js';
@@ -29,6 +29,7 @@ const listQuery = z.object({
 router.get(
   '/',
   requireAuth,
+  requirePermission('clients.view'),
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
     const { q, franchiseId, active, page, pageSize, limit } = req.query as unknown as z.infer<typeof listQuery>;
@@ -75,6 +76,7 @@ router.get(
 router.get(
   '/:id/overview',
   requireAuth,
+  requirePermission('clients.view'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const { id } = req.params as { id: string };
@@ -106,6 +108,7 @@ router.post(
   '/',
   requireAuth,
   requireRole('admin', 'manager', 'franchise', 'seller', 'vendeur'),
+  requirePermission('clients.manage'),
   validate(payload),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof payload>;
@@ -142,6 +145,7 @@ router.patch(
   '/:id',
   requireAuth,
   requireRole('admin', 'manager', 'franchise', 'seller', 'vendeur'),
+  requirePermission('clients.manage'),
   validate(z.object({ id: objectId }), 'params'),
   validate(payload.partial()),
   asyncHandler(async (req, res) => {
@@ -174,6 +178,7 @@ router.delete(
   '/:id',
   requireAuth,
   requireRole('admin', 'manager', 'franchise', 'seller', 'vendeur'),
+  requirePermission('clients.manage'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const id = req.params.id;

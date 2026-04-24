@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import mongoose, { isValidObjectId } from 'mongoose';
-import { requireAuth, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Installment } from '../models/Installment.js';
@@ -30,6 +30,7 @@ const listQuery = z.object({
 router.get(
   '/',
   requireAuth,
+  requirePermission('installments.view'),
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
     const { franchiseId, status, limit } = req.query as unknown as z.infer<typeof listQuery>;
@@ -59,6 +60,7 @@ router.post(
   '/',
   requireAuth,
   requireRole('admin', 'manager', 'franchise'),
+  requirePermission('installments.manage'),
   validate(payload),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof payload>;
@@ -101,6 +103,7 @@ router.post(
   '/:id/pay',
   requireAuth,
   requireRole('admin', 'manager', 'franchise'),
+  requirePermission('installments.manage'),
   validate(z.object({ id: objectId }), 'params'),
   validate(paySchema),
   asyncHandler(async (req, res) => {
@@ -132,6 +135,7 @@ router.post(
   '/generate',
   requireAuth,
   requireRole('admin', 'manager', 'franchise'),
+  requirePermission('installments.manage'),
   validate(z.object({
     saleId: objectId,
     clientId: objectId.nullable().optional(),

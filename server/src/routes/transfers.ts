@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import mongoose, { isValidObjectId } from 'mongoose';
-import { franchiseScopeFilter, requireAuth, requireRole } from '../middleware/auth.js';
+import { franchiseScopeFilter, requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Transfer } from '../models/Transfer.js';
@@ -28,6 +28,7 @@ router.post(
   '/',
   requireAuth,
   requireRole('admin', 'manager', 'franchise'),
+  requirePermission('transfers.manage'),
   validate(createSchema),
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof createSchema>;
@@ -95,6 +96,7 @@ const listQuery = z.object({
 router.get(
   '/',
   requireAuth,
+  requirePermission('transfers.view'),
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
     const { status, franchiseId, q, page, pageSize, limit } = req.query as unknown as z.infer<typeof listQuery>;
@@ -212,6 +214,7 @@ router.post(
   '/:id/accept',
   requireAuth,
   requireRole('admin', 'manager', 'franchise'),
+  requirePermission('transfers.manage'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const transfer = await transitionTransfer(req as any, req.params.id as string, 'accept');
@@ -233,6 +236,7 @@ router.post(
   '/:id/reject',
   requireAuth,
   requireRole('admin', 'manager', 'franchise'),
+  requirePermission('transfers.manage'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const transfer = await transitionTransfer(req as any, req.params.id as string, 'reject');

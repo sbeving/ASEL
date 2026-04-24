@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import mongoose, { isValidObjectId } from 'mongoose';
-import { franchiseScopeFilter, requireAuth, requireRole } from '../middleware/auth.js';
+import { franchiseScopeFilter, requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Sale } from '../models/Sale.js';
@@ -79,6 +79,7 @@ router.post(
   '/',
   requireAuth,
   requireRole('admin', 'manager', 'franchise', 'seller', 'vendeur'),
+  requirePermission('sales.create'),
   validate(saleSchema),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof saleSchema>;
@@ -247,6 +248,7 @@ const listQuery = z.object({
 router.get(
   '/',
   requireAuth,
+  requirePermission('sales.view'),
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
     const {
@@ -328,6 +330,7 @@ router.get(
 router.get(
   '/:id',
   requireAuth,
+  requirePermission('sales.view'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const sale = await Sale.findById(req.params.id)

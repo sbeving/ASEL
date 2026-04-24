@@ -67,7 +67,7 @@ npm run seed -- --no-reset
 
 - Admin username: from `SEED_ADMIN_USERNAME`
 - Admin password: from `SEED_ADMIN_PASSWORD`
-- Other seeded users share password: `Asel@2026!`
+- Other seeded users share password: from `SEED_SHARED_PASSWORD`
 
 Change all passwords after first bootstrap.
 

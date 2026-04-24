@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { isValidObjectId } from 'mongoose';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Supplier } from '../models/Supplier.js';
@@ -32,6 +32,7 @@ router.post(
   '/',
   requireAuth,
   requireRole('admin', 'manager'),
+  requirePermission('suppliers.manage'),
   validate(upsertSchema),
   asyncHandler(async (req, res) => {
     const supplier = await Supplier.create(req.body);
@@ -44,6 +45,7 @@ router.patch(
   '/:id',
   requireAuth,
   requireRole('admin', 'manager'),
+  requirePermission('suppliers.manage'),
   validate(z.object({ id: objectId }), 'params'),
   validate(upsertSchema.partial()),
   asyncHandler(async (req, res) => {

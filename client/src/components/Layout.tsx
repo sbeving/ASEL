@@ -22,7 +22,7 @@ const nav: { to: string; label: string; icon: any; roles?: Role[] }[] = [
   { to: '/clients', label: 'Clients', icon: Users },
   { to: '/notifications', label: 'Notifications', icon: Bell },
   { to: '/services', label: 'Services', icon: Wrench, roles: ['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur', 'viewer'] },
-  { to: '/transfers', label: 'Transferts', icon: ArrowRightLeft },
+  { to: '/transfers', label: 'Transferts', icon: ArrowRightLeft, roles: ['admin', 'superadmin', 'manager', 'franchise'] },
   { to: '/demands', label: 'Demandes', icon: ClipboardList, roles: ['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur'] },
   { to: '/network-points', label: 'Reseau', icon: Network, roles: ['admin', 'superadmin', 'manager'] },
   { to: '/returns', label: 'Retours', icon: RotateCcw, roles: ['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur', 'viewer'] },

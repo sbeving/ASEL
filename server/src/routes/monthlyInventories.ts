@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { isValidObjectId } from 'mongoose';
-import { franchiseScopeFilter, requireAuth, requireRole } from '../middleware/auth.js';
+import { franchiseScopeFilter, requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { MonthlyInventory } from '../models/MonthlyInventory.js';
@@ -25,6 +25,7 @@ const listQuery = z.object({
 router.get(
   '/',
   requireAuth,
+  requirePermission('monthly_inventory.view'),
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
     const { franchiseId, month, status, page, pageSize } = req.query as unknown as z.infer<typeof listQuery>;
@@ -65,6 +66,7 @@ router.get(
 router.get(
   '/:id',
   requireAuth,
+  requirePermission('monthly_inventory.view'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const inv = await MonthlyInventory.findById(req.params.id)
@@ -112,6 +114,7 @@ router.post(
   '/',
   requireAuth,
   requireRole('admin', 'superadmin', 'manager', 'franchise'),
+  requirePermission('monthly_inventory.manage'),
   validate(createSchema),
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof createSchema>;
@@ -192,6 +195,7 @@ router.post(
   '/:id/finalize',
   requireAuth,
   requireRole('admin', 'superadmin', 'manager', 'franchise'),
+  requirePermission('monthly_inventory.manage'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const inv = await MonthlyInventory.findById(req.params.id);

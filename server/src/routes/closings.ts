@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { isValidObjectId } from 'mongoose';
-import { requireAuth, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Closing } from '../models/Closing.js';
@@ -41,6 +41,7 @@ const querySchema = z.object({
 router.get(
   '/',
   requireAuth,
+  requirePermission('closings.view'),
   validate(querySchema, 'query'),
   asyncHandler(async (req, res) => {
     const { franchiseId, from, to, limit } = req.query as unknown as z.infer<typeof querySchema>;
@@ -71,6 +72,7 @@ router.post(
   '/',
   requireAuth,
   requireRole('admin', 'manager', 'franchise'),
+  requirePermission('closings.submit'),
   validate(submitSchema),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof submitSchema>;
@@ -122,6 +124,7 @@ router.post(
   '/:id/validate',
   requireAuth,
   requireRole('admin', 'manager'),
+  requirePermission('closings.validate'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const closing = await Closing.findById(req.params.id);
