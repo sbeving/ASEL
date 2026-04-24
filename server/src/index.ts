@@ -7,6 +7,7 @@ import { env } from './config/env.js';
 import { connectDb } from './db/connect.js';
 import { logger } from './utils/logger.js';
 import { apiLimiter } from './middleware/rateLimit.js';
+import { antiBotMiddleware } from './middleware/antiBot.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 
 import authRoutes from './routes/auth.js';

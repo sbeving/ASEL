@@ -81,7 +81,7 @@ export function UsersPage() {
           </thead>
           <tbody>
             {(users.data ?? []).map((user) => (
-              <tr key={user.id}>
+              <tr key={user._id || user.id}>
                 <td className="td">
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
@@ -113,7 +113,7 @@ export function UsersPage() {
                       Modifier
                     </button>
                     {user.active && (
-                      <button className="btn-danger !px-3 !py-1.5" onClick={() => deactivate.mutate(user.id)}>
+                      <button className="btn-danger !px-3 !py-1.5" onClick={() => deactivate.mutate((user._id || user.id)!)}>
                         Desactiver
                       </button>
                     )}
@@ -196,13 +196,13 @@ function UserFormModal({
       if (!payload.password) delete payload.password;
 
       const response = initial
-        ? await api.patch<{ user: User }>(`/users/${initial.id}`, payload)
+        ? await api.patch<{ user: User }>(`/users/${initial._id || initial.id}`, payload)
         : await api.post<{ user: User }>('/users', payload);
 
       if (avatarFile) {
         const formData = new FormData();
         formData.append('avatar', avatarFile);
-        await api.post(`/users/${response.data.user.id}/avatar`, formData);
+        await api.post(`/users/${response.data.user._id || response.data.user.id}/avatar`, formData);
       }
     },
     onSuccess: onSaved,

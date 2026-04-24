@@ -2,6 +2,7 @@ export type Role = 'admin' | 'superadmin' | 'manager' | 'franchise' | 'seller' |
 
 export interface User {
   id: string;
+  _id?: string;
   username: string;
   fullName: string;
   role: Role;

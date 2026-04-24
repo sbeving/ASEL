@@ -135,7 +135,13 @@ export function NotificationsPage() {
                 <div className="mt-2 flex items-center gap-3 text-xs text-slate-400">
                   <span>{dateTime(notification.createdAt)}</span>
                   {notification.link && (
-                    <Link className="text-brand-700 hover:underline" to={notification.link}>
+                    <Link className="text-brand-700 hover:underline" to={
+                      notification.link.includes('index.php?page=entree') ? '/receptions' :
+                      notification.link.includes('index.php?page=sortie') ? '/transfers' :
+                      notification.link.includes('index.php?page=demande') ? '/demands' :
+                      notification.link.includes('index.php') ? '/' :
+                      notification.link
+                    }>
                       Ouvrir
                     </Link>
                   )}

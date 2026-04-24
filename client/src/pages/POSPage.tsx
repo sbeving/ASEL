@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search, ScanLine, ShoppingCart, Trash2, Plus, Minus,
-  CreditCard, Banknote, Landmark, CalendarClock, Receipt, FileText, FileSignature, AlertCircle, CheckCircle2, Store, Package
+  CreditCard, Banknote, Landmark, CalendarClock, Receipt, FileText, FileSignature, AlertCircle, CheckCircle2, Store, Package, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { api, apiError } from '../lib/api';
 import { money } from '../lib/money';
@@ -93,7 +93,15 @@ export function POSPage() {
 
   const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'available' | 'low'>('all');
+  const [posPage, setPosPage] = useState(1);
+  const ITEMS_PER_PAGE = 12;
   const debouncedSearch = useDebouncedValue(search, 250);
+
+  // Reset pagination on search or filter change
+  useEffect(() => {
+    setPosPage(1);
+  }, [debouncedSearch, filterMode]);
+
   const stock = useQuery({
     enabled: !!effectiveFid,
     queryKey: ['stock-pos', effectiveFid, debouncedSearch],
@@ -359,54 +367,93 @@ export function POSPage() {
                   <Package className="h-16 w-16 mb-4 text-surface-300" strokeWidth={1} />
                   <p>Aucun produit trouvé pour "{search}".</p>
                 </div>
-              ) : (
-                <motion.div layout className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                  <AnimatePresence>
-                    {(stock.data ?? [])
-                      .filter(item => {
-                        if (filterMode === 'available') return item.quantity > 0;
-                        if (filterMode === 'low') return item.quantity <= item.product.lowStockThreshold;
-                        return true;
-                      })
-                      .map((item) => (
-                      <motion.button
-                        layout
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.9 }}
-                        transition={{ duration: 0.2 }}
-                        key={item._id}
-                        type="button"
-                        disabled={item.quantity <= 0}
-                        onClick={() => addToCart(item)}
-                        className="group relative flex flex-col text-left overflow-hidden rounded-2xl border border-surface-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-1 hover:border-brand-400 hover:shadow-glass-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-sm"
-                      >
-                        <div className="mb-4 flex items-start justify-between gap-2 w-full">
-                          <div className="flex-1 min-w-0">
-                            <h3 className="truncate font-semibold text-surface-900 group-hover:text-brand-700 transition-colors">
-                              {item.product.name}
-                            </h3>
-                            <p className="truncate text-xs text-surface-500 mt-0.5">
-                              {item.product.reference || 'Réf. non renseignée'}
-                            </p>
-                          </div>
-                          <span className={clsx("badge whitespace-nowrap", item.quantity <= item.product.lowStockThreshold ? 'badge-warning' : 'badge-success')}>
-                            Stock: {item.quantity}
-                          </span>
+              ) : (() => {
+                const filteredStock = (stock.data ?? []).filter(item => {
+                  if (filterMode === 'available') return item.quantity > 0;
+                  if (filterMode === 'low') return item.quantity <= item.product.lowStockThreshold;
+                  return true;
+                });
+                const totalPages = Math.max(1, Math.ceil(filteredStock.length / ITEMS_PER_PAGE));
+                const paginatedStock = filteredStock.slice((posPage - 1) * ITEMS_PER_PAGE, posPage * ITEMS_PER_PAGE);
+
+                if (filteredStock.length === 0) {
+                  return (
+                    <div className="flex h-full flex-col items-center justify-center text-surface-400 opacity-60">
+                      <Package className="h-16 w-16 mb-4 text-surface-300" strokeWidth={1} />
+                      <p>Aucun produit ne correspond à ces filtres.</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="flex flex-col h-full">
+                    <motion.div layout className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 flex-1 content-start">
+                      <AnimatePresence mode="popLayout">
+                        {paginatedStock.map((item) => (
+                          <motion.button
+                            layout
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.9 }}
+                            transition={{ duration: 0.2 }}
+                            key={item._id}
+                            type="button"
+                            disabled={item.quantity <= 0}
+                            onClick={() => addToCart(item)}
+                            className="group relative flex flex-col text-left overflow-hidden rounded-2xl border border-surface-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-1 hover:border-brand-400 hover:shadow-glass-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-sm"
+                          >
+                            <div className="mb-4 flex items-start justify-between gap-2 w-full">
+                              <div className="flex-1 min-w-0">
+                                <h3 className="truncate font-semibold text-surface-900 group-hover:text-brand-700 transition-colors">
+                                  {item.product.name}
+                                </h3>
+                                <p className="truncate text-xs text-surface-500 mt-0.5">
+                                  {item.product.reference || 'Réf. non renseignée'}
+                                </p>
+                              </div>
+                              <span className={clsx("badge whitespace-nowrap", item.quantity <= item.product.lowStockThreshold ? 'badge-warning' : 'badge-success')}>
+                                Stock: {item.quantity}
+                              </span>
+                            </div>
+                            <div className="mt-auto flex w-full items-center justify-between">
+                              <span className="text-xl font-bold tracking-tight text-surface-900">
+                                {money(item.product.sellPrice)}
+                              </span>
+                              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-50 text-brand-600 opacity-0 transition-all group-hover:opacity-100">
+                                <Plus className="h-5 w-5" />
+                              </div>
+                            </div>
+                          </motion.button>
+                        ))}
+                      </AnimatePresence>
+                    </motion.div>
+                    
+                    {totalPages > 1 && (
+                      <div className="mt-6 flex items-center justify-between border-t border-surface-200 pt-4">
+                        <span className="text-sm text-surface-500 font-medium">
+                          Page {posPage} sur {totalPages}
+                        </span>
+                        <div className="flex gap-2">
+                          <button 
+                            className="btn-secondary !p-2" 
+                            disabled={posPage === 1}
+                            onClick={() => setPosPage(p => Math.max(1, p - 1))}
+                          >
+                            <ChevronLeft className="w-5 h-5" />
+                          </button>
+                          <button 
+                            className="btn-secondary !p-2" 
+                            disabled={posPage === totalPages}
+                            onClick={() => setPosPage(p => Math.min(totalPages, p + 1))}
+                          >
+                            <ChevronRight className="w-5 h-5" />
+                          </button>
                         </div>
-                        <div className="mt-auto flex w-full items-center justify-between">
-                          <span className="text-xl font-bold tracking-tight text-surface-900">
-                            {money(item.product.sellPrice)}
-                          </span>
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-50 text-brand-600 opacity-0 transition-all group-hover:opacity-100">
-                            <Plus className="h-5 w-5" />
-                          </div>
-                        </div>
-                      </motion.button>
-                    ))}
-                  </AnimatePresence>
-                </motion.div>
-              )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </section>
 

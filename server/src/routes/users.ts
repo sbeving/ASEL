@@ -11,7 +11,7 @@ import { Franchise } from '../models/Franchise.js';
 import { audit } from '../services/audit.service.js';
 import { ROLES, isFranchiseScoped } from '../utils/roles.js';
 import { PERMISSIONS, normalizeCustomPermissionOverrides } from '../utils/permissions.js';
-import { badRequest, notFound } from '../utils/AppError.js';
+import { badRequest, notFound, forbidden } from '../utils/AppError.js';
 import { userAvatarUpload, toUploadPath } from '../middleware/upload.js';
 
 const router = Router();
@@ -73,6 +73,7 @@ router.post(
   validate(createSchema),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof createSchema>;
+    if (input.role === 'superadmin' && req.user!.role !== 'superadmin') { throw forbidden('Only superadmins can create superadmin accounts'); }
     await ensureFranchiseConsistency(input.role, input.franchiseId);
 
     const passwordHash = await bcrypt.hash(input.password, env.BCRYPT_ROUNDS);
@@ -100,6 +101,8 @@ router.patch(
 
     const user = await User.findById(id);
     if (!user) throw notFound('User not found');
+    if (user.role === 'superadmin' && req.user!.role !== 'superadmin') throw forbidden('You cannot modify a superadmin');
+    if (input.role === 'superadmin' && req.user!.role !== 'superadmin') throw forbidden('Only superadmins can assign superadmin role');
 
     if (input.role || 'franchiseId' in input) {
       const nextRole = input.role ?? user.role;
@@ -135,8 +138,10 @@ router.delete(
   asyncHandler(async (req, res) => {
     const { id } = req.params as { id: string };
     if (req.user!.sub === id) throw badRequest('You cannot deactivate yourself');
+    const userToDeactivate = await User.findById(id);
+    if (!userToDeactivate) throw notFound('User not found');
+    if (userToDeactivate.role === 'superadmin' && req.user!.role !== 'superadmin') throw forbidden('You cannot deactivate a superadmin');
     const user = await User.findByIdAndUpdate(id, { active: false }, { new: true });
-    if (!user) throw notFound('User not found');
     await audit(req, { action: 'user.deactivate', entity: 'User', entityId: id });
     res.json({ user });
   }),
