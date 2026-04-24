@@ -6,11 +6,12 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../auth/AuthContext';
 import { api } from '../lib/api';
 import type { Role } from '../lib/types';
+import { useTheme } from '../lib/theme';
 import {
   LayoutDashboard, Package, ShoppingCart, MonitorSmartphone, Users,
   Bell, Wrench, ArrowRightLeft, ClipboardList, Network, RotateCcw, Clock,
   Wallet, Truck, ClipboardCheck, Lock, CalendarDays, Tag, Layers,
-  Briefcase, Store, MapPin, UserCog, History, LogOut, Menu, X
+  Briefcase, Store, MapPin, UserCog, History, LogOut, Menu, X, Sun, Moon, ShieldCheck
 } from 'lucide-react';
 
 const nav: { to: string; label: string; icon: any; roles?: Role[] }[] = [
@@ -42,8 +43,18 @@ const nav: { to: string; label: string; icon: any; roles?: Role[] }[] = [
 
 export function Layout() {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [theme]);
+
   if (!user) return null;
 
   const unread = useQuery({
@@ -117,20 +128,34 @@ export function Layout() {
       </nav>
       
       <div className="mt-auto border-t border-surface-200 bg-surface-50 p-4 dark:border-surface-800 dark:bg-surface-900/50">
-        <div className="flex items-center gap-3 rounded-xl bg-white p-3 shadow-sm dark:bg-surface-800">
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 dark:bg-brand-900/50 dark:text-brand-300">
-            <span className="text-sm font-bold">{user.fullName.charAt(0).toUpperCase()}</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="truncate text-sm font-bold text-surface-900 dark:text-white">{user.fullName}</div>
-            <div className="truncate text-xs font-medium text-surface-500 capitalize">{user.role}</div>
+        <div className="mb-3 flex items-center justify-between px-2">
+          <span className="text-xs font-semibold uppercase tracking-wider text-surface-500">Theme & Profil</span>
+          <button
+            onClick={toggleTheme}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-200 text-surface-600 transition-colors hover:bg-surface-300 dark:bg-surface-800 dark:text-surface-300 dark:hover:bg-surface-700"
+          >
+            {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+          </button>
+        </div>
+        <div className="flex flex-col gap-3 rounded-2xl border border-surface-200 bg-white p-3 shadow-sm dark:border-surface-700 dark:bg-surface-800">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-700 dark:bg-brand-900/50 dark:text-brand-300">
+              <span className="text-lg font-bold">{user.fullName.charAt(0).toUpperCase()}</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="truncate text-sm font-bold text-surface-900 dark:text-white">{user.fullName}</div>
+              <div className="flex items-center gap-1 mt-0.5 text-xs font-medium text-brand-600 dark:text-brand-400">
+                <ShieldCheck className="h-3 w-3" />
+                <span className="capitalize">{user.role}</span>
+              </div>
+            </div>
           </div>
           <button
             onClick={logout}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-surface-400 transition-colors hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10"
-            title="Se déconnecter"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-600 transition-colors hover:bg-rose-100 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20"
           >
             <LogOut className="h-4 w-4" />
+            Déconnexion
           </button>
         </div>
       </div>

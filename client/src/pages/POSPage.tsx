@@ -92,6 +92,7 @@ export function POSPage() {
   const effectiveFid = isGlobal ? selectedFid : user?.franchiseId ?? '';
 
   const [search, setSearch] = useState('');
+  const [filterMode, setFilterMode] = useState<'all' | 'available' | 'low'>('all');
   const debouncedSearch = useDebouncedValue(search, 250);
   const stock = useQuery({
     enabled: !!effectiveFid,
@@ -287,31 +288,50 @@ export function POSPage() {
           {/* CATALOG SECTION */}
           <section className="flex flex-col overflow-hidden rounded-3xl border border-surface-200/60 bg-white/60 shadow-glass backdrop-blur-xl">
             <div className="border-b border-surface-200/50 bg-white/80 p-5 backdrop-blur-md">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="relative flex-1">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-surface-400" />
                   <input
                     type="search"
-                    placeholder="Rechercher un produit, référence ou scan..."
+                    placeholder="Rechercher un produit ou référence..."
                     autoFocus
-                    className="input pl-11 !rounded-2xl !py-3 !text-base shadow-sm"
+                    className="input pl-11 !rounded-2xl !py-2.5 !text-sm shadow-sm"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                   />
                 </div>
-                <button
-                  type="button"
-                  className="btn-secondary !rounded-2xl !py-3 whitespace-nowrap shadow-sm hover:border-brand-300 hover:text-brand-600 group"
-                  onClick={() => {
-                    setCameraError(null);
-                    setCameraOpen(true);
-                  }}
-                >
-                  <ScanLine className="h-5 w-5 text-surface-400 group-hover:text-brand-500 transition-colors" />
-                  <span>Scanner code</span>
-                </button>
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 hide-scrollbar">
+                  {(['all', 'available', 'low'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setFilterMode(mode)}
+                      className={clsx(
+                        "whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-semibold transition-all border",
+                        filterMode === mode
+                          ? "bg-brand-50 border-brand-200 text-brand-700 dark:bg-brand-900/40 dark:border-brand-700 dark:text-brand-300"
+                          : "bg-surface-50 border-surface-200 text-surface-600 hover:bg-surface-100 dark:bg-surface-800 dark:border-surface-700 dark:text-surface-400 dark:hover:bg-surface-700"
+                      )}
+                    >
+                      {mode === 'all' && 'Tous'}
+                      {mode === 'available' && 'En Stock'}
+                      {mode === 'low' && 'Stock Faible'}
+                    </button>
+                  ))}
+                  <div className="w-px h-6 bg-surface-200 dark:bg-surface-700 mx-1"></div>
+                  <button
+                    type="button"
+                    className="btn-secondary !rounded-xl !py-2 !px-3 whitespace-nowrap shadow-sm hover:border-brand-300 hover:text-brand-600 group"
+                    onClick={() => {
+                      setCameraError(null);
+                      setCameraOpen(true);
+                    }}
+                  >
+                    <ScanLine className="h-4 w-4 text-surface-400 group-hover:text-brand-500 transition-colors" />
+                    <span className="text-xs hidden sm:inline">Scanner</span>
+                  </button>
+                </div>
               </div>
-              {cameraError && <p className="mt-2 text-sm text-rose-500 flex items-center gap-1"><AlertCircle className="w-4 h-4" /> {cameraError}</p>}
+              {cameraError && <p className="mt-2 text-xs text-rose-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" /> {cameraError}</p>}
             </div>
 
             {cameraOpen && (
@@ -340,9 +360,15 @@ export function POSPage() {
                   <p>Aucun produit trouvé pour "{search}".</p>
                 </div>
               ) : (
-                <motion.div layout className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <motion.div layout className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                   <AnimatePresence>
-                    {(stock.data ?? []).map((item) => (
+                    {(stock.data ?? [])
+                      .filter(item => {
+                        if (filterMode === 'available') return item.quantity > 0;
+                        if (filterMode === 'low') return item.quantity <= item.product.lowStockThreshold;
+                        return true;
+                      })
+                      .map((item) => (
                       <motion.button
                         layout
                         initial={{ opacity: 0, scale: 0.9 }}
