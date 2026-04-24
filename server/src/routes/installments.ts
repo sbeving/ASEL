@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { isValidObjectId } from 'mongoose';
+import mongoose, { isValidObjectId } from 'mongoose';
 import { requireAuth, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -34,7 +34,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const { franchiseId, status, limit } = req.query as unknown as z.infer<typeof listQuery>;
     await Installment.updateMany(
-      { status: 'pending', dueDate: { $lt: new Date() } },
+      { status: 'pending', dueDate: mongoose.trusted({ $lt: new Date() }) },
       { $set: { status: 'late' } },
     );
 

@@ -74,6 +74,7 @@ async function main() {
   app.use('/api/receptions', receptionRoutes);
   app.use('/api/closings', closingRoutes);
   app.use('/api/installments', installmentRoutes);
+  app.use('/api/installements', installmentRoutes); // legacy typo compatibility
   app.use('/api/monthly-inventories', monthlyInventoryRoutes);
   app.use('/api/timelogs', timeLogRoutes);
   app.use('/api/cashflows', cashFlowRoutes);

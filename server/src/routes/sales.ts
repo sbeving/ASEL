@@ -85,7 +85,7 @@ router.post(
     const isInstallmentSale = input.paymentMethod === 'installment';
 
     const productIds = input.items.map((item) => item.productId);
-    const products = await Product.find({ _id: { $in: productIds } }).select('_id active');
+    const products = await Product.find({ _id: mongoose.trusted({ $in: productIds }) }).select('_id active');
     if (products.length !== productIds.length) throw badRequest('One or more products not found');
     if (products.some((product) => !product.active)) throw badRequest('Cannot sell inactive products');
 
@@ -136,7 +136,7 @@ router.post(
     const dailySequence =
       (await Sale.countDocuments({
         saleType: input.saleType,
-        createdAt: { $gte: dayStart, $lt: dayEnd },
+        createdAt: mongoose.trusted({ $gte: dayStart, $lt: dayEnd }),
       })) + 1;
     const invoiceNumber = formatInvoiceNumber(now, input.saleType, dailySequence);
 
@@ -274,10 +274,10 @@ router.get(
     if (paymentMethod) filter.paymentMethod = paymentMethod;
     if (paymentStatus) filter.paymentStatus = paymentStatus;
     if (from || to) {
-      filter.createdAt = {
+      filter.createdAt = mongoose.trusted({
         ...(from ? { $gte: new Date(from) } : {}),
         ...(to ? { $lte: new Date(to) } : {}),
-      };
+      });
     }
 
     if (q) {
@@ -295,8 +295,8 @@ router.get(
       filter.$or = [
         { invoiceNumber: rx },
         { note: rx },
-        ...(clientIds.length > 0 ? [{ clientId: { $in: clientIds } }] : []),
-        ...(productIds.length > 0 ? [{ 'items.productId': { $in: productIds } }] : []),
+        ...(clientIds.length > 0 ? [{ clientId: mongoose.trusted({ $in: clientIds }) }] : []),
+        ...(productIds.length > 0 ? [{ 'items.productId': mongoose.trusted({ $in: productIds }) }] : []),
       ];
     }
 

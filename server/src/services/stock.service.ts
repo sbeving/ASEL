@@ -33,7 +33,7 @@ export async function applyStockDelta(change: StockChange) {
   if (delta < 0) {
     // Guarded decrement: conditional update ensures no negative stock.
     updatedStock = await Stock.findOneAndUpdate(
-      { franchiseId, productId, quantity: { $gte: -delta } },
+      { franchiseId, productId, quantity: mongoose.trusted({ $gte: -delta }) },
       { $inc: { quantity: delta } },
       { new: true, session },
     );

@@ -38,7 +38,7 @@ export async function createNotification(input: CreateNotificationInput) {
     const existing = await Notification.findOne({
       dedupeKey,
       readAt: null,
-      createdAt: { $gte: since },
+      createdAt: mongoose.trusted({ $gte: since }),
     }).session(session ?? null);
     if (existing) return existing;
   }
