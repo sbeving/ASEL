@@ -273,13 +273,13 @@ export function NetworkPointsPage() {
               <th className="th">Ville</th>
               <th className="th">Contact</th>
               <th className="th">Coordonnees</th>
-              <th className="th text-right">Actions</th>
+              <th className="th-action">Actions</th>
             </tr>
           </thead>
           <tbody>
             {(list.data?.points ?? []).map((point) => (
               <tr key={point._id}>
-                <td className="td">
+                <td className="td-action">
                   <div className="font-medium text-slate-900">{point.name}</div>
                   <div className="text-xs text-slate-500">{point.responsible || point.address || '—'}</div>
                 </td>

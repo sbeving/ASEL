@@ -234,6 +234,7 @@ router.post(
 const listQuery = z.object({
   franchiseId: objectId.optional(),
   clientId: objectId.optional(),
+  userId: objectId.optional(),
   saleType: z.enum(['ticket', 'facture', 'devis']).optional(),
   paymentMethod: z.enum(['cash', 'card', 'transfer', 'installment', 'other']).optional(),
   paymentStatus: z.enum(['paid', 'partial', 'pending']).optional(),
@@ -254,6 +255,7 @@ router.get(
     const {
       franchiseId,
       clientId,
+      userId,
       saleType,
       paymentMethod,
       paymentStatus,
@@ -273,6 +275,10 @@ router.get(
       filter.franchiseId = franchiseId;
     }
     if (clientId) filter.clientId = clientId;
+    if (userId) {
+      if (!isGlobalRole(req.user!.role) && userId !== req.user!.sub) throw forbidden();
+      filter.userId = userId;
+    }
     if (saleType) filter.saleType = saleType;
     if (paymentMethod) filter.paymentMethod = paymentMethod;
     if (paymentStatus) filter.paymentStatus = paymentStatus;

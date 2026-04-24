@@ -605,7 +605,7 @@ export function POSPage() {
                         placeholder="0.00"
                         onChange={(e) => setDiscount(Math.max(0, Number(e.target.value) || 0))}
                       />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 text-sm">DA</span>
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 text-sm">TND</span>
                     </div>
                   </div>
                   <div>
@@ -620,7 +620,7 @@ export function POSPage() {
                         placeholder={String(total)}
                         onChange={(e) => setAmountReceived(e.target.value)}
                       />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 text-sm">DA</span>
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 text-sm">TND</span>
                     </div>
                   </div>
                 </div>

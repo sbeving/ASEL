@@ -36,11 +36,13 @@ export function ContactActions({
     .filter(Boolean)
     .join(' · ');
   const baseClasses = compact
-    ? 'inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors'
+    ? 'inline-flex items-center rounded-full border px-2 py-1 text-[11px] font-semibold transition-colors'
     : 'inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors';
+  const whatsappLabel = compact ? 'WA' : 'WhatsApp';
+  const callLabel = compact ? 'Tel' : 'Appeler';
 
   return (
-    <div className={`flex flex-wrap items-center gap-2 ${className}`.trim()}>
+    <div className={`flex flex-wrap items-center gap-1.5 ${className}`.trim()}>
       {whatsappUrl && (
         <a
           href={whatsappUrl}
@@ -49,7 +51,7 @@ export function ContactActions({
           title={title || 'WhatsApp'}
           className={`${baseClasses} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}
         >
-          WhatsApp
+          {whatsappLabel}
         </a>
       )}
       {smsUrl && (
@@ -67,7 +69,7 @@ export function ContactActions({
           title={title || 'Appeler'}
           className={`${baseClasses} border-slate-200 bg-white text-slate-700 hover:bg-slate-50`}
         >
-          Appeler
+          {callLabel}
         </a>
       )}
     </div>

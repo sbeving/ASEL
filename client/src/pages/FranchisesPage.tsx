@@ -85,7 +85,7 @@ export function FranchisesPage() {
                 <td className="td">
                   {franchise.active ? <span className="badge-success">actif</span> : <span className="badge-muted">inactif</span>}
                 </td>
-                <td className="td text-right">
+                <td className="td-action">
                   <button className="text-brand-600 hover:underline" onClick={() => setEditing(franchise)}>
                     Modifier
                   </button>

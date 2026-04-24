@@ -149,13 +149,13 @@ export function ClientsPage() {
               <th className="th text-right">Achats</th>
               <th className="th text-right">Solde du</th>
               <th className="th">Statut</th>
-              <th className="th text-right">Actions</th>
+              <th className="th-action">Actions</th>
             </tr>
           </thead>
           <tbody>
             {(query.data?.clients ?? []).map((client) => (
               <tr key={client._id}>
-                <td className="td">
+                <td className="td-action">
                   <div className="font-medium text-slate-900">{client.fullName}</div>
                   <div className="text-xs text-slate-500">{client.company || client.cin || 'Sans detail'}</div>
                 </td>
@@ -356,7 +356,7 @@ function ClientOverviewModal({ client, onClose }: { client: Client; onClose: () 
                 <thead>
                   <tr>
                     <th className="th">Piece</th>
-                    <th className="th">Due date</th>
+                    <th className="th">Échéance</th>
                     <th className="th">Statut</th>
                     <th className="th text-right">Montant</th>
                   </tr>

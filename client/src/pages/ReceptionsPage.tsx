@@ -208,7 +208,7 @@ export function ReceptionsPage() {
                 <th className="th">Statut</th>
                 <th className="th text-right">Lignes</th>
                 <th className="th text-right">Total TTC</th>
-                <th className="th text-right">Actions</th>
+                <th className="th-action">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -221,7 +221,7 @@ export function ReceptionsPage() {
                   <td className="td capitalize">{reception.status}</td>
                   <td className="td text-right">{reception.lines.length}</td>
                   <td className="td text-right font-semibold">{money(reception.totalTtc)}</td>
-                  <td className="td">
+                  <td className="td-action">
                     <div className="flex justify-end gap-2">
                       {reception.status === 'draft' && (
                         <>
@@ -680,7 +680,7 @@ function ReceptionFormModal({
               <SearchableSelect
                 value={lineProductIdState}
                 options={productOptions}
-                placeholder="Search product..."
+                placeholder="Rechercher un produit..."
                 onChange={setLineProductIdState}
               />
               <input

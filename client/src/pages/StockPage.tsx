@@ -59,7 +59,7 @@ export function StockPage() {
     <>
       <PageHeader
         title="Stock"
-        subtitle="Inventory by franchise with low stock visibility"
+        subtitle="Inventaire par franchise avec visibilite sur les seuils bas"
         actions={
           canCreateStockEntry && effectiveFranchiseId ? (
             <button className="btn-primary" onClick={() => setEntryOpen(true)}>
@@ -76,7 +76,7 @@ export function StockPage() {
             value={selectedFranchiseId}
             onChange={(event) => setSelectedFranchiseId(event.target.value)}
           >
-            <option value="">Select franchise</option>
+              <option value="">Selectionner une franchise</option>
             {(franchises.data ?? []).map((franchise) => (
               <option key={franchise._id} value={franchise._id}>
                 {franchise.name}
@@ -87,7 +87,7 @@ export function StockPage() {
 
         <input
           type="search"
-          placeholder="Search product..."
+          placeholder="Rechercher un produit..."
           className="input max-w-md"
           value={search}
           onChange={(event) => {
@@ -105,11 +105,11 @@ export function StockPage() {
               setPage(1);
             }}
           />
-          Low stock only
+          Stock faible uniquement
         </label>
       </div>
 
-      {!effectiveFranchiseId && <div className="text-slate-500">Select a franchise to view stock.</div>}
+      {!effectiveFranchiseId && <div className="text-slate-500">Selectionnez une franchise pour afficher le stock.</div>}
 
       {effectiveFranchiseId && (
         <div className="card overflow-x-auto">
@@ -253,7 +253,7 @@ function StockEntryModal({
           <SearchableSelect
             value={productId}
             options={productOptions}
-            placeholder="Search product..."
+            placeholder="Rechercher un produit..."
             onChange={setProductId}
           />
           <input type="hidden" value={productId} {...register('productId')} />

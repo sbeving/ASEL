@@ -87,7 +87,7 @@ export function ProductsPage() {
     <>
       <PageHeader
         title="Produits"
-        subtitle="Catalogue with pricing, stock metrics and product image management"
+        subtitle="Catalogue avec prix, indicateurs de stock et gestion des images produit"
         actions={
           canEdit && (
             <button className="btn-primary" onClick={() => setCreating(true)}>
@@ -156,7 +156,7 @@ export function ProductsPage() {
               <th className="th text-right">Marge</th>
               <th className="th text-right">Prix vente</th>
               <th className="th">Statut</th>
-              <th className="th text-right">Actions</th>
+              <th className="th-action">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -168,7 +168,7 @@ export function ProductsPage() {
                       {product.imagePath ? (
                         <img src={uploadUrl(product.imagePath)} alt={product.name} className="h-full w-full object-cover" />
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">no img</div>
+                          <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">sans image</div>
                       )}
                     </div>
                     <div>
@@ -194,7 +194,7 @@ export function ProductsPage() {
                   </span>
                 </td>
                 <td className="td text-right font-medium">{money(product.sellPrice)}</td>
-                <td className="td">
+                <td className="td-action">
                   {product.active ? <span className="badge-success">Actif</span> : <span className="badge-muted">Inactif</span>}
                 </td>
                 <td className="td">

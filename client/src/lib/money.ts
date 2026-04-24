@@ -1,6 +1,7 @@
 const fmt = new Intl.NumberFormat('fr-TN', {
   style: 'currency',
   currency: 'TND',
+  currencyDisplay: 'code',
   minimumFractionDigits: 2,
 });
 

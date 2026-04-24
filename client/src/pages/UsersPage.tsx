@@ -76,13 +76,13 @@ export function UsersPage() {
               <th className="th">Franchise</th>
               <th className="th">Derniere connexion</th>
               <th className="th">Statut</th>
-              <th className="th text-right">Actions</th>
+              <th className="th-action">Actions</th>
             </tr>
           </thead>
           <tbody>
             {(users.data ?? []).map((user) => (
               <tr key={user._id || user.id}>
-                <td className="td">
+                <td className="td-action">
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
                       {user.avatarPath ? (

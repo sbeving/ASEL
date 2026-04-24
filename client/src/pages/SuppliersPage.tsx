@@ -57,7 +57,7 @@ export function SuppliersPage() {
                 <td className="td text-slate-500">{s.email ?? '—'}</td>
                 <td className="td text-slate-500">{s.address ?? '—'}</td>
                 <td className="td">{s.active ? <span className="badge-success">actif</span> : <span className="badge-muted">inactif</span>}</td>
-                <td className="td text-right">
+                <td className="td-action">
                   <button className="text-brand-600 hover:underline" onClick={() => setEditing(s)}>Modifier</button>
                 </td>
               </tr>

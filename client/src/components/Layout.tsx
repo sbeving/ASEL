@@ -41,6 +41,123 @@ const nav: { to: string; label: string; icon: any; roles?: Role[] }[] = [
   { to: '/audit', label: 'Journal audit', icon: History, roles: ['admin', 'superadmin'] },
 ];
 
+type TimeLogType = 'entree' | 'sortie' | 'pause_debut' | 'pause_fin';
+
+interface LayoutTimeLogRow {
+  _id: string;
+  type: TimeLogType;
+  timestamp: string;
+}
+
+interface LayoutSaleRow {
+  _id: string;
+  total: number;
+}
+
+interface ProfileSummary {
+  workedMinutes: number;
+  salesCount: number;
+  salesAmount: number;
+  activeShift: boolean;
+}
+
+const PROFILE_TIMELOG_ROLES: Role[] = ['admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur'];
+
+function formatWorkedHours(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes <= 0) return '0h';
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes === 0 ? `${hours}h` : `${hours}h ${String(remainingMinutes).padStart(2, '0')}`;
+}
+
+function formatCompactAmount(amount: number): string {
+  const value = Number.isFinite(amount) ? amount : 0;
+  if (Math.abs(value) >= 1000) {
+    const compact = value / 1000;
+    return `${compact >= 10 ? compact.toFixed(0) : compact.toFixed(1)}k TND`;
+  }
+  return `${Math.round(value)} TND`;
+}
+
+function computeWorkedMinutes(logs: LayoutTimeLogRow[]): { workedMinutes: number; activeShift: boolean } {
+  const sorted = [...logs].sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
+  let shiftStart: number | null = null;
+  let breakStart: number | null = null;
+  let pausedMs = 0;
+  let totalMs = 0;
+
+  for (const log of sorted) {
+    const at = new Date(log.timestamp).getTime();
+    if (!Number.isFinite(at)) continue;
+
+    if (log.type === 'entree') {
+      shiftStart = at;
+      breakStart = null;
+      pausedMs = 0;
+      continue;
+    }
+
+    if (shiftStart === null) continue;
+
+    if (log.type === 'pause_debut') {
+      if (breakStart === null) breakStart = at;
+      continue;
+    }
+
+    if (log.type === 'pause_fin') {
+      if (breakStart !== null) {
+        pausedMs += Math.max(0, at - breakStart);
+        breakStart = null;
+      }
+      continue;
+    }
+
+    if (log.type === 'sortie') {
+      const effectivePausedMs = pausedMs + (breakStart !== null ? Math.max(0, at - breakStart) : 0);
+      totalMs += Math.max(0, at - shiftStart - effectivePausedMs);
+      shiftStart = null;
+      breakStart = null;
+      pausedMs = 0;
+    }
+  }
+
+  let activeShift = false;
+  if (shiftStart !== null) {
+    const now = Date.now();
+    const eighteenHoursMs = 18 * 60 * 60 * 1000;
+    if (now - shiftStart <= eighteenHoursMs) {
+      const effectivePausedMs = pausedMs + (breakStart !== null ? Math.max(0, now - breakStart) : 0);
+      totalMs += Math.max(0, now - shiftStart - effectivePausedMs);
+      activeShift = true;
+    }
+  }
+
+  return {
+    workedMinutes: Math.round(totalMs / 60000),
+    activeShift,
+  };
+}
+
+function monthStartIso(): string {
+  const value = new Date();
+  value.setDate(1);
+  value.setHours(0, 0, 0, 0);
+  return value.toISOString();
+}
+
+function currentMonthKey(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function ProfileStat({ label, value, accent = '' }: { label: string; value: string; accent?: string }) {
+  return (
+    <div className="rounded-xl border border-surface-200 bg-surface-50 px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-surface-500">{label}</div>
+      <div className={clsx('mt-1 truncate text-sm font-bold text-surface-900 dark:text-white', accent)}>{value}</div>
+    </div>
+  );
+}
+
 export function Layout() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -61,6 +178,42 @@ export function Layout() {
     queryKey: ['notifications-unread-count'],
     queryFn: async () => (await api.get<{ count: number }>('/notifications/unread-count')).data.count,
     refetchInterval: 30000,
+  });
+  const canSeeWorkedHours = PROFILE_TIMELOG_ROLES.includes(user.role);
+  const profileSummary = useQuery({
+    queryKey: ['profile-summary', user.id, user.role, currentMonthKey()],
+    queryFn: async (): Promise<ProfileSummary> => {
+      const [salesResponse, timeLogsResponse] = await Promise.all([
+        api.get<{ sales: LayoutSaleRow[] }>('/sales', {
+          params: {
+            userId: user.id,
+            from: monthStartIso(),
+            limit: 500,
+          },
+        }),
+        canSeeWorkedHours
+          ? api.get<{ logs: LayoutTimeLogRow[] }>('/timelogs', {
+              params: {
+                scope: 'self',
+                month: currentMonthKey(),
+                pageSize: 500,
+              },
+            })
+          : Promise.resolve(null),
+      ]);
+
+      const sales = salesResponse.data.sales ?? [];
+      const worked = timeLogsResponse ? computeWorkedMinutes(timeLogsResponse.data.logs ?? []) : { workedMinutes: 0, activeShift: false };
+
+      return {
+        workedMinutes: worked.workedMinutes,
+        activeShift: worked.activeShift,
+        salesCount: sales.length,
+        salesAmount: sales.reduce((sum, sale) => sum + (sale.total ?? 0), 0),
+      };
+    },
+    staleTime: 30000,
+    refetchInterval: 60000,
   });
 
   const items = nav.filter((item) => !item.roles || item.roles.includes(user.role));
@@ -137,22 +290,34 @@ export function Layout() {
             {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
           </button>
         </div>
-        <div className="flex flex-col gap-3 rounded-2xl border border-surface-200 bg-white p-3 shadow-sm dark:border-surface-700 dark:bg-surface-800">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-700 dark:bg-brand-900/50 dark:text-brand-300">
-              <span className="text-lg font-bold">{user.fullName.charAt(0).toUpperCase()}</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="truncate text-sm font-bold text-surface-900 dark:text-white">{user.fullName}</div>
-              <div className="flex items-center gap-1 mt-0.5 text-xs font-medium text-brand-600 dark:text-brand-400">
-                <ShieldCheck className="h-3 w-3" />
-                <span className="capitalize">{user.role}</span>
+          <div className="flex flex-col gap-3 rounded-2xl border border-surface-200 bg-white p-3 shadow-sm dark:border-surface-700 dark:bg-surface-800">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-700 dark:bg-brand-900/50 dark:text-brand-300">
+                <span className="text-lg font-bold">{user.fullName.charAt(0).toUpperCase()}</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="truncate text-sm font-bold text-surface-900 dark:text-white">{user.fullName}</div>
+                <div className="flex items-center gap-1 mt-0.5 text-xs font-medium text-brand-600 dark:text-brand-400">
+                  <ShieldCheck className="h-3 w-3" />
+                  <span className="capitalize">{user.role}</span>
+                </div>
+                {profileSummary.data?.activeShift && (
+                  <div className="mt-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">Pointage actif</div>
+                )}
               </div>
             </div>
-          </div>
-          <button
-            onClick={logout}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-600 transition-colors hover:bg-rose-100 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20"
+            <div className="grid grid-cols-3 gap-2">
+              <ProfileStat
+                label="Heures"
+                value={profileSummary.isLoading ? '...' : canSeeWorkedHours ? formatWorkedHours(profileSummary.data?.workedMinutes ?? 0) : '—'}
+                accent={profileSummary.data?.activeShift ? 'text-emerald-700 dark:text-emerald-400' : ''}
+              />
+              <ProfileStat label="Ventes" value={profileSummary.isLoading ? '...' : String(profileSummary.data?.salesCount ?? 0)} />
+              <ProfileStat label="CA" value={profileSummary.isLoading ? '...' : formatCompactAmount(profileSummary.data?.salesAmount ?? 0)} />
+            </div>
+            <button
+              onClick={logout}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-600 transition-colors hover:bg-rose-100 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20"
           >
             <LogOut className="h-4 w-4" />
             Déconnexion
@@ -163,12 +328,12 @@ export function Layout() {
   );
 
   return (
-    <div className="flex min-h-screen bg-surface-50 dark:bg-surface-950">
-      <aside className="hidden w-[280px] flex-col border-r border-surface-200 bg-white shadow-sm transition-all dark:border-surface-800 dark:bg-surface-900 md:flex">
+    <div className="flex min-h-screen bg-surface-50 dark:bg-surface-950 md:h-[100dvh] md:overflow-hidden">
+      <aside className="hidden w-[280px] flex-col border-r border-surface-200 bg-white shadow-sm transition-all dark:border-surface-800 dark:bg-surface-900 md:sticky md:top-0 md:flex md:h-[100dvh] md:overflow-hidden">
         {navContent}
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden md:min-h-0">
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-surface-200 bg-white/80 px-4 py-3 backdrop-blur-md dark:border-surface-800 dark:bg-surface-900/80 md:hidden">
           <div className="flex items-center gap-3">
             <button
@@ -228,7 +393,7 @@ export function Layout() {
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ type: "spring", bounce: 0, duration: 0.4 }}
-              className="fixed inset-y-0 left-0 z-[110] flex w-[85%] max-w-[300px] flex-col bg-white shadow-2xl dark:bg-surface-900 md:hidden"
+              className="fixed inset-y-0 left-0 z-[110] flex h-[100dvh] w-[85%] max-w-[300px] flex-col overflow-hidden bg-white shadow-2xl dark:bg-surface-900 md:hidden"
             >
               <div className="absolute right-4 top-4">
                 <button

@@ -75,6 +75,12 @@
   .td {
     @apply px-4 py-3 text-sm border-b border-surface-100 font-medium text-surface-700;
   }
+  .th-action {
+    @apply th sticky right-0 z-10 bg-surface-50/95 text-right shadow-[-12px_0_16px_-16px_rgba(15,23,42,0.35)];
+  }
+  .td-action {
+    @apply td sticky right-0 z-10 bg-white/95 text-right backdrop-blur-sm shadow-[-12px_0_16px_-16px_rgba(15,23,42,0.25)];
+  }
 
   .surface-enter {
     @apply animate-slide-up;

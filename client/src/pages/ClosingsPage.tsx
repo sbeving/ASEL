@@ -112,7 +112,7 @@ export function ClosingsPage() {
                 <th className="th text-right">Ecart</th>
                 <th className="th">Franchise</th>
                 <th className="th">Etat</th>
-                <th className="th">Action</th>
+                <th className="th-action">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -126,7 +126,7 @@ export function ClosingsPage() {
                     <td className={`td text-right ${variance < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{money(variance)}</td>
                     <td className="td">{typeof c.franchiseId === 'object' ? c.franchiseId.name : '—'}</td>
                     <td className="td">{c.validated ? 'Validée' : 'En attente'}</td>
-                    <td className="td">
+                    <td className="td-action">
                       {canValidate && !c.validated && (
                         <button className="btn btn-secondary" onClick={() => validateClosing.mutate(c._id)} disabled={validateClosing.isPending}>
                           Valider

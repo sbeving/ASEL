@@ -190,13 +190,13 @@ export function ServicesPage() {
               <th className="th text-right">Prix</th>
               <th className="th text-right">Duree</th>
               <th className="th">Statut</th>
-              <th className="th text-right">Actions</th>
+              <th className="th-action">Actions</th>
             </tr>
           </thead>
           <tbody>
             {(services.data?.services ?? []).map((service) => (
               <tr key={service._id}>
-                <td className="td">
+                <td className="td-action">
                   <div className="font-medium text-slate-900">{service.name}</div>
                   <div className="text-xs text-slate-500">{service.description || 'Sans description'}</div>
                 </td>

@@ -205,13 +205,13 @@ export function InstallmentsPage() {
                 <th className="th">Statut</th>
                 <th className="th">Client</th>
                 <th className="th">Paiement</th>
-                <th className="th">Action</th>
+                <th className="th-action">Action</th>
               </tr>
             </thead>
             <tbody>
               {(installments.data ?? []).map((installment) => (
                 <tr key={installment._id}>
-                  <td className="td">
+                  <td className="td-action">
                     {typeof installment.saleId === 'object' && installment.saleId
                       ? installment.saleId.invoiceNumber || dateTime(installment.saleId.createdAt)
                       : '—'}

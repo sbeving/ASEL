@@ -141,7 +141,7 @@ export function TransfersPage() {
               <th className="th text-right">Qte</th>
               <th className="th">Statut</th>
               <th className="th">Demande par</th>
-              <th className="th"></th>
+              <th className="th-action">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -164,7 +164,7 @@ export function TransfersPage() {
                   <td className="td text-slate-500">
                     {typeof t.requestedBy === 'object' ? t.requestedBy.fullName : '-'}
                   </td>
-                  <td className="td text-right">
+                  <td className="td-action">
                     {canResolve && (
                       <div className="flex justify-end gap-2">
                         <button

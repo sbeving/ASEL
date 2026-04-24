@@ -78,7 +78,7 @@ export function DemandsPage() {
     <>
       <PageHeader
         title="Demandes produits"
-        subtitle="Workflow demande, validation et livraison depuis une franchise source"
+        subtitle="Workflow de demande, validation et livraison depuis une franchise source"
         actions={
           canCreate ? (
             <button className="btn-primary" onClick={() => setCreating(true)}>
@@ -135,10 +135,10 @@ export function DemandsPage() {
             }}
           >
             <option value="">Tous statuts</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="delivered">Delivered</option>
+            <option value="pending">En attente</option>
+            <option value="approved">Approuvee</option>
+            <option value="rejected">Rejetee</option>
+            <option value="delivered">Livree</option>
           </select>
           <select
             className="input"
@@ -151,7 +151,7 @@ export function DemandsPage() {
             <option value="">Toutes urgences</option>
             <option value="normal">Normal</option>
             <option value="urgent">Urgent</option>
-            <option value="critical">Critical</option>
+            <option value="critical">Critique</option>
           </select>
         </div>
       </section>
@@ -168,7 +168,7 @@ export function DemandsPage() {
               <th className="th">Statut</th>
               <th className="th">Demandeur</th>
               <th className="th">Reponse</th>
-              <th className="th text-right">Action</th>
+              <th className="th-action">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -189,11 +189,11 @@ export function DemandsPage() {
                   <td className="td">{franchiseName}</td>
                   <td className="td font-medium">{productName}</td>
                   <td className="td text-right">{demand.quantity}</td>
-                  <td className="td"><span className={urgencyBadge(demand.urgency)}>{demand.urgency}</span></td>
-                  <td className="td"><span className={statusBadge(demand.status)}>{demand.status}</span></td>
+                  <td className="td"><span className={urgencyBadge(demand.urgency)}>{urgencyLabel(demand.urgency)}</span></td>
+                  <td className="td"><span className={statusBadge(demand.status)}>{statusLabel(demand.status)}</span></td>
                   <td className="td text-slate-600">{requester}</td>
                   <td className="td text-slate-600">{demand.response || demand.note || '-'}</td>
-                  <td className="td">
+                  <td className="td-action">
                     <div className="flex justify-end">
                       {canProcess && demand.status === 'pending' && (
                         <button className="btn-secondary !px-3 !py-1.5" onClick={() => setProcessing(demand)}>
@@ -261,10 +261,23 @@ function statusBadge(status: Demand['status']) {
   return 'badge-danger';
 }
 
+function statusLabel(status: Demand['status']) {
+  if (status === 'pending') return 'En attente';
+  if (status === 'approved') return 'Approuvee';
+  if (status === 'delivered') return 'Livree';
+  return 'Rejetee';
+}
+
 function urgencyBadge(urgency: Demand['urgency']) {
   if (urgency === 'critical') return 'badge-danger';
   if (urgency === 'urgent') return 'badge-warning';
   return 'badge-muted';
+}
+
+function urgencyLabel(urgency: Demand['urgency']) {
+  if (urgency === 'critical') return 'Critique';
+  if (urgency === 'urgent') return 'Urgente';
+  return 'Normale';
 }
 
 function CreateDemandModal({
@@ -364,7 +377,7 @@ function CreateDemandModal({
             <select className="input" {...register('urgency')}>
               <option value="normal">Normal</option>
               <option value="urgent">Urgent</option>
-              <option value="critical">Critical</option>
+              <option value="critical">Critique</option>
             </select>
           </div>
         </div>
@@ -441,9 +454,9 @@ function ProcessDemandModal({
         <div>
           <label className="label">Decision</label>
           <select className="input" {...register('decision')}>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="delivered">Delivered (avec mouvement stock)</option>
+            <option value="approved">Approuver</option>
+            <option value="rejected">Rejeter</option>
+            <option value="delivered">Livrer (avec mouvement stock)</option>
           </select>
         </div>
         {decision === 'delivered' && (
