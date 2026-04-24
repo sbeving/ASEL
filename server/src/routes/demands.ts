@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import mongoose, { isValidObjectId } from 'mongoose';
+import { isValidObjectId, Types } from 'mongoose';
 import { franchiseScopeFilter, requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -178,6 +178,35 @@ const processSchema = z.object({
   sourceFranchiseId: objectId.optional(),
 });
 
+async function rollbackDeliveredDemand(params: {
+  sourceFranchiseId: string;
+  destFranchiseId: string;
+  productId: string;
+  quantity: number;
+  demandId: string;
+  userId: string;
+}) {
+  const rollbackNote = `Rollback demand #${params.demandId}`;
+
+  await applyStockDelta({
+    franchiseId: params.destFranchiseId,
+    productId: params.productId,
+    delta: -params.quantity,
+    type: 'adjustment',
+    userId: params.userId,
+    note: rollbackNote,
+  });
+
+  await applyStockDelta({
+    franchiseId: params.sourceFranchiseId,
+    productId: params.productId,
+    delta: params.quantity,
+    type: 'adjustment',
+    userId: params.userId,
+    note: rollbackNote,
+  });
+}
+
 router.post(
   '/:id/process',
   requireAuth,
@@ -197,43 +226,52 @@ router.post(
       if (!input.sourceFranchiseId) throw badRequest('sourceFranchiseId is required for delivered demand');
       if (!(await Franchise.exists({ _id: input.sourceFranchiseId }))) throw badRequest('sourceFranchiseId does not exist');
 
-      const session = await mongoose.startSession();
-      try {
-        await session.withTransaction(async () => {
-          await applyStockDelta({
-            franchiseId: input.sourceFranchiseId!,
-            productId: demand.productId!,
-            delta: -demand.quantity,
-            type: 'transfer_out',
-            userId: req.user!.sub,
-            note: `Demand #${demand._id}`,
-            refId: demand._id,
-            session,
-          });
-          await applyStockDelta({
-            franchiseId: demand.franchiseId,
-            productId: demand.productId!,
-            delta: demand.quantity,
-            type: 'transfer_in',
-            userId: req.user!.sub,
-            note: `Demand #${demand._id}`,
-            refId: demand._id,
-            session,
-          });
+      const sourceFranchiseId = input.sourceFranchiseId;
+      const destFranchiseId = demand.franchiseId.toString();
+      const productId = demand.productId.toString();
+      const quantity = demand.quantity;
 
-          demand.status = 'delivered';
-          demand.processedBy = new mongoose.Types.ObjectId(req.user!.sub);
-          demand.processedAt = new Date();
-          demand.response = input.response ?? '';
-          demand.sourceFranchiseId = new mongoose.Types.ObjectId(input.sourceFranchiseId!);
-          await demand.save({ session });
+      await applyStockDelta({
+        franchiseId: sourceFranchiseId,
+        productId,
+        delta: -quantity,
+        type: 'transfer_out',
+        userId: req.user!.sub,
+        note: `Demand #${demand._id}`,
+        refId: demand._id,
+      });
+
+      try {
+        await applyStockDelta({
+          franchiseId: destFranchiseId,
+          productId,
+          delta: quantity,
+          type: 'transfer_in',
+          userId: req.user!.sub,
+          note: `Demand #${demand._id}`,
+          refId: demand._id,
         });
-      } finally {
-        await session.endSession();
+
+        demand.status = 'delivered';
+        demand.processedBy = new Types.ObjectId(req.user!.sub);
+        demand.processedAt = new Date();
+        demand.response = input.response ?? '';
+        demand.sourceFranchiseId = new Types.ObjectId(sourceFranchiseId);
+        await demand.save();
+      } catch (error) {
+        await rollbackDeliveredDemand({
+          sourceFranchiseId,
+          destFranchiseId,
+          productId,
+          quantity,
+          demandId: demand._id.toString(),
+          userId: req.user!.sub,
+        });
+        throw error;
       }
     } else {
       demand.status = input.decision;
-      demand.processedBy = new mongoose.Types.ObjectId(req.user!.sub);
+      demand.processedBy = new Types.ObjectId(req.user!.sub);
       demand.processedAt = new Date();
       demand.response = input.response ?? '';
       demand.sourceFranchiseId = null;

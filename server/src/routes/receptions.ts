@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { isValidObjectId } from 'mongoose';
+import mongoose, { isValidObjectId } from 'mongoose';
 import { requireAuth, requirePermission, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -96,7 +96,7 @@ router.post(
 
     const productIds = input.lines.map((l) => l.productId);
     if (productIds.length > 0) {
-      const existing = await Product.countDocuments({ _id: { $in: productIds } });
+      const existing = await Product.countDocuments({ _id: mongoose.trusted({ $in: productIds }) });
       if (existing !== productIds.length) throw badRequest('One or more products do not exist');
     }
 
@@ -239,7 +239,7 @@ router.patch(
     if (input.lines) {
       const productIds = input.lines.map((l) => l.productId);
       if (productIds.length > 0) {
-        const existing = await Product.countDocuments({ _id: { $in: productIds } });
+        const existing = await Product.countDocuments({ _id: mongoose.trusted({ $in: productIds }) });
         if (existing !== productIds.length) throw badRequest('One or more products do not exist');
       }
       const lines = input.lines.map((line) => {

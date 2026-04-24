@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { isValidObjectId } from 'mongoose';
+import mongoose, { isValidObjectId } from 'mongoose';
 import { franchiseScopeFilter, requireAuth, requirePermission } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -90,10 +90,10 @@ router.get(
     }
     if (query.type) filter.type = query.type;
     if (query.from || query.to) {
-      filter.date = {
+      filter.date = mongoose.trusted({
         ...(query.from ? { $gte: new Date(`${query.from}T00:00:00.000Z`) } : {}),
         ...(query.to ? { $lte: new Date(`${query.to}T23:59:59.999Z`) } : {}),
-      };
+      });
     }
 
     const flows = await CashFlow.find(filter)

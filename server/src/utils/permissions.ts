@@ -148,6 +148,7 @@ const sellerPermissions: readonly Permission[] = [
   'clients.manage',
   'products.view',
   'demands.view',
+  'demands.create',
   'services.view',
   'services.record',
   'returns.view',

@@ -61,7 +61,7 @@ router.get(
       const createdAt: Record<string, Date> = {};
       if (from) createdAt.$gte = new Date(`${from}T00:00:00.000Z`);
       if (to) createdAt.$lt = new Date(`${to}T23:59:59.999Z`);
-      filter.createdAt = createdAt;
+      filter.createdAt = mongoose.trusted(createdAt);
     }
 
     if (q) {
@@ -90,7 +90,7 @@ router.get(
           },
         });
       }
-      filter.productId = { $in: products.map((p) => p._id) };
+      filter.productId = mongoose.trusted({ $in: products.map((p) => p._id) });
     }
 
     const [total, rows, summaryRows] = await Promise.all([
@@ -175,53 +175,38 @@ router.post(
     const product = await Product.findById(input.productId);
     if (!product) throw badRequest('Product not found');
 
-    const session = await mongoose.startSession();
-    let createdId: string | null = null;
+    const created = await Return.create({
+      franchiseId: fid,
+      productId: input.productId,
+      quantity: input.quantity,
+      returnType: input.returnType,
+      reason: input.reason ?? '',
+      unitPrice: product.sellPrice ?? 0,
+      userId: req.user!.sub,
+    });
 
     try {
-      const committedId = await session.withTransaction(async () => {
-        const docs = await Return.create(
-          [
-            {
-              franchiseId: fid,
-              productId: input.productId,
-              quantity: input.quantity,
-              returnType: input.returnType,
-              reason: input.reason ?? '',
-              unitPrice: product.sellPrice ?? 0,
-              userId: req.user!.sub,
-            },
-          ],
-          { session },
-        );
-        const created = docs[0];
-        if (!created) throw badRequest('Failed to create return record');
-
-        if (input.returnType === 'return') {
-          await applyStockDelta({
-            franchiseId: fid,
-            productId: input.productId,
-            delta: input.quantity,
-            type: 'return',
-            unitPrice: product.sellPrice ?? 0,
-            note: input.reason,
-            userId: req.user!.sub,
-            refId: created._id as mongoose.Types.ObjectId,
-            session,
-          });
-        }
-        return created._id.toString();
-      });
-      createdId = committedId ?? null;
-    } finally {
-      await session.endSession();
+      if (input.returnType === 'return') {
+        await applyStockDelta({
+          franchiseId: fid,
+          productId: input.productId,
+          delta: input.quantity,
+          type: 'return',
+          unitPrice: product.sellPrice ?? 0,
+          note: input.reason,
+          userId: req.user!.sub,
+          refId: created._id,
+        });
+      }
+    } catch (error) {
+      await Return.deleteOne({ _id: created._id });
+      throw error;
     }
 
-    if (!createdId) throw badRequest('Failed to create return record');
     await audit(req, {
       action: 'return.create',
       entity: 'Return',
-      entityId: createdId.toString(),
+      entityId: created._id.toString(),
       franchiseId: fid,
       details: {
         productId: input.productId,
@@ -230,7 +215,7 @@ router.post(
       },
     });
 
-    const row = await Return.findById(createdId)
+    const row = await Return.findById(created._id)
       .populate('franchiseId', 'name')
       .populate('productId', 'name reference barcode')
       .populate('userId', 'fullName username')

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { isValidObjectId } from 'mongoose';
+import mongoose, { isValidObjectId } from 'mongoose';
 import { franchiseScopeFilter, requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -121,10 +121,10 @@ router.post(
     const franchiseId = resolveFranchiseId(req.user, body.franchiseId);
 
     const productIds = [...new Set(body.lines.map((l) => l.productId))];
-    const products = await Product.find({ _id: { $in: productIds }, active: true }).select('_id');
+    const products = await Product.find({ _id: mongoose.trusted({ $in: productIds }), active: true }).select('_id');
     if (products.length !== productIds.length) throw badRequest('One or more products do not exist or are inactive');
 
-    const stocks = await Stock.find({ franchiseId, productId: { $in: productIds } }).select('productId quantity');
+    const stocks = await Stock.find({ franchiseId, productId: mongoose.trusted({ $in: productIds }) }).select('productId quantity');
     const stockByProduct = new Map(stocks.map((s) => [s.productId.toString(), s.quantity]));
 
     const lines = body.lines.map((line) => {

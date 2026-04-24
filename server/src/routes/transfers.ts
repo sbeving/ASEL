@@ -128,12 +128,12 @@ router.get(
       filter.$and = [
         ...(Array.isArray(filter.$and) ? filter.$and : []),
         {
-          $or: [
-            { note: rx },
-            ...(productIds.length > 0 ? [{ productId: { $in: productIds } }] : []),
-          ],
-        },
-      ];
+            $or: [
+              { note: rx },
+              ...(productIds.length > 0 ? [{ productId: mongoose.trusted({ $in: productIds }) }] : []),
+            ],
+          },
+        ];
     }
 
     const [total, transfers] = await Promise.all([

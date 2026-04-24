@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { isValidObjectId } from 'mongoose';
+import mongoose, { isValidObjectId } from 'mongoose';
 import { requireAuth, requirePermission, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -52,10 +52,10 @@ router.get(
       filter.franchiseId = franchiseId;
     }
     if (from || to) {
-      filter.closingDate = {
+      filter.closingDate = mongoose.trusted({
         ...(from ? { $gte: dayBounds(from).start } : {}),
         ...(to ? { $lte: dayBounds(to).end } : {}),
-      };
+      });
     }
 
     const closings = await Closing.find(filter)
@@ -81,7 +81,10 @@ router.post(
     if (!(await Franchise.exists({ _id: input.franchiseId }))) throw badRequest('franchiseId does not exist');
 
     const { start, end } = dayBounds(input.date);
-    const sales = await Sale.find({ franchiseId: input.franchiseId, createdAt: { $gte: start, $lte: end } }).select('items total');
+    const sales = await Sale.find({
+      franchiseId: input.franchiseId,
+      createdAt: mongoose.trusted({ $gte: start, $lte: end }),
+    }).select('items total');
     const systemSalesTotal = Math.round(sales.reduce((sum, s) => sum + (s.total ?? 0), 0) * 100) / 100;
     const systemItemsTotal = sales.reduce((sum, s) => sum + s.items.reduce((sub, i) => sub + i.quantity, 0), 0);
 
