@@ -4,6 +4,9 @@ import { isPermissionGranted, normalizeCustomPermissionOverrides } from './permi
 describe('permissions', () => {
   it('uses role baseline permissions', () => {
     expect(isPermissionGranted('seller', 'sales.create')).toBe(true);
+    expect(isPermissionGranted('seller', 'demands.create')).toBe(true);
+    expect(isPermissionGranted('vendeur', 'demands.create')).toBe(true);
+    expect(isPermissionGranted('viewer', 'demands.create')).toBe(false);
     expect(isPermissionGranted('seller', 'users.manage')).toBe(false);
   });
 
