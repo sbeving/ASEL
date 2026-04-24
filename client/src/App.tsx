@@ -25,6 +25,7 @@ import { DemandsPage } from './pages/DemandsPage';
 import { ServicesPage } from './pages/ServicesPage';
 import { NetworkPointsPage } from './pages/NetworkPointsPage';
 import { NotificationsPage } from './pages/NotificationsPage';
+import { CashFlowsPage } from './pages/CashFlowsPage';
 
 export default function App() {
   return (
@@ -58,6 +59,7 @@ export default function App() {
         <Route path="receptions" element={<ReceptionsPage />} />
         <Route path="returns" element={<ReturnsPage />} />
         <Route path="timelogs" element={<TimeLogsPage />} />
+        <Route path="cashflows" element={<CashFlowsPage />} />
         <Route path="closings" element={<ClosingsPage />} />
         <Route path="installments" element={<InstallmentsPage />} />
         <Route path="monthly-inventory" element={<MonthlyInventoryPage />} />

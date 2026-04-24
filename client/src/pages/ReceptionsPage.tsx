@@ -334,7 +334,7 @@ function ReceptionFormModal({
   );
   const [supplierId, setSupplierId] = useState(
     initial
-      ? typeof initial.supplierId === 'object'
+      ? initial.supplierId && typeof initial.supplierId === 'object'
         ? initial.supplierId._id
         : initial.supplierId ?? ''
       : '',
@@ -365,7 +365,6 @@ function ReceptionFormModal({
   const [ocrResult, setOcrResult] = useState<OcrResponse | null>(null);
 
   const productMap = useMemo(() => new Map(products.map((product) => [product._id, product])), [products]);
-  const supplierMap = useMemo(() => new Map(suppliers.map((supplier) => [supplier._id, supplier])), [suppliers]);
   const productOptions: SearchableSelectOption[] = useMemo(
     () =>
       products.map((product) => ({

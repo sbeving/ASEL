@@ -31,3 +31,4 @@ Thumbs.db
 
 # Docker volumes
 .mongo-data/
+server/uploads/
