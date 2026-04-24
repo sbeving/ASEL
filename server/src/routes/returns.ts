@@ -9,13 +9,14 @@ import { Return } from '../models/Return.js';
 import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
 import { badRequest, forbidden } from '../utils/AppError.js';
+import { isGlobalRole } from '../utils/roles.js';
 
 const router = Router();
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
 
 function resolveFranchiseId(user: Express.Request['user'], requested?: string): string {
   if (!user) throw forbidden();
-  if (user.role === 'admin' || user.role === 'manager') {
+  if (isGlobalRole(user.role)) {
     if (!requested) throw badRequest('franchiseId is required');
     return requested;
   }

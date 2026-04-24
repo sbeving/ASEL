@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiError } from '../lib/api';
 import { PageHeader } from '../components/PageHeader';
+import { ContactActions } from '../components/ContactActions';
 import { dateOnly, dateTime, money } from '../lib/money';
 import { useAuth } from '../auth/AuthContext';
 import type { Client, Franchise, Installment, Sale } from '../lib/types';
@@ -19,6 +20,23 @@ function statusBadge(status: Installment['status']) {
   if (status === 'paid') return 'badge-success';
   if (status === 'late') return 'badge-danger';
   return 'badge-warning';
+}
+
+function installmentLabel(installment: Installment): string {
+  if (typeof installment.saleId === 'object' && installment.saleId) {
+    return installment.saleId.invoiceNumber || dateTime(installment.saleId.createdAt);
+  }
+  return 'votre vente';
+}
+
+function installmentReminderMessage(installment: Installment): string {
+  const clientName =
+    typeof installment.clientId === 'object' && installment.clientId?.fullName
+      ? installment.clientId.fullName
+      : 'cher client';
+  const dueText = installment.status === 'late' ? 'est en retard depuis le' : 'est prévue le';
+
+  return `Bonjour ${clientName}, rappel ASEL Mobile Tunisie : votre échéance de ${money(installment.amount)} pour ${installmentLabel(installment)} ${dueText} ${dateOnly(installment.dueDate)}. Merci de nous contacter ou de passer au règlement.`;
 }
 
 export function InstallmentsPage() {
@@ -202,7 +220,21 @@ export function InstallmentsPage() {
                   <td className="td text-right">{money(installment.amount)}</td>
                   <td className="td"><span className={statusBadge(installment.status)}>{installment.status}</span></td>
                   <td className="td">
-                    {typeof installment.clientId === 'object' && installment.clientId ? installment.clientId.fullName : '—'}
+                    {typeof installment.clientId === 'object' && installment.clientId ? (
+                      <div>
+                        <div className="font-medium text-slate-900">{installment.clientId.fullName}</div>
+                        <div className="text-xs text-slate-500">
+                          {installment.clientId.phone || installment.clientId.phone2 || 'Sans numéro'}
+                        </div>
+                        <ContactActions
+                          phone={installment.clientId.phone}
+                          phone2={installment.clientId.phone2}
+                          message={installmentReminderMessage(installment)}
+                          compact
+                          className="mt-2"
+                        />
+                      </div>
+                    ) : '—'}
                   </td>
                   <td className="td">{installment.paidAt ? dateOnly(installment.paidAt) : '—'}</td>
                   <td className="td">

@@ -11,6 +11,7 @@ import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
 import { createNotification } from '../services/notification.service.js';
 import { badRequest, conflict, forbidden, notFound } from '../utils/AppError.js';
+import { isGlobalRole } from '../utils/roles.js';
 
 const router = Router();
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
@@ -105,7 +106,7 @@ router.get(
     if (status) filter.status = status;
 
     // Franchise-scoped users only see transfers involving their franchise
-    if (user.role === 'franchise' || user.role === 'seller') {
+    if (!isGlobalRole(user.role)) {
       if (!user.franchiseId) throw forbidden();
       filter.$or = [
         { sourceFranchiseId: user.franchiseId },
@@ -168,7 +169,7 @@ async function transitionTransfer(
 
   const user = req.user!;
   // Only the destination franchise (or global roles) can accept/reject
-  if (user.role === 'franchise' || user.role === 'seller') {
+  if (!isGlobalRole(user.role)) {
     if (!user.franchiseId || user.franchiseId !== transfer.destFranchiseId?.toString()) {
       throw forbidden('Only the destination franchise can resolve this transfer');
     }

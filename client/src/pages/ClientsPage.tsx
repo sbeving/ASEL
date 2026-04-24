@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api, apiError } from '../lib/api';
+import { ContactActions } from '../components/ContactActions';
 import { dateOnly, dateTime, money } from '../lib/money';
 import { PageHeader } from '../components/PageHeader';
 import { TablePagination } from '../components/TablePagination';
@@ -38,10 +39,15 @@ const clientTypeLabels: Record<NonNullable<Client['clientType']>, string> = {
   other: 'Autre',
 };
 
+function buildClientContactMessage(clientName: string): string {
+  return `Bonjour ${clientName}, ici ASEL Mobile Tunisie. N'hésitez pas à nous contacter sur WhatsApp, SMS ou appel si vous avez besoin d'assistance.`;
+}
+
 export function ClientsPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const isGlobal = user?.role === 'admin' || user?.role === 'manager';
+  const canManage = user?.role !== 'viewer';
   const [q, setQ] = useState('');
   const debouncedQ = useDebouncedValue(q, 250);
   const [page, setPage] = useState(1);
@@ -81,9 +87,11 @@ export function ClientsPage() {
         title="Clients"
         subtitle="Repertoire client avec achat cumule, solde du et detail relationnel"
         actions={
-          <button className="btn-primary" onClick={() => setCreating(true)}>
-            + Nouveau client
-          </button>
+          canManage ? (
+            <button className="btn-primary" onClick={() => setCreating(true)}>
+              + Nouveau client
+            </button>
+          ) : undefined
         }
       />
 
@@ -152,8 +160,17 @@ export function ClientsPage() {
                   <div className="text-xs text-slate-500">{client.company || client.cin || 'Sans detail'}</div>
                 </td>
                 <td className="td">
-                  <div>{client.phone || '—'}</div>
-                  <div className="text-xs text-slate-500">{client.email || client.phone2 || '—'}</div>
+                  <div>{client.phone || client.phone2 || '—'}</div>
+                  <div className="text-xs text-slate-500">
+                    {client.email || (client.phone && client.phone2 ? client.phone2 : '—')}
+                  </div>
+                  <ContactActions
+                    phone={client.phone}
+                    phone2={client.phone2}
+                    message={buildClientContactMessage(client.fullName)}
+                    compact
+                    className="mt-2"
+                  />
                 </td>
                 <td className="td">{client.clientType ? clientTypeLabels[client.clientType] : '—'}</td>
                 <td className="td text-slate-500">
@@ -179,13 +196,17 @@ export function ClientsPage() {
                     <button className="btn-secondary !px-3 !py-1.5" onClick={() => setViewing(client)}>
                       Voir
                     </button>
-                    <button className="btn-secondary !px-3 !py-1.5" onClick={() => setEditing(client)}>
-                      Modifier
-                    </button>
-                    {client.active && (
-                      <button className="btn-danger !px-3 !py-1.5" onClick={() => setArchiving(client)}>
-                        Desactiver
-                      </button>
+                    {canManage && (
+                      <>
+                        <button className="btn-secondary !px-3 !py-1.5" onClick={() => setEditing(client)}>
+                          Modifier
+                        </button>
+                        {client.active && (
+                          <button className="btn-danger !px-3 !py-1.5" onClick={() => setArchiving(client)}>
+                            Desactiver
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </td>
@@ -264,6 +285,12 @@ function ClientOverviewModal({ client, onClose }: { client: Client; onClose: () 
                 <div><span className="text-slate-400">Entreprise:</span> {overview.data.client.company || '—'}</div>
                 <div><span className="text-slate-400">Matricule fiscal:</span> {overview.data.client.taxId || '—'}</div>
                 <div><span className="text-slate-400">Adresse:</span> {overview.data.client.address || '—'}</div>
+                <ContactActions
+                  phone={overview.data.client.phone}
+                  phone2={overview.data.client.phone2}
+                  message={buildClientContactMessage(overview.data.client.fullName)}
+                  className="pt-2"
+                />
                 {overview.data.client.notes && (
                   <div className="rounded-xl bg-slate-50 px-3 py-2">{overview.data.client.notes}</div>
                 )}

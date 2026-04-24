@@ -7,6 +7,7 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Franchise } from '../models/Franchise.js';
 import { audit } from '../services/audit.service.js';
 import { notFound } from '../utils/AppError.js';
+import { isGlobalRole } from '../utils/roles.js';
 
 const router = Router();
 
@@ -35,7 +36,7 @@ router.get(
   requirePermission('franchises.view'),
   asyncHandler(async (req, res) => {
     const user = req.user!;
-    const filter = user.role === 'admin' || user.role === 'manager'
+    const filter = isGlobalRole(user.role)
       ? {}
       : user.franchiseId
         ? { _id: user.franchiseId }

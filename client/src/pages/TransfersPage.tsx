@@ -35,7 +35,7 @@ function statusBadge(status: Transfer['status']) {
 export function TransfersPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const canCreate = user?.role !== 'seller' && user?.role !== 'vendeur';
+  const canCreate = user?.role !== 'seller' && user?.role !== 'vendeur' && user?.role !== 'viewer';
   const isGlobal = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'superadmin';
   const [open, setOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'' | Transfer['status']>('');

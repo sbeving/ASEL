@@ -346,7 +346,8 @@ export function POSPage() {
               <ScannerModal
                 onScan={(raw) => {
                   if (raw) {
-                    setSearch(raw);
+                    setCameraError(null);
+                    setSearch(raw.trim());
                     setCameraOpen(false);
                   }
                 }}

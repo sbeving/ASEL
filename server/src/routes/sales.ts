@@ -12,13 +12,14 @@ import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
 import { buildInstallmentSchedule, roundCurrency } from '../utils/installments.js';
+import { isGlobalRole } from '../utils/roles.js';
 
 const router = Router();
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
 
 function resolveFranchiseId(user: Express.Request['user'], requested?: string): string {
   if (!user) throw forbidden();
-  if (user.role === 'admin' || user.role === 'manager') {
+  if (isGlobalRole(user.role)) {
     if (!requested) throw badRequest('franchiseId is required');
     return requested;
   }
@@ -77,7 +78,7 @@ function formatInvoiceNumber(date: Date, saleType: 'ticket' | 'facture' | 'devis
 router.post(
   '/',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise', 'seller'),
+  requireRole('admin', 'manager', 'franchise', 'seller', 'vendeur'),
   validate(saleSchema),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof saleSchema>;

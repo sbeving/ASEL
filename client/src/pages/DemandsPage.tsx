@@ -32,6 +32,7 @@ type ProcessValues = z.infer<typeof processSchema>;
 export function DemandsPage() {
   const { user } = useAuth();
   const isGlobal = user?.role === 'admin' || user?.role === 'manager';
+  const canCreate = user?.role !== 'viewer';
   const canProcess = user?.role === 'admin' || user?.role === 'manager';
   const qc = useQueryClient();
 
@@ -79,9 +80,11 @@ export function DemandsPage() {
         title="Demandes produits"
         subtitle="Workflow demande, validation et livraison depuis une franchise source"
         actions={
-          <button className="btn-primary" onClick={() => setCreating(true)}>
-            + Nouvelle demande
-          </button>
+          canCreate ? (
+            <button className="btn-primary" onClick={() => setCreating(true)}>
+              + Nouvelle demande
+            </button>
+          ) : undefined
         }
       />
 

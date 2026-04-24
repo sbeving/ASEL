@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api, apiError } from '../lib/api';
+import { ContactActions } from '../components/ContactActions';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import type { Franchise } from '../lib/types';
@@ -71,7 +72,10 @@ export function FranchisesPage() {
               <tr key={franchise._id}>
                 <td className="td font-medium">{franchise.name}</td>
                 <td className="td text-slate-500">{franchise.address ?? '—'}</td>
-                <td className="td text-slate-500">{franchise.phone ?? '—'}</td>
+                <td className="td text-slate-500">
+                  <div>{franchise.phone ?? '—'}</div>
+                  <ContactActions phone={franchise.phone} message={`Bonjour ${franchise.name}, ici ASEL Mobile Tunisie.`} compact className="mt-2" />
+                </td>
                 <td className="td text-slate-500">{franchise.manager ?? '—'}</td>
                 <td className="td text-slate-500">
                   {franchise.gps?.lat != null && franchise.gps?.lng != null

@@ -4,6 +4,9 @@ __pycache__/
 .env
 .env.local
 .env.*.local
+set.sh
+*.cmd
+opencode.json
 
 # Node
 node_modules/
@@ -18,6 +21,8 @@ coverage/
 .idea/
 *.swp
 *.swo
+.opencode/
+external-skills/
 
 # Logs
 *.log

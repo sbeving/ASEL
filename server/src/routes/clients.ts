@@ -9,6 +9,7 @@ import { Franchise } from '../models/Franchise.js';
 import { audit } from '../services/audit.service.js';
 import { attachClientListMetrics, getClientOverview } from '../services/clientInsights.service.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
+import { isGlobalRole } from '../utils/roles.js';
 
 const router = Router();
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
@@ -104,12 +105,12 @@ const payload = z.object({
 router.post(
   '/',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise', 'seller'),
+  requireRole('admin', 'manager', 'franchise', 'seller', 'vendeur'),
   validate(payload),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof payload>;
     let franchiseId = input.franchiseId ?? null;
-    if (req.user!.role === 'franchise' || req.user!.role === 'seller') {
+    if (!isGlobalRole(req.user!.role)) {
       if (!req.user!.franchiseId) throw forbidden('No franchise assigned');
       if (franchiseId && franchiseId !== req.user!.franchiseId) throw forbidden();
       franchiseId = req.user!.franchiseId;
@@ -140,7 +141,7 @@ router.post(
 router.patch(
   '/:id',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise', 'seller'),
+  requireRole('admin', 'manager', 'franchise', 'seller', 'vendeur'),
   validate(z.object({ id: objectId }), 'params'),
   validate(payload.partial()),
   asyncHandler(async (req, res) => {
@@ -172,7 +173,7 @@ router.patch(
 router.delete(
   '/:id',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise', 'seller'),
+  requireRole('admin', 'manager', 'franchise', 'seller', 'vendeur'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const id = req.params.id;

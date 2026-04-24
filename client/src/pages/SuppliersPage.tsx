@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api, apiError } from '../lib/api';
+import { ContactActions } from '../components/ContactActions';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import type { Supplier } from '../lib/types';
@@ -49,7 +50,10 @@ export function SuppliersPage() {
             {(list.data ?? []).map((s) => (
               <tr key={s._id}>
                 <td className="td font-medium">{s.name}</td>
-                <td className="td text-slate-500">{s.phone ?? '—'}</td>
+                <td className="td text-slate-500">
+                  <div>{s.phone ?? '—'}</div>
+                  <ContactActions phone={s.phone} message={`Bonjour ${s.name}, ici ASEL Mobile Tunisie.`} compact className="mt-2" />
+                </td>
                 <td className="td text-slate-500">{s.email ?? '—'}</td>
                 <td className="td text-slate-500">{s.address ?? '—'}</td>
                 <td className="td">{s.active ? <span className="badge-success">actif</span> : <span className="badge-muted">inactif</span>}</td>

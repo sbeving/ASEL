@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { CircleMarker, MapContainer, Popup, TileLayer, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { api, apiError } from '../lib/api';
+import { ContactActions } from '../components/ContactActions';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import { TablePagination } from '../components/TablePagination';
@@ -291,7 +292,16 @@ export function NetworkPointsPage() {
                   <span className={statusBadge[point.status]}>{statusLabel[point.status]}</span>
                 </td>
                 <td className="td text-slate-600">{[point.city, point.governorate].filter(Boolean).join(', ') || '—'}</td>
-                <td className="td text-slate-600">{point.phone || point.email || '—'}</td>
+                <td className="td text-slate-600">
+                  <div>{point.phone || point.email || '—'}</div>
+                  <ContactActions
+                    phone={point.phone}
+                    phone2={point.phone2}
+                    message={`Bonjour ${point.responsible || point.name}, ici ASEL Mobile Tunisie.`}
+                    compact
+                    className="mt-2"
+                  />
+                </td>
                 <td className="td text-slate-600">
                   {point.gps?.lat != null && point.gps?.lng != null ? `${point.gps.lat}, ${point.gps.lng}` : '—'}
                 </td>

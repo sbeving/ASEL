@@ -49,7 +49,7 @@ router.get(
       .sort({ dueDate: 1 })
       .limit(limit)
       .populate('saleId', 'total createdAt invoiceNumber saleType paymentStatus')
-      .populate('clientId', 'fullName phone')
+      .populate('clientId', 'fullName phone phone2')
       .populate('userId', 'username fullName');
     res.json({ installments });
   }),
