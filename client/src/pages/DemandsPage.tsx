@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Plus, RotateCcw } from 'lucide-react';
 import { api, apiError } from '../lib/api';
 import { dateTime } from '../lib/money';
 import { useAuth } from '../auth/AuthContext';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import { TablePagination } from '../components/TablePagination';
+import { SearchableSelect, type SearchableSelectOption } from '../components/SearchableSelect';
 import { useDebouncedValue } from '../lib/hooks';
 import type { Demand, DemandSummary, Franchise, PageMeta, Product } from '../lib/types';
 
@@ -45,6 +47,15 @@ export function DemandsPage() {
   const pageSize = 30;
   const [creating, setCreating] = useState(false);
   const [processing, setProcessing] = useState<Demand | null>(null);
+  const hasFilters = Boolean(search || status || urgency || (isGlobal && franchiseId));
+
+  const resetFilters = () => {
+    setSearch('');
+    setStatus('');
+    setUrgency('');
+    setFranchiseId(isGlobal ? '' : (user?.franchiseId ?? ''));
+    setPage(1);
+  };
 
   const franchises = useQuery({
     enabled: isGlobal || canProcess,
@@ -82,13 +93,14 @@ export function DemandsPage() {
         actions={
           canCreate ? (
             <button className="btn-primary" onClick={() => setCreating(true)}>
-              + Nouvelle demande
+              <Plus className="h-4 w-4" />
+              Nouvelle demande
             </button>
           ) : undefined
         }
       />
 
-      <section className="mb-5 grid gap-4 md:grid-cols-4">
+      <section className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <MetricCard label="En attente" value={String(demands.data?.summary.pending ?? 0)} />
         <MetricCard label="Urgentes" value={String(demands.data?.summary.urgent ?? 0)} />
         <MetricCard label="Critiques" value={String(demands.data?.summary.critical ?? 0)} />
@@ -96,7 +108,7 @@ export function DemandsPage() {
       </section>
 
       <section className="card mb-5 p-4">
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1.4fr)_220px_180px_180px]">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_220px_180px_180px_auto]">
           <input
             type="search"
             className="input"
@@ -151,12 +163,80 @@ export function DemandsPage() {
             <option value="">Toutes urgences</option>
             <option value="normal">Normal</option>
             <option value="urgent">Urgent</option>
-            <option value="critical">Critique</option>
-          </select>
+              <option value="critical">Critique</option>
+            </select>
+          <button
+            type="button"
+            className="btn-secondary xl:whitespace-nowrap"
+            disabled={!hasFilters}
+            onClick={resetFilters}
+          >
+            <RotateCcw className="h-4 w-4" />
+            Effacer
+          </button>
         </div>
       </section>
 
-      <section className="card overflow-x-auto">
+      <section className="mb-5 grid gap-3 lg:hidden">
+        {(demands.data?.demands ?? []).map((demand) => {
+          const franchiseName =
+            typeof demand.franchiseId === 'object' && demand.franchiseId ? demand.franchiseId.name : '-';
+          const productName =
+            typeof demand.productId === 'object' && demand.productId
+              ? demand.productId.name
+              : demand.productName || 'Produit libre';
+          const requester =
+            typeof demand.requestedBy === 'object' && demand.requestedBy
+              ? demand.requestedBy.fullName || demand.requestedBy.username || '-'
+              : '-';
+
+          return (
+            <article key={demand._id} className="mobile-record-card space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate font-semibold text-surface-900">{productName}</div>
+                  <div className="mt-1 text-xs text-surface-500">{dateTime(demand.createdAt)}</div>
+                </div>
+                <span className={statusBadge(demand.status)}>{statusLabel(demand.status)}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="mobile-record-label">Franchise</div>
+                  <div className="mt-1 font-medium text-surface-800">{franchiseName}</div>
+                </div>
+                <div className="text-right">
+                  <div className="mobile-record-label">Quantite</div>
+                  <div className="mt-1 font-semibold text-surface-900">{demand.quantity}</div>
+                </div>
+                <div>
+                  <div className="mobile-record-label">Urgence</div>
+                  <div className="mt-1"><span className={urgencyBadge(demand.urgency)}>{urgencyLabel(demand.urgency)}</span></div>
+                </div>
+                <div className="text-right">
+                  <div className="mobile-record-label">Demandeur</div>
+                  <div className="mt-1 font-medium text-surface-800">{requester}</div>
+                </div>
+              </div>
+              {(demand.response || demand.note) && (
+                <div className="rounded-lg bg-surface-50 px-3 py-2 text-sm text-surface-600">
+                  {demand.response || demand.note}
+                </div>
+              )}
+              {canProcess && demand.status === 'pending' && (
+                <button className="btn-secondary w-full" onClick={() => setProcessing(demand)}>
+                  Traiter
+                </button>
+              )}
+            </article>
+          );
+        })}
+        {!demands.isLoading && (demands.data?.demands.length ?? 0) === 0 && (
+          <div className="mobile-record-card text-sm text-surface-500">Aucune demande.</div>
+        )}
+        <TablePagination meta={demands.data?.meta} onPageChange={setPage} className="px-1 py-2" />
+      </section>
+
+      <section className="card hidden overflow-x-auto lg:block">
         <table className="w-full text-sm">
           <thead>
             <tr>
@@ -196,7 +276,7 @@ export function DemandsPage() {
                   <td className="td-action">
                     <div className="flex justify-end">
                       {canProcess && demand.status === 'pending' && (
-                        <button className="btn-secondary !px-3 !py-1.5" onClick={() => setProcessing(demand)}>
+                        <button className="btn-secondary !min-h-[36px] !px-3 !py-1.5" onClick={() => setProcessing(demand)}>
                           Traiter
                         </button>
                       )}
@@ -298,6 +378,7 @@ function CreateDemandModal({
   const [error, setError] = useState<string | null>(null);
   const {
     register,
+    control,
     handleSubmit,
     setError: setFormError,
     formState: { errors, isSubmitting },
@@ -332,13 +413,24 @@ function CreateDemandModal({
     onError: (e) => setError(apiError(e).message),
   });
 
+  const productOptions: SearchableSelectOption[] = useMemo(
+    () =>
+      products.map((product) => ({
+        value: product._id,
+        label: product.name,
+        subtitle: [product.reference, product.brand].filter(Boolean).join(' | ') || undefined,
+        keywords: [product.reference, product.barcode, product.brand].filter(Boolean).join(' '),
+      })),
+    [products],
+  );
+
   return (
     <Modal
       open
       title="Nouvelle demande"
       onClose={onClose}
       footer={
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button className="btn-secondary" onClick={onClose}>Annuler</button>
           <button className="btn-primary" form="create-demand" disabled={isSubmitting}>Enregistrer</button>
         </div>
@@ -357,20 +449,29 @@ function CreateDemandModal({
         )}
         <div>
           <label className="label">Produit catalogue (optionnel)</label>
-          <select className="input" {...register('productId')}>
-            <option value="">Sans liaison produit</option>
-            {products.map((p) => <option key={p._id} value={p._id}>{p.name}</option>)}
-          </select>
+          <Controller
+            control={control}
+            name="productId"
+            render={({ field }) => (
+              <SearchableSelect
+                value={field.value ?? ''}
+                options={productOptions}
+                onChange={field.onChange}
+                allowClear
+                placeholder="Rechercher produit"
+              />
+            )}
+          />
         </div>
         <div>
           <label className="label">Nom produit libre (optionnel)</label>
           <input className="input" {...register('productName')} placeholder="Ex: Accessoire specifique non catalogue" />
           {errors.productName && <p className="mt-1 text-xs text-rose-600">{errors.productName.message}</p>}
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label className="label">Quantite</label>
-            <input type="number" min={1} className="input" {...register('quantity')} />
+            <input type="number" min={1} inputMode="numeric" className="input" {...register('quantity')} />
           </div>
           <div>
             <label className="label">Urgence</label>
@@ -441,7 +542,7 @@ function ProcessDemandModal({
       title="Traiter demande"
       onClose={onClose}
       footer={
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button className="btn-secondary" onClick={onClose}>Annuler</button>
           <button className="btn-primary" form="process-demand" disabled={isSubmitting}>Valider</button>
         </div>

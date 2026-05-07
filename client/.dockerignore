@@ -1,0 +1,9 @@
+node_modules
+dist
+tmp*.log
+npm-debug.log*
+Dockerfile*
+tsconfig.tsbuildinfo
+.env
+.env.*
+!.env.example

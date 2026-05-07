@@ -1,4 +1,4 @@
-import type { RequestHandler } from 'express';
+import type { RequestHandler, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { forbidden, unauthorized } from '../utils/AppError.js';
@@ -12,6 +12,20 @@ import {
 } from '../utils/permissions.js';
 
 export const AUTH_COOKIE = 'asel_session';
+
+const clearCookieOptions = {
+  httpOnly: true,
+  secure: env.COOKIE_SECURE,
+  sameSite: 'strict' as const,
+  path: '/',
+  domain: env.COOKIE_DOMAIN || undefined,
+};
+
+function clearStaleCookie(req: Parameters<RequestHandler>[0], res: Response, token?: string) {
+  if (token && req.cookies?.[AUTH_COOKIE] === token) {
+    res.clearCookie(AUTH_COOKIE, clearCookieOptions);
+  }
+}
 
 export interface JwtPayload {
   sub: string;
@@ -41,19 +55,25 @@ export function verifySession(token: string): JwtPayload {
   return jwt.verify(token, env.JWT_SECRET) as JwtPayload;
 }
 
-export const requireAuth: RequestHandler = async (req, _res, next) => {
-  const token = req.cookies?.[AUTH_COOKIE];
+export const requireAuth: RequestHandler = async (req, res, next) => {
+  const authHeader = req.get('authorization') ?? '';
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const token = bearerMatch?.[1] ?? req.cookies?.[AUTH_COOKIE];
   if (!token) return next(unauthorized());
   try {
     const payload = verifySession(token);
     const user = await User.findById(payload.sub)
       .select('username role franchiseId active sessionVersion customPermissions')
       .lean();
-    if (!user || !user.active) return next(unauthorized('Session invalid'));
+    if (!user || !user.active) {
+      clearStaleCookie(req, res, token);
+      return next(unauthorized('Session invalid'));
+    }
 
     const tokenVersion = payload.sessionVersion ?? 0;
     const currentSessionVersion = user.sessionVersion ?? 0;
     if (tokenVersion !== currentSessionVersion) {
+      clearStaleCookie(req, res, token);
       return next(unauthorized('Session expired. Please login again.'));
     }
 
@@ -67,6 +87,7 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
     };
     next();
   } catch {
+    clearStaleCookie(req, res, token);
     next(unauthorized('Invalid or expired session'));
   }
 };
@@ -74,7 +95,7 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
 export function requireRole(...roles: Role[]): RequestHandler {
   return (req, _res, next) => {
     if (!req.user) return next(unauthorized());
-    if (req.user.role === 'superadmin') return next();
+    if (req.user.role === 'superadmin' || req.user.role === 'ceo' || req.user.role === 'admin') return next();
     if (!roles.includes(req.user.role)) return next(forbidden());
     next();
   };

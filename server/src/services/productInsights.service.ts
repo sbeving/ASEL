@@ -57,6 +57,7 @@ export async function attachProductListMetrics<T extends { _id: mongoose.Types.O
       {
         $match: {
           ...scopedMatch,
+          cancelledAt: null,
           createdAt: { $gte: ninetyDaysAgo },
         },
       },
@@ -172,6 +173,7 @@ export async function getProductOverview(productId: string, franchiseScopeId?: s
       {
         $match: {
           ...scopedMatch,
+          cancelledAt: null,
           createdAt: { $gte: ninetyDaysAgo },
         },
       },

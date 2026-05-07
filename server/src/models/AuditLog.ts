@@ -18,6 +18,10 @@ const auditLogSchema = new Schema(
 auditLogSchema.index({ createdAt: -1 });
 auditLogSchema.index({ userId: 1, createdAt: -1 });
 auditLogSchema.index({ action: 1, createdAt: -1 });
+auditLogSchema.index({ entity: 1, createdAt: -1 });
+auditLogSchema.index({ username: 1, createdAt: -1 });
+auditLogSchema.index({ franchiseId: 1, createdAt: -1 });
+auditLogSchema.index({ ip: 1, createdAt: -1 });
 
 export type AuditLogDoc = InferSchemaType<typeof auditLogSchema>;
 export const AuditLog = model('AuditLog', auditLogSchema);

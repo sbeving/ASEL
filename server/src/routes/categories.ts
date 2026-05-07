@@ -28,7 +28,7 @@ router.get(
 router.post(
   '/',
   requireAuth,
-  requireRole('admin', 'manager'),
+  requireRole('admin', 'manager', 'stock_central_maintainer'),
   requirePermission('categories.manage'),
   validate(upsertSchema),
   asyncHandler(async (req, res) => {
@@ -41,7 +41,7 @@ router.post(
 router.patch(
   '/:id',
   requireAuth,
-  requireRole('admin', 'manager'),
+  requireRole('admin', 'manager', 'stock_central_maintainer'),
   requirePermission('categories.manage'),
   validate(z.object({ id: objectId }), 'params'),
   validate(upsertSchema.partial()),

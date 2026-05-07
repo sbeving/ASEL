@@ -9,7 +9,7 @@ import { Product } from '../models/Product.js';
 import { Franchise } from '../models/Franchise.js';
 import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
-import { createNotification } from '../services/notification.service.js';
+import { NOTIFICATION_TARGETS, createNotification } from '../services/notification.service.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
 
 const router = Router();
@@ -139,26 +139,15 @@ router.post(
       requestedBy: req.user!.sub,
     });
 
-    await Promise.all([
-      createNotification({
-        roleTarget: 'admin',
-        title: 'Nouvelle demande produit',
-        message: `${productName} x ${input.quantity} (${input.urgency})`,
-        type: input.urgency === 'critical' ? 'danger' : input.urgency === 'urgent' ? 'warning' : 'info',
-        link: '/demands',
-        dedupeKey: `demand-create-admin:${demand._id.toString()}`,
-        metadata: { kind: 'demand_create', demandId: demand._id.toString() },
-      }),
-      createNotification({
-        roleTarget: 'manager',
-        title: 'Nouvelle demande produit',
-        message: `${productName} x ${input.quantity} (${input.urgency})`,
-        type: input.urgency === 'critical' ? 'danger' : input.urgency === 'urgent' ? 'warning' : 'info',
-        link: '/demands',
-        dedupeKey: `demand-create-manager:${demand._id.toString()}`,
-        metadata: { kind: 'demand_create', demandId: demand._id.toString() },
-      }),
-    ]);
+    await createNotification({
+      roleTargets: NOTIFICATION_TARGETS.demands,
+      title: 'Nouvelle demande produit',
+      message: `${productName} x ${input.quantity} (${input.urgency})`,
+      type: input.urgency === 'critical' ? 'danger' : input.urgency === 'urgent' ? 'warning' : 'info',
+      link: '/demands',
+      dedupeKey: `demand-create:${demand._id.toString()}`,
+      metadata: { kind: 'demand_create', demandId: demand._id.toString() },
+    });
 
     await audit(req, {
       action: 'demand.create',

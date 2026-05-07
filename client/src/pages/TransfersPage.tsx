@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Check, Plus, RotateCcw, X } from 'lucide-react';
 import { api, apiError } from '../lib/api';
 import { dateTime } from '../lib/money';
 import { useAuth } from '../auth/AuthContext';
@@ -90,16 +91,48 @@ export function TransfersPage() {
     [franchises.data],
   );
 
+  const transferSummary = useMemo(() => {
+    const rows = list.data?.transfers ?? [];
+    return {
+      pending: rows.filter((transfer) => transfer.status === 'pending').length,
+      accepted: rows.filter((transfer) => transfer.status === 'accepted').length,
+      rejected: rows.filter((transfer) => transfer.status === 'rejected').length,
+      quantity: rows.reduce((sum, transfer) => sum + transfer.quantity, 0),
+    };
+  }, [list.data?.transfers]);
+
+  const hasFilters = Boolean(statusFilter || search || selectedFranchiseId);
+  const resetFilters = () => {
+    setStatusFilter('');
+    setSelectedFranchiseId('');
+    setSearch('');
+    setPage(1);
+  };
+
   return (
     <>
       <PageHeader
         title="Transferts"
         subtitle="Mouvements de stock inter-franchise"
-        actions={canCreate && <button className="btn-primary" onClick={() => setOpen(true)}>+ Nouveau transfert</button>}
+        actions={
+          canCreate && (
+            <button className="btn-primary" onClick={() => setOpen(true)}>
+              <Plus className="h-4 w-4" />
+              Nouveau transfert
+            </button>
+          )
+        }
       />
 
+      <section className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <MetricCard label="En attente" value={String(transferSummary.pending)} />
+        <MetricCard label="Acceptes" value={String(transferSummary.accepted)} />
+        <MetricCard label="Rejetes" value={String(transferSummary.rejected)} />
+        <MetricCard label="Quantite" value={String(transferSummary.quantity)} />
+      </section>
+
       <section className="card mb-5 p-4">
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[180px_minmax(0,1fr)_minmax(0,1.4fr)_auto]">
           <select
             className="input"
             value={statusFilter}
@@ -127,10 +160,83 @@ export function TransfersPage() {
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Rechercher produit ou note..."
           />
+          <button type="button" className="btn-secondary xl:whitespace-nowrap" disabled={!hasFilters} onClick={resetFilters}>
+            <RotateCcw className="h-4 w-4" />
+            Effacer
+          </button>
         </div>
       </section>
 
-      <div className="card overflow-x-auto">
+      <section className="mb-5 grid gap-3 lg:hidden">
+        {(list.data?.transfers ?? []).map((t) => {
+          const isDest =
+            typeof t.destFranchiseId === 'object'
+              ? t.destFranchiseId._id === user?.franchiseId
+              : t.destFranchiseId === user?.franchiseId;
+          const canResolve =
+            t.status === 'pending' &&
+            (user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'manager' || (user?.role === 'franchise' && isDest));
+          const source = typeof t.sourceFranchiseId === 'object' ? t.sourceFranchiseId.name : '-';
+          const destination = typeof t.destFranchiseId === 'object' ? t.destFranchiseId.name : '-';
+          const product = typeof t.productId === 'object' ? t.productId.name : '-';
+          const requester = typeof t.requestedBy === 'object' ? t.requestedBy.fullName : '-';
+
+          return (
+            <article key={t._id} className="mobile-record-card space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate font-semibold text-surface-900">{product}</div>
+                  <div className="mt-1 text-xs text-surface-500">{dateTime(t.createdAt)}</div>
+                </div>
+                {statusBadge(t.status)}
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="mobile-record-label">Source</div>
+                  <div className="mt-1 font-medium text-surface-800">{source}</div>
+                </div>
+                <div className="text-right">
+                  <div className="mobile-record-label">Destination</div>
+                  <div className="mt-1 font-medium text-surface-800">{destination}</div>
+                </div>
+                <div>
+                  <div className="mobile-record-label">Demande par</div>
+                  <div className="mt-1 font-medium text-surface-800">{requester}</div>
+                </div>
+                <div className="text-right">
+                  <div className="mobile-record-label">Quantite</div>
+                  <div className="mt-1 font-semibold text-surface-900">{t.quantity}</div>
+                </div>
+              </div>
+              {t.note && <div className="rounded-lg bg-surface-50 px-3 py-2 text-sm text-surface-600">{t.note}</div>}
+              {canResolve && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    className="btn-secondary text-emerald-700"
+                    onClick={() => resolve.mutate({ id: t._id, action: 'accept' })}
+                  >
+                    <Check className="h-4 w-4" />
+                    Accepter
+                  </button>
+                  <button
+                    className="btn-secondary text-rose-700"
+                    onClick={() => resolve.mutate({ id: t._id, action: 'reject' })}
+                  >
+                    <X className="h-4 w-4" />
+                    Rejeter
+                  </button>
+                </div>
+              )}
+            </article>
+          );
+        })}
+        {!list.isLoading && (list.data?.transfers.length ?? 0) === 0 && (
+          <div className="mobile-record-card text-sm text-surface-500">Aucun transfert.</div>
+        )}
+        <TablePagination meta={list.data?.meta} onPageChange={setPage} className="px-1 py-2" />
+      </section>
+
+      <div className="card hidden overflow-x-auto lg:block">
         <table className="w-full text-sm">
           <thead>
             <tr>
@@ -168,15 +274,17 @@ export function TransfersPage() {
                     {canResolve && (
                       <div className="flex justify-end gap-2">
                         <button
-                          className="text-emerald-600 hover:underline"
+                          className="btn-secondary !min-h-[36px] !px-3 !py-1.5 text-emerald-700"
                           onClick={() => resolve.mutate({ id: t._id, action: 'accept' })}
                         >
+                          <Check className="h-4 w-4" />
                           Accepter
                         </button>
                         <button
-                          className="text-rose-600 hover:underline"
+                          className="btn-secondary !min-h-[36px] !px-3 !py-1.5 text-rose-700"
                           onClick={() => resolve.mutate({ id: t._id, action: 'reject' })}
                         >
+                          <X className="h-4 w-4" />
                           Rejeter
                         </button>
                       </div>
@@ -203,6 +311,15 @@ export function TransfersPage() {
         />
       )}
     </>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="card p-4">
+      <div className="text-xs uppercase tracking-wide text-surface-500">{label}</div>
+      <div className="mt-1 text-2xl font-semibold text-surface-900">{value}</div>
+    </div>
   );
 }
 
@@ -261,7 +378,7 @@ function NewTransferModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
       title="Nouveau transfert"
       onClose={onClose}
       footer={
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button className="btn-secondary" onClick={onClose}>Annuler</button>
           <button className="btn-primary" form="transfer-form" disabled={isSubmitting}>Demander</button>
         </div>
@@ -316,7 +433,7 @@ function NewTransferModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
         </div>
         <div>
           <label className="label">Quantite</label>
-          <input type="number" min={1} className="input" {...register('quantity')} />
+          <input type="number" min={1} inputMode="numeric" className="input" {...register('quantity')} />
         </div>
         <div className="sm:col-span-2">
           <label className="label">Note</label>

@@ -1,22 +1,15 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
+import { ROLES } from '../utils/roles.js';
 import type { Role } from '../utils/roles.js';
 
-const roleTargets = [
-  'admin',
-  'superadmin',
-  'manager',
-  'franchise',
-  'seller',
-  'vendeur',
-  'viewer',
-  'all',
-] as const satisfies readonly (Role | 'all')[];
+const roleTargets = [...ROLES, 'all'] as const satisfies readonly (Role | 'all')[];
 
 const notificationSchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', default: null, index: true },
     franchiseId: { type: Schema.Types.ObjectId, ref: 'Franchise', default: null, index: true },
     roleTarget: { type: String, enum: roleTargets, default: null, index: true },
+    roleTargets: [{ type: String, enum: roleTargets, index: true }],
     title: { type: String, required: true, trim: true, maxlength: 200 },
     message: { type: String, trim: true, maxlength: 3000, default: '' },
     type: { type: String, enum: ['info', 'warning', 'danger', 'success'], default: 'info' },
@@ -30,6 +23,7 @@ const notificationSchema = new Schema(
 
 notificationSchema.index({ createdAt: -1 });
 notificationSchema.index({ roleTarget: 1, createdAt: -1 });
+notificationSchema.index({ roleTargets: 1, createdAt: -1 });
 notificationSchema.index({ franchiseId: 1, createdAt: -1 });
 notificationSchema.index({ userId: 1, createdAt: -1 });
 

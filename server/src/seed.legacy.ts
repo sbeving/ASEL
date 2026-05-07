@@ -980,7 +980,7 @@ async function seedLegacy() {
       userAgent: a.user_agent ? str(a.user_agent).slice(0, 255) : undefined,
       createdAt: parseDateLike(a.date_creation),
     }))
-    .filter((a) => a.action);
+    .filter((a) => a.action && a.action !== 'installment.notifications.refresh');
   if (auditDocs.length) await AuditLog.insertMany(auditDocs);
 
   logger.info(

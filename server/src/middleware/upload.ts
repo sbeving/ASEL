@@ -4,7 +4,13 @@ import multer from 'multer';
 import { badRequest } from '../utils/AppError.js';
 import { ensureUploadDir, normalizeUploadPath } from '../config/uploads.js';
 
-type UploadBucket = 'product-images' | 'user-avatars' | 'treasury-docs' | 'reception-ocr';
+type UploadBucket =
+  | 'product-images'
+  | 'user-avatars'
+  | 'treasury-docs'
+  | 'treasury-receipts'
+  | 'reception-ocr'
+  | 'network-point-docs';
 
 function makeStorage(bucket: UploadBucket) {
   ensureUploadDir(bucket);
@@ -57,8 +63,14 @@ export const treasuryAttachmentUpload = createUploader(
 export const receptionOcrUpload = createUploader(
   'reception-ocr',
   ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
-  20 * 1024 * 1024,
+  30 * 1024 * 1024,
 );
+
+export const networkPointDocumentUpload = multer({
+  storage: makeStorage('network-point-docs'),
+  limits: { fileSize: 15 * 1024 * 1024, files: 2 },
+  fileFilter: fileFilterFactory(new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])),
+});
 
 export function toUploadPath(bucket: UploadBucket, filename: string) {
   return normalizeUploadPath(path.posix.join(bucket, filename));

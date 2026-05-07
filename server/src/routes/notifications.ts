@@ -5,31 +5,42 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Notification } from '../models/Notification.js';
-import { forbidden, notFound } from '../utils/AppError.js';
+import { notFound } from '../utils/AppError.js';
+import { isGlobalRole } from '../utils/roles.js';
+import { refreshInstallmentNotifications } from '../services/installmentNotifications.service.js';
+import { normalizeNotificationRoleTargets } from '../services/notification.service.js';
+import { audit } from '../services/audit.service.js';
 
 const router = Router();
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
 
 function visibilityFilter(user: NonNullable<Express.Request['user']>) {
-  const andClauses: Record<string, unknown>[] = [];
+  const sharedClauses: Record<string, unknown>[] = [
+    { userId: null },
+    {
+      $or: [
+        { roleTargets: user.role },
+        { roleTarget: user.role },
+      ],
+    },
+  ];
 
-  andClauses.push({
-    $or: [{ userId: null }, { userId: user.sub }],
-  });
-
-  andClauses.push({
-    $or: [{ roleTarget: null }, { roleTarget: 'all' }, { roleTarget: user.role }],
-  });
-
-  if (user.franchiseId) {
-    andClauses.push({
+  if (isGlobalRole(user.role)) {
+    // Role-targets still apply for global users; franchise scope does not.
+  } else if (user.franchiseId) {
+    sharedClauses.push({
       $or: [{ franchiseId: null }, { franchiseId: user.franchiseId }],
     });
   } else {
-    andClauses.push({ franchiseId: null });
+    sharedClauses.push({ franchiseId: null });
   }
 
-  return { $and: andClauses };
+  return {
+    $or: [
+      { userId: user.sub },
+      { $and: sharedClauses },
+    ],
+  };
 }
 
 const listQuery = z.object({
@@ -44,6 +55,8 @@ router.get(
   requirePermission('notifications.view'),
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
+    await refreshInstallmentNotifications();
+    await normalizeNotificationRoleTargets();
     const user = req.user!;
     const { status, page, pageSize } = req.query as unknown as z.infer<typeof listQuery>;
     const skip = (page - 1) * pageSize;
@@ -77,6 +90,8 @@ router.get(
   requireAuth,
   requirePermission('notifications.view'),
   asyncHandler(async (req, res) => {
+    await refreshInstallmentNotifications();
+    await normalizeNotificationRoleTargets();
     const count = await Notification.countDocuments({
       ...visibilityFilter(req.user!),
       readAt: null,
@@ -100,6 +115,11 @@ router.post(
         $set: { readAt: now },
       },
     );
+    await audit(req, {
+      action: 'notification.read_all',
+      entity: 'Notification',
+      details: { updated: result.modifiedCount },
+    });
     res.json({ updated: result.modifiedCount });
   }),
 );
@@ -111,24 +131,22 @@ router.patch(
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const { id } = req.params as { id: string };
-    const notification = await Notification.findById(id);
+    const notification = await Notification.findOne({
+      _id: id,
+      ...visibilityFilter(req.user!),
+    });
     if (!notification) throw notFound('Notification not found');
-
-    const user = req.user!;
-    const isAllowedUser =
-      notification.userId == null || notification.userId.toString() === user.sub;
-    const isAllowedRole =
-      notification.roleTarget == null ||
-      notification.roleTarget === 'all' ||
-      notification.roleTarget === user.role;
-    const isAllowedFranchise =
-      notification.franchiseId == null ||
-      (user.franchiseId != null && notification.franchiseId.toString() === user.franchiseId);
-    if (!isAllowedUser || !isAllowedRole || !isAllowedFranchise) throw forbidden();
 
     if (!notification.readAt) {
       notification.readAt = new Date();
       await notification.save();
+      await audit(req, {
+        action: 'notification.read',
+        entity: 'Notification',
+        entityId: notification._id.toString(),
+        franchiseId: notification.franchiseId?.toString() ?? null,
+        details: { title: notification.title, type: notification.type, dedupeKey: notification.dedupeKey },
+      });
     }
 
     res.json({ notification });

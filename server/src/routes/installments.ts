@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import mongoose, { isValidObjectId } from 'mongoose';
+import { isValidObjectId } from 'mongoose';
 import { requireAuth, requirePermission, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -8,6 +8,7 @@ import { Installment } from '../models/Installment.js';
 import { Sale } from '../models/Sale.js';
 import { Client } from '../models/Client.js';
 import { audit } from '../services/audit.service.js';
+import { refreshInstallmentNotifications } from '../services/installmentNotifications.service.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
 
 const router = Router();
@@ -34,10 +35,7 @@ router.get(
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
     const { franchiseId, status, limit } = req.query as unknown as z.infer<typeof listQuery>;
-    await Installment.updateMany(
-      { status: 'pending', dueDate: mongoose.trusted({ $lt: new Date() }) },
-      { $set: { status: 'late' } },
-    );
+    await refreshInstallmentNotifications();
 
     const scope = franchiseScopeFilter(req.user);
     const filter: Record<string, unknown> = { ...scope };
@@ -46,12 +44,13 @@ router.get(
       filter.franchiseId = franchiseId;
     }
     if (status) filter.status = status;
-    const installments = await Installment.find(filter)
+    const installments = (await Installment.find(filter)
       .sort({ dueDate: 1 })
       .limit(limit)
-      .populate('saleId', 'total createdAt invoiceNumber saleType paymentStatus')
+      .populate({ path: 'saleId', match: { cancelledAt: null }, select: 'total createdAt invoiceNumber saleType paymentStatus' })
       .populate('clientId', 'fullName phone phone2')
-      .populate('userId', 'username fullName');
+      .populate('userId', 'username fullName'))
+      .filter((installment) => installment.saleId);
     res.json({ installments });
   }),
 );
@@ -66,6 +65,7 @@ router.post(
     const input = req.body as z.infer<typeof payload>;
     const sale = await Sale.findById(input.saleId);
     if (!sale) throw notFound('Sale not found');
+    if (sale.cancelledAt) throw badRequest('Cannot create installments for a cancelled sale');
     const scope = franchiseScopeFilter(req.user);
     if (scope.franchiseId && scope.franchiseId !== sale.franchiseId.toString()) throw forbidden();
 
@@ -97,6 +97,9 @@ router.post(
 
 const paySchema = z.object({
   paymentMethod: z.string().trim().max(40).optional(),
+  amount: z.number().positive().optional(),
+  remainingDueDate: z.string().datetime().optional(),
+  note: z.string().trim().max(1000).optional(),
 });
 
 router.post(
@@ -112,22 +115,74 @@ router.post(
     const scope = franchiseScopeFilter(req.user);
     if (scope.franchiseId && scope.franchiseId !== installment.franchiseId.toString()) throw forbidden();
     if (installment.status === 'paid') throw badRequest('Installment already paid');
+    const linkedSale = await Sale.findById(installment.saleId).select('cancelledAt');
+    if (!linkedSale) throw notFound('Sale not found');
+    if (linkedSale.cancelledAt) throw badRequest('Cannot pay an installment linked to a cancelled sale');
 
     const input = req.body as z.infer<typeof paySchema>;
+    const paidAmount = Math.round((input.amount ?? installment.amount) * 100) / 100;
+    if (paidAmount <= 0) throw badRequest('Payment amount must be positive');
+    if (paidAmount > installment.amount) throw badRequest('Payment amount cannot exceed installment amount');
+
+    let remainderInstallment = null;
+    const originalAmount = installment.originalAmount ?? installment.amount;
+    const remainingAmount = Math.round((installment.amount - paidAmount) * 100) / 100;
+    let remainderDueDate: Date | null = null;
+    if (remainingAmount > 0) {
+      remainderDueDate = input.remainingDueDate ? new Date(input.remainingDueDate) : new Date(Date.now() + 4 * 24 * 60 * 60 * 1000);
+      if (Number.isNaN(remainderDueDate.getTime())) throw badRequest('Invalid remaining due date');
+    }
+
+    installment.originalAmount = originalAmount;
+    installment.amount = paidAmount;
+    installment.paidAmount = paidAmount;
     installment.status = 'paid';
     installment.paidAt = new Date();
     installment.paymentMethod = input.paymentMethod ?? installment.paymentMethod;
+    installment.note = input.note
+      ? [installment.note, input.note].filter(Boolean).join(' | ')
+      : installment.note;
     await installment.save();
+
+    if (remainingAmount > 0) {
+      remainderInstallment = await Installment.create({
+        saleId: installment.saleId,
+        franchiseId: installment.franchiseId,
+        clientId: installment.clientId ?? null,
+        amount: remainingAmount,
+        originalAmount: remainingAmount,
+        dueDate: remainderDueDate!,
+        status: 'pending',
+        paymentMethod: null,
+        note: input.note
+          ? `Reste apres paiement partiel: ${input.note}`
+          : `Reste apres paiement partiel de ${paidAmount}`,
+        splitFromInstallmentId: installment._id,
+        userId: req.user!.sub,
+      });
+    }
+
+    const sale = await Sale.findById(installment.saleId).select('total amountReceived paymentStatus');
+    if (sale) {
+      const received = Math.round(((sale.amountReceived ?? 0) + paidAmount) * 100) / 100;
+      sale.amountReceived = Math.min(sale.total, received);
+      sale.paymentStatus = sale.amountReceived >= sale.total
+        ? 'paid'
+        : sale.amountReceived > 0
+          ? 'partial'
+          : 'pending';
+      await sale.save();
+    }
 
     await audit(req, {
       action: 'installment.pay',
       entity: 'Installment',
       entityId: installment._id.toString(),
       franchiseId: installment.franchiseId.toString(),
-      details: { amount: installment.amount },
+      details: { amount: paidAmount, remainingAmount, salePaymentStatus: sale?.paymentStatus ?? null },
     });
 
-    res.json({ installment });
+    res.json({ installment, remainderInstallment });
   }),
 );
 
@@ -148,6 +203,7 @@ router.post(
     const input = req.body as { saleId: string; clientId?: string | null; nbLots: number; startDate: string; intervalDays: number; note?: string };
     const sale = await Sale.findById(input.saleId);
     if (!sale) throw notFound('Sale not found');
+    if (sale.cancelledAt) throw badRequest('Cannot generate installments for a cancelled sale');
     const scope = franchiseScopeFilter(req.user);
     if (scope.franchiseId && scope.franchiseId !== sale.franchiseId.toString()) throw forbidden();
 

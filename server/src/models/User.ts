@@ -9,11 +9,15 @@ const userSchema = new Schema(
     fullName: { type: String, required: true, trim: true, maxlength: 100 },
     role: { type: String, enum: ROLES, required: true },
     franchiseId: { type: Schema.Types.ObjectId, ref: 'Franchise', default: null },
+    managerId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     avatarPath: { type: String, trim: true, maxlength: 260, default: null },
     customPermissions: {
       grants: [{ type: String, enum: PERMISSIONS }],
       revokes: [{ type: String, enum: PERMISSIONS }],
     },
+    googleAiStudioApiKeyEncrypted: { type: String, select: false, default: null },
+    googleAiStudioApiKeyLast4: { type: String, trim: true, maxlength: 12, default: null },
+    googleAiStudioApiKeyUpdatedAt: { type: Date, default: null },
     sessionVersion: { type: Number, min: 0, default: 0 },
     active: { type: Boolean, default: true },
     lastLoginAt: { type: Date, default: null },
@@ -22,10 +26,12 @@ const userSchema = new Schema(
 );
 
 userSchema.index({ franchiseId: 1 });
+userSchema.index({ managerId: 1 });
 
 userSchema.methods.toSafeJSON = function () {
   const obj = this.toObject({ versionKey: false });
   delete obj.passwordHash;
+  delete obj.googleAiStudioApiKeyEncrypted;
   return obj;
 };
 

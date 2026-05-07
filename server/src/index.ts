@@ -20,6 +20,7 @@ import stockRoutes from './routes/stock.js';
 import saleRoutes from './routes/sales.js';
 import transferRoutes from './routes/transfers.js';
 import dashboardRoutes from './routes/dashboard.js';
+import hrRoutes from './routes/hr.js';
 import auditRoutes from './routes/audit.js';
 import clientRoutes from './routes/clients.js';
 import receptionRoutes from './routes/receptions.js';
@@ -27,13 +28,20 @@ import closingRoutes from './routes/closings.js';
 import installmentRoutes from './routes/installments.js';
 import monthlyInventoryRoutes from './routes/monthlyInventories.js';
 import timeLogRoutes from './routes/timeLogs.js';
+import leaveRequestRoutes from './routes/leaveRequests.js';
 import cashFlowRoutes from './routes/cashFlows.js';
 import returnRoutes from './routes/returns.js';
 import demandRoutes from './routes/demands.js';
 import serviceRoutes from './routes/services.js';
 import networkPointRoutes from './routes/networkPoints.js';
+import locationPingRoutes from './routes/locationPings.js';
 import notificationRoutes from './routes/notifications.js';
 import uploadRoutes from './routes/uploads.js';
+import backupRoutes from './routes/backups.js';
+import { scheduleInstallmentNotificationRefresh } from './services/installmentNotifications.service.js';
+import { scheduleDailyBackups } from './services/backup.service.js';
+import { scheduleAutomaticClosings } from './services/closing.service.js';
+import { normalizeNotificationRoleTargets } from './services/notification.service.js';
 
 async function main() {
   await connectDb();
@@ -47,6 +55,7 @@ async function main() {
     cors({
       origin: (origin, cb) => {
         if (!origin) return cb(null, true); // same-origin / curl / mobile
+        if (env.CORS_ORIGINS.includes('*')) return cb(null, true);
         if (env.CORS_ORIGINS.includes(origin)) return cb(null, true);
         cb(new Error('Not allowed by CORS'));
       },
@@ -70,6 +79,7 @@ async function main() {
   app.use('/api/sales', saleRoutes);
   app.use('/api/transfers', transferRoutes);
   app.use('/api/dashboard', dashboardRoutes);
+  app.use('/api/hr', hrRoutes);
   app.use('/api/audit', auditRoutes);
   app.use('/api/clients', clientRoutes);
   app.use('/api/receptions', receptionRoutes);
@@ -78,19 +88,29 @@ async function main() {
   app.use('/api/installements', installmentRoutes); // legacy typo compatibility
   app.use('/api/monthly-inventories', monthlyInventoryRoutes);
   app.use('/api/timelogs', timeLogRoutes);
+  app.use('/api/leave-requests', leaveRequestRoutes);
   app.use('/api/cashflows', cashFlowRoutes);
   app.use('/api/returns', returnRoutes);
   app.use('/api/demands', demandRoutes);
   app.use('/api/services', serviceRoutes);
   app.use('/api/network-points', networkPointRoutes);
+  app.use('/api/location-pings', locationPingRoutes);
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/uploads', uploadRoutes);
+  app.use('/api/backups', backupRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
 
   app.listen(env.PORT, () => {
     logger.info({ port: env.PORT, env: env.NODE_ENV }, 'Server listening');
+  });
+
+  scheduleInstallmentNotificationRefresh();
+  scheduleDailyBackups();
+  scheduleAutomaticClosings();
+  void normalizeNotificationRoleTargets().catch((err) => {
+    logger.warn({ err }, 'Notification target normalization failed');
   });
 }
 

@@ -1,3 +1,4 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { PageMeta } from '../lib/types';
 
 export function TablePagination({
@@ -12,31 +13,33 @@ export function TablePagination({
   if (!meta) return null;
 
   return (
-    <div className={className ?? 'mt-3 flex flex-wrap items-center justify-between gap-3'}>
-      <div className="text-xs text-slate-500">
+    <div className={className ?? 'mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'}>
+      <div className="text-center text-xs font-medium text-slate-500 sm:text-left">
         {meta.total === 0
           ? 'Aucun resultat'
           : `${(meta.page - 1) * meta.pageSize + 1} - ${Math.min(meta.page * meta.pageSize, meta.total)} / ${meta.total}`}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="grid grid-cols-[44px_1fr_44px] items-center gap-2 sm:flex sm:justify-end">
         <button
           type="button"
-          className="btn-secondary !py-1.5 !px-2.5"
+          className="btn-secondary !min-h-[44px] !px-2.5 !py-1.5"
           disabled={meta.page <= 1}
           onClick={() => onPageChange(meta.page - 1)}
+          aria-label="Page precedente"
         >
-          Prec
+          <ChevronLeft className="h-4 w-4" />
         </button>
-        <span className="text-xs text-slate-600">
+        <span className="text-center text-xs font-semibold text-slate-600">
           Page {meta.page} / {meta.totalPages}
         </span>
         <button
           type="button"
-          className="btn-secondary !py-1.5 !px-2.5"
+          className="btn-secondary !min-h-[44px] !px-2.5 !py-1.5"
           disabled={meta.page >= meta.totalPages}
           onClick={() => onPageChange(meta.page + 1)}
+          aria-label="Page suivante"
         >
-          Suiv
+          <ChevronRight className="h-4 w-4" />
         </button>
       </div>
     </div>

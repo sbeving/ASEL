@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import clsx from 'clsx';
+import { ChevronDown, X } from 'lucide-react';
 
 export interface SearchableSelectOption {
   value: string;
@@ -117,10 +118,13 @@ export function SearchableSelect({
   return (
     <div ref={rootRef} className={clsx('relative', className)}>
       <input
-        className="input pr-9"
+        className="input pr-12"
         disabled={disabled}
         placeholder={placeholder}
         value={query}
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
         onFocus={() => {
           if (!disabled) setOpen(true);
         }}
@@ -135,18 +139,22 @@ export function SearchableSelect({
       {allowClear && value && !disabled && (
         <button
           type="button"
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          className="absolute right-1.5 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
           onClick={() => {
             onChange('');
             setQuery('');
             setOpen(false);
           }}
+          aria-label="Effacer la selection"
         >
-          clear
+          <X className="h-4 w-4" />
         </button>
       )}
+      {(!allowClear || !value) && (
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      )}
       {open && !disabled && (
-        <div className="absolute z-[125] mt-1 max-h-64 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+        <div className="absolute z-[125] mt-2 max-h-[min(18rem,55dvh)] w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-xl">
           {filtered.length > 0 ? (
             filtered.map((option, index) => (
               <button
@@ -155,7 +163,7 @@ export function SearchableSelect({
                 disabled={option.disabled}
                 onClick={() => commitSelection(option)}
                 className={clsx(
-                  'flex w-full flex-col items-start px-3 py-2 text-left text-sm',
+                  'flex min-h-[44px] w-full flex-col items-start px-3 py-2 text-left text-sm',
                   option.disabled
                     ? 'cursor-not-allowed text-slate-300'
                     : 'hover:bg-slate-50',

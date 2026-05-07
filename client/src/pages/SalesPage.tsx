@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '../lib/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, apiError } from '../lib/api';
 import { money, dateTime, dateOnly } from '../lib/money';
 import { PageHeader } from '../components/PageHeader';
+import { SaleDocumentModal } from '../components/SaleDocumentModal';
 import { useAuth } from '../auth/AuthContext';
 import { useDebouncedValue } from '../lib/hooks';
 import { SearchableSelect, type SearchableSelectOption } from '../components/SearchableSelect';
@@ -35,9 +36,36 @@ function statusBadgeClass(status: Sale['paymentStatus']) {
   return 'badge-muted';
 }
 
+function saleItemsSummary(sale: Sale) {
+  const parts = sale.items.slice(0, 3).map((item) => {
+    const product = item.productId;
+    const label = typeof product === 'object' && product ? product.name || product.reference || 'Produit' : 'Produit';
+    return `${label} x${item.quantity}`;
+  });
+  const extra = sale.items.length > 3 ? ` +${sale.items.length - 3}` : '';
+  return `${parts.join(', ')}${extra}`;
+}
+
+function saleSellerId(sale: Sale) {
+  if (typeof sale.userId === 'object' && sale.userId) return sale.userId.id || sale.userId._id;
+  return sale.userId;
+}
+
+function canCancelSale(sale: Sale, user: ReturnType<typeof useAuth>['user']) {
+  if (!user || sale.cancelledAt) return false;
+  const saleFranchiseId = typeof sale.franchiseId === 'object' && sale.franchiseId ? sale.franchiseId._id : String(sale.franchiseId || '');
+  if (['ceo', 'admin', 'superadmin', 'manager'].includes(user.role)) return true;
+  if (user.role === 'franchise') return Boolean(user.franchiseId && user.franchiseId === saleFranchiseId);
+  if (user.role === 'seller' || user.role === 'vendeur') {
+    return Boolean(user.franchiseId && user.franchiseId === saleFranchiseId && saleSellerId(sale) === (user.id || user._id));
+  }
+  return false;
+}
+
 export function SalesPage() {
   const { user } = useAuth();
-  const isGlobal = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'superadmin';
+  const queryClient = useQueryClient();
+  const isGlobal = user?.role === 'ceo' || user?.role === 'admin' || user?.role === 'manager' || user?.role === 'superadmin';
 
   const [selectedFid, setSelectedFid] = useState('');
   const [search, setSearch] = useState('');
@@ -48,6 +76,7 @@ export function SalesPage() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [page, setPage] = useState(1);
+  const [viewingSaleId, setViewingSaleId] = useState<string | null>(null);
   const pageSize = 30;
 
   useEffect(() => {
@@ -80,6 +109,23 @@ export function SalesPage() {
       ).data,
   });
 
+  const cancelSale = useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason?: string }) => {
+      await api.post(`/sales/${id}/cancel`, { reason: reason || undefined });
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+      queryClient.invalidateQueries({ queryKey: ['sale-document', variables.id] });
+    },
+    onError: (err) => window.alert(apiError(err).message),
+  });
+
+  function requestCancel(sale: Sale) {
+    const reason = window.prompt(`Motif annulation ${sale.invoiceNumber || ''}`.trim(), 'Annulation vendeur');
+    if (reason === null) return;
+    cancelSale.mutate({ id: sale._id, reason });
+  }
+
   const franchiseOptions: SearchableSelectOption[] = useMemo(
     () =>
       (franchises.data ?? []).map((franchise) => ({
@@ -92,12 +138,36 @@ export function SalesPage() {
   );
 
   const summary = useMemo(() => {
-    const rows = sales.data?.sales ?? [];
+    const rows = (sales.data?.sales ?? []).filter((sale) => !sale.cancelledAt);
     const total = rows.reduce((sum, sale) => sum + sale.total, 0);
     const received = rows.reduce((sum, sale) => sum + (sale.amountReceived ?? 0), 0);
     const installmentSales = rows.filter((sale) => sale.paymentMethod === 'installment').length;
     return { total, received, installmentSales };
   }, [sales.data?.sales]);
+
+  function setTodayFilter() {
+    const today = new Date().toISOString().slice(0, 10);
+    setFromDate(today);
+    setToDate(today);
+  }
+
+  function setMonthFilter() {
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    setFromDate(firstDay);
+    setToDate(lastDay);
+  }
+
+  function clearFilters() {
+    setSelectedFid('');
+    setSearch('');
+    setSaleType('');
+    setPaymentMethod('');
+    setPaymentStatus('');
+    setFromDate('');
+    setToDate('');
+  }
 
   return (
     <>
@@ -152,6 +222,11 @@ export function SalesPage() {
           <input type="date" className="input" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
           <input type="date" className="input" value={toDate} onChange={(event) => setToDate(event.target.value)} />
         </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" className="btn-secondary !px-3 !py-1.5 !text-xs" onClick={setTodayFilter}>Aujourd'hui</button>
+          <button type="button" className="btn-secondary !px-3 !py-1.5 !text-xs" onClick={setMonthFilter}>Ce mois</button>
+          <button type="button" className="btn-ghost !px-3 !py-1.5 !text-xs" onClick={clearFilters}>Effacer filtres</button>
+        </div>
       </section>
 
       <section className="mb-5 grid gap-4 md:grid-cols-3">
@@ -172,7 +247,72 @@ export function SalesPage() {
         </div>
       </section>
 
-      <div className="card overflow-x-auto">
+      <div className="grid gap-3 md:hidden">
+        {(sales.data?.sales ?? []).map((sale) => {
+          const amountReceived = sale.amountReceived ?? 0;
+          const remaining = Math.max(0, sale.total - amountReceived);
+          const clientName = typeof sale.clientId === 'object' && sale.clientId ? sale.clientId.fullName : 'Client passage';
+          const franchiseName = typeof sale.franchiseId === 'object' ? sale.franchiseId.name : '-';
+
+          return (
+            <article key={sale._id} className="card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-semibold text-slate-900">{sale.invoiceNumber || saleTypeLabels[sale.saleType]}</div>
+                  <div className="mt-1 text-xs text-slate-500">{dateTime(sale.createdAt)}</div>
+                </div>
+                {sale.cancelledAt ? (
+                  <span className="badge-danger">Annulee</span>
+                ) : (
+                  <span className={statusBadgeClass(sale.paymentStatus)}>{paymentStatusLabels[sale.paymentStatus]}</span>
+                )}
+              </div>
+              <div className="mt-3 text-sm text-slate-600">
+                <div className="font-medium text-slate-900">{clientName}</div>
+                <div className="text-xs text-slate-500">{franchiseName} | {saleTypeLabels[sale.saleType]} | {paymentMethodLabels[sale.paymentMethod]}</div>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="rounded-xl bg-slate-50 px-2 py-2">
+                  <div className="font-bold text-slate-900">{money(sale.total)}</div>
+                  <div className="text-slate-500">Total</div>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-2 py-2">
+                  <div className="font-bold text-emerald-700">{sale.amountReceived == null ? '-' : money(amountReceived)}</div>
+                  <div className="text-slate-500">Recu</div>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-2 py-2">
+                  <div className={remaining > 0 ? 'font-bold text-amber-700' : 'font-bold text-slate-900'}>{money(remaining)}</div>
+                  <div className="text-slate-500">Reste</div>
+                </div>
+              </div>
+              {sale.installmentPlan && (
+                <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                  {sale.installmentPlan.generatedLots} lot(s), premier lot {dateOnly(sale.installmentPlan.firstDueDate)}
+                </div>
+              )}
+              <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                {saleItemsSummary(sale)}
+              </div>
+              <div className="mt-3 flex justify-end gap-2">
+                {canCancelSale(sale, user) && (
+                  <button className="btn-danger !px-3 !py-1.5" disabled={cancelSale.isPending} onClick={() => requestCancel(sale)}>
+                    Annuler
+                  </button>
+                )}
+                <button className="btn-secondary !px-3 !py-1.5" onClick={() => setViewingSaleId(sale._id)}>
+                  Voir piece
+                </button>
+              </div>
+            </article>
+          );
+        })}
+        {!sales.isLoading && (sales.data?.sales.length ?? 0) === 0 && (
+          <div className="card p-5 text-sm text-slate-400">Aucune vente.</div>
+        )}
+        <TablePagination meta={sales.data?.meta} onPageChange={setPage} className="px-2 py-3" />
+      </div>
+
+      <div className="card hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead>
             <tr>
@@ -180,12 +320,14 @@ export function SalesPage() {
               <th className="th">Date</th>
               <th className="th">Franchise</th>
               <th className="th">Client</th>
+              <th className="th">Articles</th>
               <th className="th">Type</th>
               <th className="th">Paiement</th>
               <th className="th">Statut</th>
               <th className="th text-right">Recu</th>
               <th className="th text-right">Reste</th>
               <th className="th text-right">Total</th>
+              <th className="th-action">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -209,24 +351,45 @@ export function SalesPage() {
                   </td>
                   <td className="td">{franchiseName}</td>
                   <td className="td">{clientName}</td>
+                  <td className="td max-w-[260px]">
+                    <div className="line-clamp-2 text-xs text-slate-600">{saleItemsSummary(sale)}</div>
+                  </td>
                   <td className="td">{saleTypeLabels[sale.saleType]}</td>
                   <td className="td">{paymentMethodLabels[sale.paymentMethod]}</td>
                   <td className="td">
-                    <span className={statusBadgeClass(sale.paymentStatus)}>{paymentStatusLabels[sale.paymentStatus]}</span>
+                    {sale.cancelledAt ? (
+                      <span className="badge-danger">Annulee</span>
+                    ) : (
+                      <span className={statusBadgeClass(sale.paymentStatus)}>{paymentStatusLabels[sale.paymentStatus]}</span>
+                    )}
                   </td>
                   <td className="td text-right">{sale.amountReceived == null ? '-' : money(amountReceived)}</td>
                   <td className="td text-right">{money(remaining)}</td>
                   <td className="td text-right font-medium">{money(sale.total)}</td>
+                  <td className="td-action">
+                    <div className="flex justify-end gap-2">
+                      {canCancelSale(sale, user) && (
+                        <button className="btn-danger !min-h-[34px] !px-3 !py-1" disabled={cancelSale.isPending} onClick={() => requestCancel(sale)}>
+                          Annuler
+                        </button>
+                      )}
+                      <button className="btn-secondary !px-3 !py-1.5" onClick={() => setViewingSaleId(sale._id)}>
+                        Voir
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               );
             })}
             {!sales.isLoading && (sales.data?.sales.length ?? 0) === 0 && (
-              <tr><td className="td text-slate-400" colSpan={10}>Aucune vente.</td></tr>
+              <tr><td className="td text-slate-400" colSpan={12}>Aucune vente.</td></tr>
             )}
           </tbody>
         </table>
         <TablePagination meta={sales.data?.meta} onPageChange={setPage} className="px-4 py-3" />
       </div>
+
+      {viewingSaleId && <SaleDocumentModal saleId={viewingSaleId} onClose={() => setViewingSaleId(null)} />}
     </>
   );
 }

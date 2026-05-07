@@ -34,10 +34,10 @@ export function ContactActions({
   const title = [phone, phone2]
     .map((value) => formatTunisiaPhone(value))
     .filter(Boolean)
-    .join(' · ');
+    .join(' / ');
   const baseClasses = compact
-    ? 'inline-flex items-center rounded-full border px-2 py-1 text-[11px] font-semibold transition-colors'
-    : 'inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors';
+    ? 'inline-flex min-h-[32px] items-center justify-center rounded-lg border px-2 py-1 text-[11px] font-semibold transition-colors'
+    : 'inline-flex min-h-[44px] items-center justify-center rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors';
   const whatsappLabel = compact ? 'WA' : 'WhatsApp';
   const callLabel = compact ? 'Tel' : 'Appeler';
 

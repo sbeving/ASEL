@@ -7,17 +7,32 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { Reception } from '../models/Reception.js';
 import { Supplier } from '../models/Supplier.js';
 import { Product } from '../models/Product.js';
+import { Category } from '../models/Category.js';
+import { User } from '../models/User.js';
 import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
 import { extractTextFromDocument, parseReceptionOcr } from '../services/ocr.service.js';
 import { receptionOcrUpload, toUploadPath } from '../middleware/upload.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
+import { decryptSecret } from '../utils/secrets.js';
 
 const router = Router();
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
 
 function rounded(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function taxRate(value: number): number {
+  return Math.min(100, Math.max(0, rounded(value)));
+}
+
+function priceHtFromTtc(ttc: number, vatRate: number): number {
+  return rounded(vatRate > 0 ? ttc / (1 + vatRate / 100) : ttc);
+}
+
+function priceTtcFromHt(ht: number, vatRate: number): number {
+  return rounded(ht * (1 + vatRate / 100));
 }
 
 function receiptNumberFromDate(date = new Date()): string {
@@ -29,10 +44,31 @@ function receiptNumberFromDate(date = new Date()): string {
 }
 
 const lineSchema = z.object({
-  productId: objectId,
+  productId: objectId.optional(),
+  productName: z.string().trim().max(150).optional(),
+  productCreate: z
+    .object({
+      name: z.string().trim().min(1).max(150),
+      categoryId: objectId.optional(),
+      supplierId: objectId.nullable().optional(),
+      brand: z.string().trim().max(80).optional(),
+      reference: z.string().trim().max(80).optional(),
+      barcode: z.string().trim().max(80).optional(),
+      description: z.string().trim().max(1000).optional(),
+      sellPriceTtc: z.number().min(0).optional(),
+      sellTaxRate: z.number().min(0).max(100).optional(),
+    })
+    .optional(),
   quantity: z.number().int().positive(),
-  unitPriceHt: z.number().min(0),
+  unitPriceHt: z.number().min(0).optional(),
+  unitPriceTtc: z.number().min(0).optional(),
   vatRate: z.number().min(0).max(100).default(19),
+}).refine((value) => value.productId || value.productCreate?.name || value.productName, {
+  path: ['productId'],
+  message: 'productId or productCreate is required',
+}).refine((value) => value.unitPriceHt !== undefined || value.unitPriceTtc !== undefined, {
+  path: ['unitPriceHt'],
+  message: 'unitPriceHt or unitPriceTtc is required',
 });
 
 const payload = z.object({
@@ -51,6 +87,95 @@ const querySchema = z.object({
   status: z.enum(['draft', 'validated', 'cancelled']).optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),
 });
+
+async function defaultReceptionCategoryId() {
+  const category = await Category.findOneAndUpdate(
+    { name: /^Non classe$/i },
+    { $setOnInsert: { name: 'Non classe', description: 'Produits crees depuis bons de reception' } },
+    { upsert: true, new: true },
+  );
+  return category._id;
+}
+
+async function resolveReceptionLines(input: z.infer<typeof lineSchema>[], supplierId?: string | null) {
+  const lines = [];
+
+  for (const rawLine of input) {
+    const vatRate = taxRate(rawLine.vatRate ?? 19);
+    const unitPriceHt =
+      rawLine.unitPriceHt !== undefined
+        ? rounded(rawLine.unitPriceHt)
+        : priceHtFromTtc(rawLine.unitPriceTtc ?? 0, vatRate);
+    const unitPriceTtc =
+      rawLine.unitPriceTtc !== undefined
+        ? rounded(rawLine.unitPriceTtc)
+        : priceTtcFromHt(unitPriceHt, vatRate);
+
+    let productId = rawLine.productId;
+
+    if (!productId) {
+      const createInput = rawLine.productCreate;
+      const name = createInput?.name || rawLine.productName;
+      if (!name) throw badRequest('Product name is required for new reception lines');
+
+      const productFilter = createInput?.barcode
+        ? { barcode: createInput.barcode }
+        : createInput?.reference
+          ? { reference: createInput.reference }
+          : { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') };
+      let product = await Product.findOne(productFilter);
+
+      if (!product) {
+        const categoryId = createInput?.categoryId ?? (await defaultReceptionCategoryId());
+        if (createInput?.categoryId && !(await Category.exists({ _id: createInput.categoryId }))) {
+          throw badRequest('categoryId does not exist');
+        }
+        const lineSupplierId = createInput?.supplierId ?? supplierId ?? null;
+        if (lineSupplierId && !(await Supplier.exists({ _id: lineSupplierId }))) {
+          throw badRequest('supplierId does not exist');
+        }
+        const sellTax = taxRate(createInput?.sellTaxRate ?? vatRate);
+        const sellTtc = rounded(createInput?.sellPriceTtc ?? unitPriceTtc);
+        const sellHt = priceHtFromTtc(sellTtc, sellTax);
+
+        product = await Product.create({
+          name,
+          categoryId,
+          supplierId: lineSupplierId,
+          brand: createInput?.brand ?? '',
+          reference: createInput?.reference ?? '',
+          barcode: createInput?.barcode ?? '',
+          description: createInput?.description ?? 'Cree depuis bon de reception',
+          purchasePrice: unitPriceTtc,
+          purchasePriceHt: unitPriceHt,
+          purchaseTaxRate: vatRate,
+          purchasePriceTtc: unitPriceTtc,
+          sellPrice: sellTtc,
+          sellPriceHt: sellHt,
+          sellTaxRate: sellTax,
+          sellPriceTtc: sellTtc,
+          lowStockThreshold: 3,
+          active: true,
+        });
+      }
+      productId = product._id.toString();
+    }
+
+    const totalHt = rounded(unitPriceHt * rawLine.quantity);
+    const totalTtc = rounded(unitPriceTtc * rawLine.quantity);
+    lines.push({
+      productId,
+      quantity: rawLine.quantity,
+      unitPriceHt,
+      vatRate,
+      unitPriceTtc,
+      totalHt,
+      totalTtc,
+    });
+  }
+
+  return lines;
+}
 
 router.get(
   '/',
@@ -82,7 +207,7 @@ router.get(
 router.post(
   '/',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise'),
+  requireRole('admin', 'manager', 'stock_central_maintainer', 'franchise'),
   requirePermission('receptions.manage'),
   validate(payload),
   asyncHandler(async (req, res) => {
@@ -94,18 +219,13 @@ router.post(
       throw badRequest('supplierId does not exist');
     }
 
-    const productIds = input.lines.map((l) => l.productId);
+    const productIds = [...new Set(input.lines.map((l) => l.productId).filter(Boolean))];
     if (productIds.length > 0) {
       const existing = await Product.countDocuments({ _id: mongoose.trusted({ $in: productIds }) });
       if (existing !== productIds.length) throw badRequest('One or more products do not exist');
     }
 
-    const lines = input.lines.map((line) => {
-      const unitPriceTtc = rounded(line.unitPriceHt * (1 + line.vatRate / 100));
-      const totalHt = rounded(line.unitPriceHt * line.quantity);
-      const totalTtc = rounded(unitPriceTtc * line.quantity);
-      return { ...line, unitPriceTtc, totalHt, totalTtc };
-    });
+    const lines = await resolveReceptionLines(input.lines, input.supplierId);
 
     const totalHt = rounded(lines.reduce((sum, l) => sum + l.totalHt, 0));
     const totalTtc = rounded(lines.reduce((sum, l) => sum + l.totalTtc, 0));
@@ -159,13 +279,32 @@ router.post(
 router.post(
   '/ocr',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise'),
+  requireRole('admin', 'manager', 'stock_central_maintainer', 'franchise'),
   requirePermission('receptions.manage'),
   receptionOcrUpload.single('document'),
   asyncHandler(async (req, res) => {
     if (!req.file) throw badRequest('document file is required');
 
-    const extraction = await extractTextFromDocument(req.file.path, req.file.mimetype);
+    const currentUser = await User.findById(req.user!.sub)
+      .select('+googleAiStudioApiKeyEncrypted googleAiStudioApiKeyLast4')
+      .lean();
+    if (!currentUser?.googleAiStudioApiKeyEncrypted) {
+      throw badRequest(
+        'Configure your personal Google AI Studio API key before using OCR. The company does not cover OCR API costs.',
+      );
+    }
+
+    let googleAiStudioApiKey = '';
+    try {
+      googleAiStudioApiKey = decryptSecret(currentUser.googleAiStudioApiKeyEncrypted);
+    } catch {
+      throw badRequest('Your saved Google AI Studio API key could not be read. Please replace it in OCR settings.');
+    }
+
+    const extraction = await extractTextFromDocument(req.file.path, req.file.mimetype, {
+      googleAiStudioApiKey,
+      allowSharedProviders: false,
+    });
     const products = await Product.find({ active: true })
       .select('name reference barcode')
       .sort({ name: 1 })
@@ -184,13 +323,31 @@ router.post(
     if (parsed.header.supplierName) {
       const escaped = parsed.header.supplierName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const supplier = await Supplier.findOne({
-        name: { $regex: escaped, $options: 'i' },
+        name: new RegExp(escaped, 'i'),
         active: true,
       })
         .select('_id name')
         .lean();
       if (supplier?._id) suggestedSupplierId = supplier._id.toString();
     }
+
+    await audit(req, {
+      action: 'reception.ocr',
+      entity: 'Reception',
+      details: {
+        originalName: req.file.originalname,
+        storedPath: toUploadPath('reception-ocr', req.file.filename),
+        mimeType: req.file.mimetype,
+        sizeBytes: req.file.size,
+        engine: extraction.engine,
+        provider: 'google_aistudio_user_key',
+        keyLast4: currentUser.googleAiStudioApiKeyLast4,
+        warnings: extraction.warnings,
+        textLength: extraction.text.length,
+        suggestedLines: parsed.lines.length,
+        suggestedSupplierId,
+      },
+    });
 
     res.json({
       documentPath: toUploadPath('reception-ocr', req.file.filename),
@@ -213,7 +370,7 @@ router.post(
 router.patch(
   '/:id',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise'),
+  requireRole('admin', 'manager', 'stock_central_maintainer', 'franchise'),
   requirePermission('receptions.manage'),
   validate(z.object({ id: objectId }), 'params'),
   validate(payload.omit({ franchiseId: true, status: true }).partial()),
@@ -237,17 +394,12 @@ router.patch(
     if (input.sourceDocumentPath !== undefined) reception.sourceDocumentPath = input.sourceDocumentPath;
 
     if (input.lines) {
-      const productIds = input.lines.map((l) => l.productId);
+      const productIds = [...new Set(input.lines.map((l) => l.productId).filter(Boolean))];
       if (productIds.length > 0) {
         const existing = await Product.countDocuments({ _id: mongoose.trusted({ $in: productIds }) });
         if (existing !== productIds.length) throw badRequest('One or more products do not exist');
       }
-      const lines = input.lines.map((line) => {
-        const unitPriceTtc = rounded(line.unitPriceHt * (1 + line.vatRate / 100));
-        const totalHt = rounded(line.unitPriceHt * line.quantity);
-        const totalTtc = rounded(unitPriceTtc * line.quantity);
-        return { ...line, unitPriceTtc, totalHt, totalTtc };
-      });
+      const lines = await resolveReceptionLines(input.lines, input.supplierId ?? reception.supplierId?.toString?.() ?? null);
       reception.lines = lines as any;
       reception.totalHt = rounded(lines.reduce((sum, l) => sum + l.totalHt, 0));
       reception.totalTtc = rounded(lines.reduce((sum, l) => sum + l.totalTtc, 0));
@@ -263,7 +415,7 @@ router.patch(
 router.post(
   '/:id/validate',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise'),
+  requireRole('admin', 'manager', 'stock_central_maintainer', 'franchise'),
   requirePermission('receptions.manage'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
@@ -308,7 +460,7 @@ router.post(
 router.delete(
   '/:id',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise'),
+  requireRole('admin', 'manager', 'stock_central_maintainer', 'franchise'),
   requirePermission('receptions.manage'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {

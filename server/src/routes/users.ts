@@ -30,6 +30,7 @@ const baseUser = {
   fullName: z.string().min(1).max(100).trim(),
   role: z.enum(ROLES),
   franchiseId: objectId.nullable().optional(),
+  managerId: objectId.nullable().optional(),
   active: z.boolean().optional(),
   customPermissions: customPermissionsSchema.optional(),
 };
@@ -43,12 +44,21 @@ const updateSchema = z.object({
   fullName: z.string().min(1).max(100).trim().optional(),
   role: z.enum(ROLES).optional(),
   franchiseId: objectId.nullable().optional(),
+  managerId: objectId.nullable().optional(),
   active: z.boolean().optional(),
   password: z.string().min(8).max(200).optional(),
   customPermissions: customPermissionsSchema.optional(),
 });
 
 async function ensureFranchiseConsistency(role: string, franchiseId: unknown) {
+  if (role === 'commercial') {
+    if (franchiseId) {
+      const exists = await Franchise.exists({ _id: franchiseId });
+      if (!exists) throw badRequest('franchiseId does not exist');
+    }
+    return;
+  }
+
   const isScoped = isFranchiseScoped(role as any);
   if (isScoped) {
     if (!franchiseId) throw badRequest('franchiseId is required for this role');
@@ -60,10 +70,17 @@ async function ensureFranchiseConsistency(role: string, franchiseId: unknown) {
   }
 }
 
+async function ensureManagerConsistency(managerId: string | null | undefined, userId?: string) {
+  if (!managerId) return;
+  if (userId && managerId === userId) throw badRequest('A user cannot manage themselves');
+  const manager = await User.findOne({ _id: managerId, active: true }).select('role').lean();
+  if (!manager) throw badRequest('managerId does not exist or is inactive');
+}
+
 router.get(
   '/',
   asyncHandler(async (_req, res) => {
-    const users = await User.find().sort({ createdAt: -1 });
+    const users = await User.find().sort({ createdAt: -1 }).populate('managerId', 'fullName username role');
     res.json({ users });
   }),
 );
@@ -75,6 +92,7 @@ router.post(
     const input = req.body as z.infer<typeof createSchema>;
     if (input.role === 'superadmin' && req.user!.role !== 'superadmin') { throw forbidden('Only superadmins can create superadmin accounts'); }
     await ensureFranchiseConsistency(input.role, input.franchiseId);
+    await ensureManagerConsistency(input.managerId);
 
     const passwordHash = await bcrypt.hash(input.password, env.BCRYPT_ROUNDS);
     const user = await User.create({
@@ -83,6 +101,7 @@ router.post(
       fullName: input.fullName,
       role: input.role,
       franchiseId: input.franchiseId ?? null,
+      managerId: input.managerId ?? null,
       active: input.active ?? true,
       customPermissions: normalizeCustomPermissionOverrides(input.customPermissions),
     });
@@ -110,6 +129,10 @@ router.patch(
       await ensureFranchiseConsistency(nextRole, nextFid);
       user.role = nextRole as typeof user.role;
       if ('franchiseId' in input) user.franchiseId = (input.franchiseId as any) ?? null;
+    }
+    if ('managerId' in input) {
+      await ensureManagerConsistency(input.managerId, id);
+      user.managerId = (input.managerId as any) ?? null;
     }
     if (input.fullName !== undefined) user.fullName = input.fullName;
     if (input.active !== undefined) user.active = input.active;

@@ -10,7 +10,8 @@
     @apply bg-surface-50;
   }
   body {
-    @apply font-sans text-surface-800 antialiased selection:bg-brand-500 selection:text-white;
+    @apply overscroll-y-contain font-sans text-surface-800 antialiased selection:bg-brand-500 selection:text-white;
+    touch-action: manipulation;
   }
   
   /* Custom scrollbar for a more premium look */
@@ -28,31 +29,31 @@
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium
+    @apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium
            transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none
-           focus:ring-2 focus:ring-offset-2 active:scale-95;
+           focus:ring-2 focus:ring-offset-2 active:scale-95 sm:px-4;
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white hover:bg-brand-700 hover:shadow-lg hover:shadow-brand-500/30 focus:ring-brand-500;
+    @apply btn bg-brand-600 text-white hover:bg-brand-700 hover:shadow-md hover:shadow-brand-500/20 focus:ring-brand-500;
   }
   .btn-secondary {
     @apply btn bg-white text-surface-700 border border-surface-200 hover:bg-surface-50 hover:border-surface-300 hover:shadow-sm focus:ring-surface-400;
   }
   .btn-danger {
-    @apply btn bg-rose-500 text-white hover:bg-rose-600 hover:shadow-lg hover:shadow-rose-500/30 focus:ring-rose-500;
+    @apply btn bg-rose-500 text-white hover:bg-rose-600 hover:shadow-md hover:shadow-rose-500/20 focus:ring-rose-500;
   }
   .btn-ghost {
     @apply btn bg-transparent text-surface-600 hover:bg-surface-100 hover:text-surface-900;
   }
   
   .card {
-    @apply rounded-2xl border border-surface-200/60 bg-white/80 shadow-soft backdrop-blur-md transition-all duration-300 hover:shadow-glass hover:bg-white;
+    @apply rounded-lg border border-surface-200 bg-white shadow-soft transition-shadow duration-200 hover:shadow-glass;
   }
   
   .input {
-    @apply block w-full rounded-xl border border-surface-200 bg-white/50 px-4 py-2.5 text-sm
+    @apply block min-h-[44px] w-full rounded-lg border border-surface-200 bg-white px-3 py-2.5 text-sm
            placeholder:text-surface-400 transition-all duration-200 focus:border-brand-500 focus:bg-white focus:outline-none
-           focus:ring-4 focus:ring-brand-500/10 hover:border-surface-300 disabled:bg-surface-100 disabled:text-surface-500;
+           focus:ring-4 focus:ring-brand-500/10 hover:border-surface-300 disabled:bg-surface-100 disabled:text-surface-500 sm:px-4;
   }
   
   .label {
@@ -73,7 +74,7 @@
            uppercase tracking-wider text-surface-500 border-b border-surface-200;
   }
   .td {
-    @apply px-4 py-3 text-sm border-b border-surface-100 font-medium text-surface-700;
+    @apply px-4 py-3 align-top text-sm border-b border-surface-100 font-medium text-surface-700;
   }
   .th-action {
     @apply th sticky right-0 z-10 bg-surface-50/95 text-right shadow-[-12px_0_16px_-16px_rgba(15,23,42,0.35)];
@@ -89,6 +90,106 @@
   .glass-panel {
     @apply bg-white/70 backdrop-blur-xl border border-white/20 shadow-glass;
   }
+
+  .mobile-record-card {
+    @apply min-w-0 rounded-lg border border-surface-200 bg-white p-4 shadow-soft;
+  }
+
+  .mobile-record-row {
+    @apply flex min-w-0 items-start justify-between gap-3 text-sm;
+  }
+
+  .mobile-record-label {
+    @apply text-xs font-semibold uppercase tracking-wide text-surface-500;
+  }
+
+  .mobile-record-value {
+    @apply min-w-0 break-words text-right font-semibold text-surface-800;
+  }
+
+  .form-grid {
+    @apply grid gap-3 sm:grid-cols-2;
+  }
+
+  .form-section {
+    @apply rounded-lg border border-surface-200 bg-surface-50 p-3;
+  }
+
+  .checkbox-field {
+    @apply flex min-h-[44px] items-center gap-3 rounded-lg border border-surface-200 bg-white px-3 py-2 text-sm font-semibold text-surface-700;
+  }
+
+  .checkbox-field input {
+    @apply h-4 w-4 rounded border-surface-300 text-brand-600 focus:ring-brand-500;
+  }
+
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(203 213 225) transparent;
+  }
+
+  .pointage-initial-marker {
+    width: 34px;
+    height: 34px;
+    border-radius: 9999px;
+    border: 2px solid white;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 800;
+    color: white;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.28);
+  }
+
+  .pointage-car-marker {
+    position: relative;
+    width: 34px;
+    height: 24px;
+    filter: drop-shadow(0 8px 12px rgba(15, 23, 42, 0.26));
+  }
+
+  .pointage-car-marker--large {
+    width: 42px;
+    height: 30px;
+  }
+
+  .pointage-car-body {
+    position: absolute;
+    inset: 4px 3px 7px;
+    border: 2px solid white;
+    border-radius: 8px 11px 6px 6px;
+    background: currentColor;
+  }
+
+  .pointage-car-body::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: -7px;
+    height: 8px;
+    border: 2px solid white;
+    border-bottom: 0;
+    border-radius: 8px 8px 0 0;
+    background: currentColor;
+  }
+
+  .pointage-car-wheel {
+    position: absolute;
+    bottom: 2px;
+    width: 7px;
+    height: 7px;
+    border-radius: 9999px;
+    border: 2px solid white;
+    background: #0f172a;
+  }
+
+  .pointage-car-wheel-a { left: 8px; }
+  .pointage-car-wheel-b { right: 8px; }
+
+  .pointage-marker--ok { color: #10b981; background: #10b981; }
+  .pointage-marker--danger { color: #ef4444; background: #ef4444; }
+  .pointage-marker--neutral { color: #2563eb; background: #2563eb; }
 }
 
 .leaflet-container {

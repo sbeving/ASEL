@@ -13,6 +13,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@mistralai/mistralai": "^2.2.1",
+    "@repeato/ocr": "^1.5.19",
+    "@types/pdfkit": "^0.17.6",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
@@ -23,8 +26,10 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.5.0",
     "multer": "^2.1.1",
+    "pdfkit": "^0.18.0",
     "pino": "^9.3.0",
     "pino-http": "^10.2.0",
+    "sharp": "^0.34.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {

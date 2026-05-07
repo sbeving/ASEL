@@ -54,6 +54,13 @@ function roundCurrency(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+function userCanOverridePrices(user: ReturnType<typeof useAuth>['user']) {
+  if (!user) return false;
+  if (user.customPermissions?.revokes.includes('sales.price.override')) return false;
+  if (user.customPermissions?.grants.includes('sales.price.override')) return true;
+  return ['admin', 'superadmin', 'manager', 'franchise'].includes(user.role);
+}
+
 function buildInstallmentPreview(totalAmount: number, upfrontAmount: number, lotCount: number, startDate: string, intervalDays: number) {
   const remainingAmount = roundCurrency(totalAmount - upfrontAmount);
   if (remainingAmount <= 0 || !Number.isInteger(lotCount) || lotCount <= 0) return [];
@@ -79,7 +86,8 @@ function buildInstallmentPreview(totalAmount: number, upfrontAmount: number, lot
 
 export function POSPage() {
   const { user } = useAuth();
-  const isGlobal = user?.role === 'admin' || user?.role === 'manager';
+  const isGlobal = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'manager';
+  const canOverridePrices = userCanOverridePrices(user);
   const qc = useQueryClient();
 
   const franchises = useQuery({
@@ -191,6 +199,15 @@ export function POSPage() {
     );
   }
 
+  function updateCartUnitPrice(productId: string, price: number) {
+    if (!canOverridePrices) return;
+    setCart((current) =>
+      current.map((line) =>
+        line.productId === productId ? { ...line, unitPrice: roundCurrency(Math.max(0, price)) } : line,
+      ),
+    );
+  }
+
   const subtotal = useMemo(
     () => roundCurrency(cart.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)),
     [cart],
@@ -268,8 +285,8 @@ export function POSPage() {
   const canCheckout = !!effectiveFid && cart.length > 0 && (!isInstallment || !!clientId);
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="mb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
+    <div className="min-h-full">
+      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <PageHeader
           title="Terminal de Vente"
           subtitle="Encaissement rapide et gestion des échéances"
@@ -292,9 +309,9 @@ export function POSPage() {
           <p className="text-lg">Sélectionnez une franchise pour commencer.</p>
         </div>
       ) : (
-        <div className="grid h-full gap-6 xl:grid-cols-[1.8fr_1.2fr] pb-10">
+        <div className="grid items-start gap-6 pb-10 xl:grid-cols-[minmax(0,1fr)_minmax(390px,460px)] 2xl:grid-cols-[minmax(0,1fr)_minmax(430px,500px)]">
           {/* CATALOG SECTION */}
-          <section className="flex flex-col overflow-hidden rounded-3xl border border-surface-200/60 bg-white/60 shadow-glass backdrop-blur-xl">
+          <section className="flex min-h-[560px] flex-col overflow-hidden rounded-3xl border border-surface-200/60 bg-white/60 shadow-glass backdrop-blur-xl xl:min-h-[calc(100dvh-13rem)]">
             <div className="border-b border-surface-200/50 bg-white/80 p-5 backdrop-blur-md">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="relative flex-1">
@@ -356,7 +373,7 @@ export function POSPage() {
               />
             )}
 
-            <div className="flex-1 overflow-y-auto p-5 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar sm:p-5">
               {stock.isLoading ? (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -459,7 +476,7 @@ export function POSPage() {
           </section>
 
           {/* CHECKOUT SECTION */}
-          <aside className="flex flex-col overflow-hidden rounded-3xl border border-surface-200/60 bg-white shadow-glass">
+          <aside className="overflow-hidden rounded-3xl border border-surface-200/60 bg-white shadow-glass xl:sticky xl:top-0">
             <div className="border-b border-surface-100 bg-surface-50/50 p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-bold flex items-center gap-2 text-surface-900">
@@ -477,7 +494,7 @@ export function POSPage() {
                 </button>
               </div>
 
-              <div className="flex-1 max-h-[30vh] min-h-[20vh] overflow-y-auto pr-2 custom-scrollbar">
+              <div className="max-h-[300px] min-h-[160px] overflow-y-auto pr-2 custom-scrollbar xl:max-h-[240px] 2xl:max-h-[320px]">
                 <AnimatePresence initial={false}>
                   {cart.length === 0 && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex h-full items-center justify-center text-sm text-surface-400">
@@ -496,7 +513,21 @@ export function POSPage() {
                       <div className="flex justify-between items-start mb-2">
                         <div className="min-w-0 flex-1">
                           <div className="truncate font-semibold text-surface-900">{line.name}</div>
-                          <div className="text-xs text-surface-500">{money(line.unitPrice)} unitaire</div>
+                          {isInstallment && canOverridePrices ? (
+                            <label className="mt-1 block text-xs text-surface-500">
+                              Prix echeance
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                className="mt-1 h-8 w-32 rounded-lg border border-surface-200 bg-surface-50 px-2 text-xs font-semibold text-surface-900"
+                                value={line.unitPrice}
+                                onChange={(event) => updateCartUnitPrice(line.productId, Number(event.target.value) || 0)}
+                              />
+                            </label>
+                          ) : (
+                            <div className="text-xs text-surface-500">{money(line.unitPrice)} unitaire</div>
+                          )}
                         </div>
                         <button
                           className="ml-2 p-1 text-surface-300 hover:text-rose-500 transition-colors rounded-md hover:bg-rose-50"
@@ -536,9 +567,16 @@ export function POSPage() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-5 bg-white custom-scrollbar">
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white p-5">
+              <div className="space-y-5">
+                <div>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-surface-900">Document & paiement</h3>
+                    <span className="rounded-full bg-surface-100 px-2.5 py-1 text-[11px] font-semibold text-surface-500">
+                      {cart.length} article(s)
+                    </span>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                   <div className="space-y-1.5">
                     <label className="label">Type de document</label>
                     <div className="grid grid-cols-3 gap-1 rounded-xl bg-surface-100 p-1">
@@ -579,8 +617,9 @@ export function POSPage() {
                     </div>
                   </div>
                 </div>
+                </div>
 
-                <div>
+                <div className="rounded-2xl border border-surface-100 bg-surface-50/60 p-3">
                   <label className="label">Client</label>
                   <SearchableSelect
                     value={clientId}
@@ -592,7 +631,7 @@ export function POSPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                   <div>
                     <label className="label">Remise globale</label>
                     <div className="relative">
@@ -628,7 +667,7 @@ export function POSPage() {
                 <div>
                   <label className="label">Note (Optionnelle)</label>
                   <textarea
-                    className="input min-h-[60px] resize-none text-xs"
+                    className="input min-h-[88px] resize-none text-sm"
                     value={note}
                     placeholder="Observations, référence..."
                     onChange={(e) => setNote(e.target.value)}
@@ -641,7 +680,7 @@ export function POSPage() {
                       <h4 className="text-xs font-bold uppercase text-amber-800 mb-3 flex items-center gap-2">
                         <CalendarClock className="w-4 h-4" /> Plan d'Échéance
                       </h4>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
                         <div>
                           <label className="text-[10px] font-semibold text-amber-700">Lots</label>
                           <input type="number" min={1} max={60} className="input !bg-white/80 !py-1.5 !px-2 text-sm" value={nbLots} onChange={(e) => setNbLots(Math.max(1, Math.min(60, Number(e.target.value) || 1)))} />
@@ -672,7 +711,7 @@ export function POSPage() {
               </div>
             </div>
 
-            <div className="border-t border-surface-200 bg-white p-5 shadow-[0_-4px_20px_rgba(0,0,0,0.03)] z-10">
+            <div className="z-10 border-t border-surface-200 bg-white p-5 shadow-[0_-4px_20px_rgba(0,0,0,0.03)] xl:sticky xl:bottom-0">
               <div className="space-y-2 mb-4">
                 <div className="flex justify-between text-sm text-surface-500">
                   <span>Sous-total</span>

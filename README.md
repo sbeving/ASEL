@@ -15,10 +15,76 @@ This repo is the modern rewrite of the legacy PHP/MySQL platform.
 ```text
 server/   Node + Express + MongoDB API
 client/   React + Vite SPA
+mobile/   Expo React Native pointage app
 old/      Legacy PHP reference source
 ```
 
-## Quick start
+## Quick start with Docker
+
+The default Compose file is the development stack:
+
+- MongoDB
+- API with TypeScript watch mode
+- Vite client with hot reload
+- Cloudflare quick tunnel for a public dev URL, with an optional named tunnel
+  for `https://asel.saleheddinetouil.tech`
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Open the local app:
+
+```text
+http://localhost:5173
+```
+
+Find the public dev link:
+
+```bash
+docker compose logs -f dev-tunnel
+```
+
+Look for the `https://....trycloudflare.com` URL in the logs. Anyone with that URL can reach the dev app while the tunnel is running.
+
+### Stable Cloudflare dev URL
+
+Use this when you want `https://asel.saleheddinetouil.tech` instead of a random
+`trycloudflare.com` URL.
+
+1. In Cloudflare Zero Trust, create a Cloudflared tunnel named `asel-dev`.
+2. Add a public hostname:
+   - Subdomain: `asel`
+   - Domain: `saleheddinetouil.tech`
+   - Type: `HTTP`
+   - URL: `http://client:5173`
+3. Paste the tunnel Docker token into `.env`:
+
+```bash
+CLOUDFLARED_TOKEN=eyJ...
+```
+
+4. Start the named tunnel:
+
+```bash
+docker compose --profile cloudflare-named up -d dev-tunnel-named
+docker compose logs -f dev-tunnel-named
+```
+
+The app will be available at `https://asel.saleheddinetouil.tech`, and the API
+will be available through the same domain at
+`https://asel.saleheddinetouil.tech/api`.
+
+Seed demo data from another terminal:
+
+```bash
+docker compose exec server npm run seed
+```
+
+More Docker details are in `docs/DOCKER.md`.
+
+## Local quick start without Docker
 
 ```bash
 # 1. Start MongoDB
@@ -38,6 +104,42 @@ cp .env.example .env
 npm install
 npm run dev
 ```
+
+## Mobile pointage app
+
+The Expo app is intentionally limited:
+
+- `siege_employee`: pointage, GPS capture, monthly worked-hours total
+- `commercial`: pointage, 5-minute location pings, assigned map zones, activation/recharge points, and lead creation from current GPS
+
+```bash
+cd mobile
+npm install
+npm start
+```
+
+For now the mobile app defaults to the stable Cloudflare dev URL:
+`https://asel.saleheddinetouil.tech/api`.
+You can also run Expo with the named dev API explicitly:
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=https://asel.saleheddinetouil.tech/api npm start
+```
+
+Override with `EXPO_PUBLIC_API_BASE_URL` again when we move to OVH production.
+
+## Production deployment
+
+OVH VPS deployment assets are included:
+
+- `docker-compose.prod.yml`
+- `server/Dockerfile`
+- `client/Dockerfile`
+- `client/nginx.conf`
+- `deploy/ovh/Caddyfile`
+- `deploy/ovh/README.md`
+
+Start with `deploy/ovh/README.md` and `.env.production.example`.
 
 ## Seed behavior
 

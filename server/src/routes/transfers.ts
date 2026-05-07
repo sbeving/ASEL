@@ -27,7 +27,7 @@ const createSchema = z.object({
 router.post(
   '/',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise'),
+  requireRole('admin', 'manager', 'stock_central_maintainer', 'franchise'),
   requirePermission('transfers.manage'),
   validate(createSchema),
   asyncHandler(async (req, res) => {
@@ -213,7 +213,7 @@ async function transitionTransfer(
 router.post(
   '/:id/accept',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise'),
+  requireRole('admin', 'manager', 'stock_central_maintainer', 'franchise'),
   requirePermission('transfers.manage'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
@@ -235,7 +235,7 @@ router.post(
 router.post(
   '/:id/reject',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise'),
+  requireRole('admin', 'manager', 'stock_central_maintainer', 'franchise'),
   requirePermission('transfers.manage'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {

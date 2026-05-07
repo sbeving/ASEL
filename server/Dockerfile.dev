@@ -1,0 +1,18 @@
+FROM node:20-bookworm-slim
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates poppler-utils wget \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY package*.json ./
+RUN npm ci
+
+COPY tsconfig.json ./
+COPY src ./src
+RUN mkdir -p /app/uploads
+
+EXPOSE 4000
+
+CMD ["npm", "run", "dev"]

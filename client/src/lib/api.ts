@@ -1,10 +1,25 @@
 import axios, { AxiosError } from 'axios';
 
+export const AUTH_EXPIRED_EVENT = 'asel:auth-expired';
+
 export const api = axios.create({
   baseURL: '/api',
   withCredentials: true,
-  timeout: 15_000,
+  timeout: 60_000,
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  (err: unknown) => {
+    if (err instanceof AxiosError && err.response?.status === 401) {
+      const url = err.config?.url ?? '';
+      if (!url.includes('/auth/login') && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT));
+      }
+    }
+    return Promise.reject(err);
+  },
+);
 
 export interface ApiErrorPayload {
   code: string;

@@ -10,9 +10,11 @@ import { Client } from '../models/Client.js';
 import { Installment } from '../models/Installment.js';
 import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
+import { refreshClosingSystemTotals } from '../services/closing.service.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
 import { buildInstallmentSchedule, roundCurrency } from '../utils/installments.js';
 import { isGlobalRole } from '../utils/roles.js';
+import { isPermissionGranted } from '../utils/permissions.js';
 
 const router = Router();
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
@@ -75,6 +77,17 @@ function formatInvoiceNumber(date: Date, saleType: 'ticket' | 'facture' | 'devis
   return `${prefixMap[saleType]}-${stamp}-${String(sequence).padStart(4, '0')}`;
 }
 
+function canCancelSale(req: Express.Request, sale: any) {
+  const user = req.user!;
+  const saleFranchiseId = sale.franchiseId?.toString();
+  if (['ceo', 'admin', 'superadmin', 'manager'].includes(user.role)) return true;
+  if (user.role === 'franchise') return Boolean(user.franchiseId && user.franchiseId === saleFranchiseId);
+  if (user.role === 'seller' || user.role === 'vendeur') {
+    return Boolean(user.franchiseId && user.franchiseId === saleFranchiseId && sale.userId?.toString() === user.sub);
+  }
+  return false;
+}
+
 router.post(
   '/',
   requireAuth,
@@ -87,9 +100,22 @@ router.post(
     const isInstallmentSale = input.paymentMethod === 'installment';
 
     const productIds = input.items.map((item) => item.productId);
-    const products = await Product.find({ _id: mongoose.trusted({ $in: productIds }) }).select('_id active');
+    const products = await Product.find({ _id: mongoose.trusted({ $in: productIds }) }).select('_id active sellPrice');
     if (products.length !== productIds.length) throw badRequest('One or more products not found');
     if (products.some((product) => !product.active)) throw badRequest('Cannot sell inactive products');
+    const productById = new Map(products.map((product) => [product._id.toString(), product]));
+    const canOverridePrices = isPermissionGranted(
+      req.user!.role,
+      'sales.price.override',
+      req.user!.customPermissions,
+    );
+    if (!canOverridePrices) {
+      const hasPriceOverride = input.items.some((item) => {
+        const product = productById.get(item.productId);
+        return product ? Math.abs(roundCurrency(item.unitPrice) - roundCurrency(product.sellPrice ?? 0)) > 0.001 : false;
+      });
+      if (hasPriceOverride) throw forbidden('You are not allowed to modify item prices');
+    }
 
     const client = input.clientId
       ? await Client.findById(input.clientId).select('_id franchiseId fullName')
@@ -315,9 +341,10 @@ router.get(
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(effectivePageSize)
-        .populate('franchiseId', 'name')
+        .populate('franchiseId', 'name taxId')
         .populate('clientId', 'fullName phone clientType')
         .populate('userId', 'username fullName')
+        .populate('cancelledBy', 'username fullName')
         .populate('items.productId', 'name reference'),
     ]);
 
@@ -340,14 +367,93 @@ router.get(
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
     const sale = await Sale.findById(req.params.id)
-      .populate('franchiseId', 'name')
+      .populate('franchiseId', 'name taxId address phone manager')
       .populate('clientId', 'fullName phone clientType')
       .populate('userId', 'username fullName')
+      .populate('cancelledBy', 'username fullName')
       .populate('items.productId', 'name reference');
     if (!sale) throw notFound('Sale not found');
     const scope = franchiseScopeFilter(req.user);
     if (scope.franchiseId && sale.franchiseId?.toString() !== scope.franchiseId) throw forbidden();
     res.json({ sale });
+  }),
+);
+
+const cancelSchema = z.object({
+  reason: z.string().trim().max(500).optional(),
+});
+
+router.post(
+  '/:id/cancel',
+  requireAuth,
+  requireRole('admin', 'manager', 'franchise', 'seller', 'vendeur'),
+  requirePermission('sales.view'),
+  validate(z.object({ id: objectId }), 'params'),
+  validate(cancelSchema),
+  asyncHandler(async (req, res) => {
+    const input = req.body as z.infer<typeof cancelSchema>;
+    const sale = await Sale.findById(req.params.id);
+    if (!sale) throw notFound('Sale not found');
+    const scope = franchiseScopeFilter(req.user);
+    if (scope.franchiseId && sale.franchiseId?.toString() !== scope.franchiseId) throw forbidden();
+    if (sale.cancelledAt) throw badRequest('Sale already cancelled');
+    if (!canCancelSale(req, sale)) throw forbidden('Only the seller who created the sale or a franchise superior can cancel it');
+
+    const paidInstallments = await Installment.countDocuments({ saleId: sale._id, status: 'paid' });
+    sale.cancelledAt = new Date();
+    sale.cancelledBy = req.user!.sub as any;
+    sale.cancelReason = input.reason || 'Annulation vente';
+    await sale.save();
+
+    for (const item of sale.items) {
+      await applyStockDelta({
+        franchiseId: sale.franchiseId,
+        productId: item.productId,
+        delta: item.quantity,
+        type: 'sale_cancel',
+        userId: req.user!.sub,
+        unitPrice: item.unitPrice,
+        note: `Annulation vente ${sale.invoiceNumber || sale._id.toString()}`,
+        refId: sale._id,
+      });
+    }
+
+    const deletedPendingInstallments = await Installment.deleteMany({
+      saleId: sale._id,
+      status: mongoose.trusted({ $in: ['pending', 'late'] }),
+    });
+    const refreshedClosing = await refreshClosingSystemTotals(
+      sale.franchiseId.toString(),
+      sale.createdAt,
+      `Cloture reouverte suite annulation vente ${sale.invoiceNumber || sale._id.toString()}.`,
+    );
+
+    await audit(req, {
+      action: 'sale.cancel',
+      entity: 'Sale',
+      entityId: sale._id.toString(),
+      franchiseId: sale.franchiseId.toString(),
+      details: {
+        invoiceNumber: sale.invoiceNumber,
+        total: sale.total,
+        reason: sale.cancelReason,
+        restoredItems: sale.items.length,
+        restoredQuantity: sale.items.reduce((sum, item) => sum + item.quantity, 0),
+        paidInstallments,
+        deletedPendingInstallments: deletedPendingInstallments.deletedCount ?? 0,
+        refreshedClosingId: refreshedClosing?._id?.toString?.() ?? null,
+        revenueRemovedFromCA: sale.total,
+      },
+    });
+
+    const populated = await Sale.findById(sale._id)
+      .populate('franchiseId', 'name taxId address phone manager')
+      .populate('clientId', 'fullName phone clientType')
+      .populate('userId', 'username fullName')
+      .populate('cancelledBy', 'username fullName')
+      .populate('items.productId', 'name reference');
+
+    res.json({ sale: populated });
   }),
 );
 

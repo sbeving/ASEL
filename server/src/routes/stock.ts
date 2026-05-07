@@ -9,7 +9,7 @@ import { Movement } from '../models/Movement.js';
 import { Product } from '../models/Product.js';
 import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
-import { badRequest, forbidden } from '../utils/AppError.js';
+import { badRequest, forbidden, notFound } from '../utils/AppError.js';
 import { isGlobalRole } from '../utils/roles.js';
 
 const router = Router();
@@ -117,7 +117,7 @@ const entrySchema = z.object({
 router.post(
   '/entry',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise'),
+  requireRole('admin', 'manager', 'stock_central_maintainer', 'franchise'),
   requirePermission('stock.entry'),
   validate(entrySchema),
   asyncHandler(async (req, res) => {
@@ -153,10 +153,15 @@ const adjustSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
+const stockUpdateSchema = z.object({
+  quantity: z.number().int().min(0),
+  note: z.string().max(500).optional(),
+});
+
 router.post(
   '/adjust',
   requireAuth,
-  requireRole('admin', 'manager'),
+  requireRole('admin', 'manager', 'stock_central_maintainer'),
   requirePermission('stock.adjust'),
   validate(adjustSchema),
   asyncHandler(async (req, res) => {
@@ -177,6 +182,73 @@ router.post(
       details: { productId: body.productId, delta: body.delta },
     });
     res.status(201).json({ ok: true });
+  }),
+);
+
+router.patch(
+  '/:id',
+  requireAuth,
+  requireRole('admin', 'manager', 'stock_central_maintainer'),
+  requirePermission('stock.adjust'),
+  validate(z.object({ id: objectId }), 'params'),
+  validate(stockUpdateSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof stockUpdateSchema>;
+    const stock = await Stock.findById(req.params.id);
+    if (!stock) throw notFound('Stock line not found');
+    const fid = resolveFranchiseId(req.user, stock.franchiseId.toString());
+    const delta = body.quantity - stock.quantity;
+    if (delta !== 0) {
+      await applyStockDelta({
+        franchiseId: fid,
+        productId: stock.productId.toString(),
+        delta,
+        type: 'adjustment',
+        userId: req.user!.sub,
+        note: body.note || `Correction admin stock: ${stock.quantity} -> ${body.quantity}`,
+      });
+    }
+    await audit(req, {
+      action: 'stock.set_quantity',
+      entity: 'Stock',
+      entityId: stock._id.toString(),
+      franchiseId: fid,
+      details: { productId: stock.productId.toString(), before: stock.quantity, after: body.quantity, delta },
+    });
+    res.json({ ok: true });
+  }),
+);
+
+router.delete(
+  '/:id',
+  requireAuth,
+  requireRole('admin', 'manager', 'stock_central_maintainer'),
+  requirePermission('stock.adjust'),
+  validate(z.object({ id: objectId }), 'params'),
+  asyncHandler(async (req, res) => {
+    const stock = await Stock.findById(req.params.id);
+    if (!stock) throw notFound('Stock line not found');
+    const fid = resolveFranchiseId(req.user, stock.franchiseId.toString());
+    const previousQuantity = stock.quantity;
+    if (previousQuantity > 0) {
+      await applyStockDelta({
+        franchiseId: fid,
+        productId: stock.productId.toString(),
+        delta: -previousQuantity,
+        type: 'adjustment',
+        userId: req.user!.sub,
+        note: 'Suppression admin ligne stock',
+      });
+    }
+    await Stock.deleteOne({ _id: stock._id });
+    await audit(req, {
+      action: 'stock.delete_line',
+      entity: 'Stock',
+      entityId: stock._id.toString(),
+      franchiseId: fid,
+      details: { productId: stock.productId.toString(), previousQuantity },
+    });
+    res.json({ ok: true });
   }),
 );
 

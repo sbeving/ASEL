@@ -99,6 +99,24 @@ const payload = z.object({
   company: z.string().trim().max(160).optional(),
   taxId: z.string().trim().max(80).optional(),
   cin: z.string().trim().max(40).optional(),
+  creditProfile: z
+    .object({
+      monthlySalary: z.number().min(0).nullable().optional(),
+      additionalIncome: z.number().min(0).nullable().optional(),
+      employmentStatus: z
+        .enum(['unknown', 'salaried', 'self_employed', 'business_owner', 'unemployed', 'retired', 'student', 'other'])
+        .default('unknown'),
+      employer: z.string().trim().max(160).optional(),
+      jobTitle: z.string().trim().max(120).optional(),
+      housingStatus: z.enum(['unknown', 'owner', 'family', 'rent', 'mortgage', 'other']).default('unknown'),
+      monthlyRent: z.number().min(0).nullable().optional(),
+      maritalStatus: z.enum(['unknown', 'single', 'married', 'divorced', 'widowed', 'other']).default('unknown'),
+      childrenCount: z.number().int().min(0).max(20).default(0),
+      spouseWorks: z.boolean().nullable().optional(),
+      distanceKmToFranchise: z.number().min(0).nullable().optional(),
+      creditNotes: z.string().trim().max(1500).optional(),
+    })
+    .optional(),
   notes: z.string().trim().max(1000).optional(),
   franchiseId: objectId.nullable().optional(),
   active: z.boolean().optional(),

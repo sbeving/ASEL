@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiError } from '../lib/api';
@@ -18,7 +18,6 @@ export function NotificationsPage() {
   const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<'all' | 'unread'>('all');
   const [page, setPage] = useState(1);
-  const autoMarked = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const list = useQuery({
@@ -61,20 +60,11 @@ export function NotificationsPage() {
     onError: (err) => setError(apiError(err).message),
   });
 
-  // Legacy parity: opening notifications marks everything read.
-  useEffect(() => {
-    if (autoMarked.current) return;
-    if (list.isLoading) return;
-    if ((list.data?.unreadCount ?? 0) <= 0) return;
-    autoMarked.current = true;
-    markAllRead.mutate();
-  }, [list.isLoading, list.data?.unreadCount, markAllRead]);
-
   return (
     <>
       <PageHeader
         title="Notifications"
-        subtitle="Evenements systeme: stock, transferts, demandes"
+        subtitle="Evenements systeme: echeances, stock, transferts, demandes"
         actions={
           <button
             className="btn-secondary"
@@ -108,9 +98,17 @@ export function NotificationsPage() {
             {error}
           </div>
         )}
+        {list.isError && (
+          <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {apiError(list.error).message}
+          </div>
+        )}
       </section>
 
       <section className="space-y-3">
+        {list.isLoading && (
+          <div className="card p-6 text-sm font-medium text-slate-500">Chargement des notifications...</div>
+        )}
         {(list.data?.notifications ?? []).map((notification) => (
           <article
             key={notification._id}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { type ChangeEvent, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -9,8 +9,10 @@ import { useAuth } from '../auth/AuthContext';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import { TablePagination } from '../components/TablePagination';
+import { ScannerModal } from '../components/ScannerModal';
 import { useDebouncedValue } from '../lib/hooks';
 import type { Category, PageMeta, Product, ProductOverview, Supplier } from '../lib/types';
+import { FileDown, ScanLine, UploadCloud } from 'lucide-react';
 
 const schema = z.object({
   name: z.string().min(1, 'Nom requis').max(150),
@@ -21,12 +23,49 @@ const schema = z.object({
   barcode: z.string().max(80).optional(),
   description: z.string().max(1000).optional(),
   purchasePrice: z.coerce.number().min(0).default(0),
+  purchasePriceHt: z.coerce.number().min(0).default(0),
+  purchaseTaxRate: z.coerce.number().min(0).max(100).default(19),
+  purchasePriceTtc: z.coerce.number().min(0).default(0),
   sellPrice: z.coerce.number().min(0).default(0),
+  sellPriceHt: z.coerce.number().min(0).default(0),
+  sellTaxRate: z.coerce.number().min(0).max(100).default(19),
+  sellPriceTtc: z.coerce.number().min(0).default(0),
   lowStockThreshold: z.coerce.number().int().min(0).default(3),
   active: z.boolean().optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
+
+interface ProductImportResult {
+  importedCount: number;
+  errorCount: number;
+  imported: Array<{ row: number; productId: string; name: string; action: 'created' | 'updated'; stockAdded: number }>;
+  errors: Array<{ row: number; message: string }>;
+}
+
+function roundPrice(value: number): number {
+  return Math.round(Math.max(0, value) * 100) / 100;
+}
+
+function priceHtFromTtc(ttc: number, taxRate: number): number {
+  return roundPrice(taxRate > 0 ? ttc / (1 + taxRate / 100) : ttc);
+}
+
+function priceTtcFromHt(ht: number, taxRate: number): number {
+  return roundPrice(ht * (1 + taxRate / 100));
+}
+
+type PriceLike = Pick<Product, 'purchasePrice' | 'sellPrice'> & Partial<
+  Pick<Product, 'purchasePriceTtc' | 'sellPriceTtc'>
+>;
+
+function productPurchaseTtc(product: PriceLike): number {
+  return product.purchasePriceTtc ?? product.purchasePrice;
+}
+
+function productSellTtc(product: PriceLike): number {
+  return product.sellPriceTtc ?? product.sellPrice;
+}
 
 export function ProductsPage() {
   const { user } = useAuth();
@@ -39,8 +78,13 @@ export function ProductsPage() {
   const pageSize = 20;
   const [editing, setEditing] = useState<Product | null>(null);
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [archiving, setArchiving] = useState<Product | null>(null);
   const [viewing, setViewing] = useState<Product | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+  const [scannedBarcode, setScannedBarcode] = useState('');
+  const [prefillBarcode, setPrefillBarcode] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const products = useQuery({
@@ -83,6 +127,13 @@ export function ProductsPage() {
     };
   }, [products.data]);
 
+  const scannedBarcodeHasNoMatch =
+    canEdit &&
+    scannedBarcode.trim().length > 0 &&
+    debouncedSearch.trim() === scannedBarcode.trim() &&
+    !products.isLoading &&
+    (products.data?.products.length ?? 0) === 0;
+
   return (
     <>
       <PageHeader
@@ -90,9 +141,21 @@ export function ProductsPage() {
         subtitle="Catalogue avec prix, indicateurs de stock et gestion des images produit"
         actions={
           canEdit && (
-            <button className="btn-primary" onClick={() => setCreating(true)}>
-              + Nouveau produit
-            </button>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <button className="btn-secondary" onClick={() => setImporting(true)}>
+                <UploadCloud className="h-4 w-4" />
+                Importer
+              </button>
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  setPrefillBarcode(null);
+                  setCreating(true);
+                }}
+              >
+                + Nouveau produit
+              </button>
+            </div>
           )
         }
       />
@@ -105,16 +168,34 @@ export function ProductsPage() {
 
       <section className="card mb-5 p-4">
         <div className="grid gap-3 md:grid-cols-[minmax(0,1.6fr)_220px_180px]">
-          <input
-            type="search"
-            placeholder="Nom, reference, code-barres, marque..."
-            className="input"
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
-          />
+          <div>
+            <div className="flex gap-2">
+              <input
+                type="search"
+                placeholder="Nom, reference, code-barres, marque..."
+                className="input"
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setScannedBarcode('');
+                  setPage(1);
+                }}
+              />
+              <button
+                type="button"
+                className="btn-secondary min-h-[44px] min-w-[44px] !px-3"
+                title="Scanner un code-barres"
+                aria-label="Scanner un code-barres"
+                onClick={() => {
+                  setScannerError(null);
+                  setScannerOpen(true);
+                }}
+              >
+                <ScanLine className="h-5 w-5" />
+              </button>
+            </div>
+            {scannerError && <div className="mt-2 text-xs text-amber-700">{scannerError}</div>}
+          </div>
           <select
             className="input"
             value={categoryFilter}
@@ -145,7 +226,74 @@ export function ProductsPage() {
         </div>
       </section>
 
-      <div className="card overflow-x-auto">
+      {scannedBarcodeHasNoMatch && (
+        <section className="card mb-5 flex flex-col gap-3 border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-amber-950">Code-barres non trouve</div>
+            <div className="mt-1 text-sm text-amber-800">
+              Aucun produit actif ne correspond a <span className="font-mono font-semibold">{scannedBarcode}</span>.
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn-primary bg-amber-700 hover:bg-amber-800 focus:ring-amber-600"
+            onClick={() => {
+              setPrefillBarcode(scannedBarcode);
+              setCreating(true);
+            }}
+          >
+            Creer ce produit
+          </button>
+        </section>
+      )}
+
+      <div className="grid gap-3 md:hidden">
+        {(products.data?.products ?? []).map((product) => (
+          <article key={product._id} className="card p-4">
+            <div className="flex gap-3">
+              <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+                {product.imagePath ? (
+                  <img src={uploadUrl(product.imagePath)} alt={product.name} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">image</div>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-slate-900">{product.name}</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {[product.reference, product.brand, categoriesById.get(product.categoryId)].filter(Boolean).join(' | ') || 'Sans reference'}
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="rounded-xl bg-slate-50 px-2 py-2">
+                    <div className="font-bold text-slate-900">{product.stockTotal ?? 0}</div>
+                    <div className="text-slate-500">Stock</div>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 px-2 py-2">
+                    <div className="font-bold text-slate-900">{product.sales30d ?? 0}</div>
+                    <div className="text-slate-500">Ventes</div>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 px-2 py-2">
+                    <div className="font-bold text-slate-900">{money(productSellTtc(product))}</div>
+                    <div className="text-slate-500">Prix</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap justify-end gap-2">
+              <button className="btn-secondary !px-3 !py-1.5" onClick={() => setViewing(product)}>Voir</button>
+              {canEdit && (
+                <button className="btn-secondary !px-3 !py-1.5" onClick={() => setEditing(product)}>Modifier</button>
+              )}
+            </div>
+          </article>
+        ))}
+        {!products.isLoading && (products.data?.products.length ?? 0) === 0 && (
+          <div className="card p-5 text-sm text-slate-400">Aucun produit.</div>
+        )}
+        <TablePagination meta={products.data?.meta} onPageChange={setPage} className="px-2 py-3" />
+      </div>
+
+      <div className="card hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead>
             <tr>
@@ -193,7 +341,7 @@ export function ProductsPage() {
                     {product.marginPercent != null ? `${product.marginPercent.toFixed(1)}%` : '-'}
                   </span>
                 </td>
-                <td className="td text-right font-medium">{money(product.sellPrice)}</td>
+                <td className="td text-right font-medium">{money(productSellTtc(product))}</td>
                 <td className="td-action">
                   {product.active ? <span className="badge-success">Actif</span> : <span className="badge-muted">Inactif</span>}
                 </td>
@@ -232,19 +380,47 @@ export function ProductsPage() {
 
       {viewing && <ProductOverviewModal product={viewing} onClose={() => setViewing(null)} />}
 
+      {scannerOpen && (
+        <ScannerModal
+          onClose={() => setScannerOpen(false)}
+          onError={setScannerError}
+          onScan={(code) => {
+            const nextBarcode = code.trim();
+            setSearch(nextBarcode);
+            setScannedBarcode(nextBarcode);
+            setPage(1);
+            setScannerOpen(false);
+          }}
+        />
+      )}
+
+      {canEdit && importing && (
+        <ProductImportModal
+          onClose={() => setImporting(false)}
+          onImported={() => {
+            queryClient.invalidateQueries({ queryKey: ['products'] });
+            queryClient.invalidateQueries({ queryKey: ['categories'] });
+            queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+          }}
+        />
+      )}
+
       {canEdit && (creating || editing) && (
         <ProductFormModal
           initial={editing}
+          initialBarcode={prefillBarcode}
           categories={categories.data ?? []}
           suppliers={suppliers.data ?? []}
           onClose={() => {
             setCreating(false);
             setEditing(null);
+            setPrefillBarcode(null);
           }}
           onSaved={() => {
             queryClient.invalidateQueries({ queryKey: ['products'] });
             setCreating(false);
             setEditing(null);
+            setPrefillBarcode(null);
           }}
         />
       )}
@@ -314,8 +490,22 @@ function ProductOverviewModal({
                   <span className="text-slate-400">Fournisseur:</span>{' '}
                   {typeof supplier === 'object' && supplier ? supplier.name : '-'}
                 </div>
-                <div><span className="text-slate-400">Prix achat:</span> {money(overview.data.product.purchasePrice)}</div>
-                <div><span className="text-slate-400">Prix vente:</span> {money(overview.data.product.sellPrice)}</div>
+                <div>
+                  <span className="text-slate-400">Achat HT / TVA / TTC:</span>{' '}
+                  {money(overview.data.product.purchasePriceHt ?? priceHtFromTtc(productPurchaseTtc(overview.data.product), overview.data.product.purchaseTaxRate ?? 19))}
+                  {' / '}
+                  {overview.data.product.purchaseTaxRate ?? 19}%
+                  {' / '}
+                  {money(productPurchaseTtc(overview.data.product))}
+                </div>
+                <div>
+                  <span className="text-slate-400">Vente HT / TVA / TTC:</span>{' '}
+                  {money(overview.data.product.sellPriceHt ?? priceHtFromTtc(productSellTtc(overview.data.product), overview.data.product.sellTaxRate ?? 19))}
+                  {' / '}
+                  {overview.data.product.sellTaxRate ?? 19}%
+                  {' / '}
+                  {money(productSellTtc(overview.data.product))}
+                </div>
                 <div><span className="text-slate-400">Seuil alerte:</span> {overview.data.product.lowStockThreshold}</div>
                 {overview.data.product.description && (
                   <div className="rounded-xl bg-slate-50 px-3 py-2">{overview.data.product.description}</div>
@@ -401,14 +591,138 @@ function MetricCard({
   );
 }
 
+function ProductImportModal({
+  onClose,
+  onImported,
+}: {
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [result, setResult] = useState<ProductImportResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const upload = useMutation({
+    mutationFn: async () => {
+      if (!file) throw new Error('Fichier requis');
+      const formData = new FormData();
+      formData.append('file', file);
+      return (await api.post<ProductImportResult>('/products/import', formData)).data;
+    },
+    onSuccess: (data) => {
+      setResult(data);
+      setError(null);
+      onImported();
+    },
+    onError: (err) => {
+      setError(err instanceof Error ? err.message : apiError(err).message);
+    },
+  });
+
+  return (
+    <Modal
+      open
+      size="lg"
+      title="Importer produits"
+      onClose={onClose}
+      footer={
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
+          <button
+            className="btn-secondary"
+            onClick={() => {
+              window.location.href = '/api/products/import/template';
+            }}
+          >
+            <FileDown className="h-4 w-4" />
+            Template CSV
+          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button className="btn-secondary" onClick={onClose}>Fermer</button>
+            <button className="btn-primary" disabled={!file || upload.isPending} onClick={() => upload.mutate()}>
+              {upload.isPending ? 'Import...' : 'Lancer import'}
+            </button>
+          </div>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="text-sm font-semibold text-slate-900">Colonnes normalisees</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {[
+              'name',
+              'category',
+              'supplier',
+              'brand',
+              'reference',
+              'barcode',
+              'purchasePriceTtc',
+              'purchaseTaxRate',
+              'sellPriceTtc',
+              'sellTaxRate',
+              'lowStockThreshold',
+              'franchise',
+              'initialQuantity',
+            ].map((column) => (
+              <span key={column} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                {column}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white px-4 py-8 text-center transition-colors hover:border-brand-300 hover:bg-brand-50/40">
+          <UploadCloud className="h-8 w-8 text-brand-500" />
+          <span className="mt-3 text-sm font-semibold text-slate-900">
+            {file ? file.name : 'Choisir un fichier CSV exporte depuis Excel'}
+          </span>
+          <span className="mt-1 text-xs text-slate-500">CSV avec virgule, point-virgule ou tabulation</span>
+          <input
+            type="file"
+            className="hidden"
+            accept=".csv,text/csv"
+            onChange={(event) => {
+              setFile(event.target.files?.[0] ?? null);
+              setResult(null);
+              setError(null);
+            }}
+          />
+        </label>
+
+        {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
+
+        {result && (
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <MetricCard label="Importes" value={String(result.importedCount)} helper="Creations et mises a jour" />
+              <MetricCard label="Erreurs" value={String(result.errorCount)} helper="Lignes a corriger" />
+            </div>
+            {result.errors.length > 0 && (
+              <div className="max-h-52 overflow-y-auto rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                {result.errors.map((entry) => (
+                  <div key={`${entry.row}-${entry.message}`} className="py-1">
+                    Ligne {entry.row}: {entry.message}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function ProductFormModal({
   initial,
+  initialBarcode,
   categories,
   suppliers,
   onClose,
   onSaved,
 }: {
   initial: Product | null;
+  initialBarcode?: string | null;
   categories: Category[];
   suppliers: Supplier[];
   onClose: () => void;
@@ -416,10 +730,14 @@ function ProductFormModal({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [barcodeScannerOpen, setBarcodeScannerOpen] = useState(false);
+  const [barcodeScannerError, setBarcodeScannerError] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
+    getValues,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -432,8 +750,14 @@ function ProductFormModal({
           reference: initial.reference ?? '',
           barcode: initial.barcode ?? '',
           description: initial.description ?? '',
-          purchasePrice: initial.purchasePrice,
-          sellPrice: initial.sellPrice,
+          purchasePrice: productPurchaseTtc(initial),
+          purchasePriceHt: initial.purchasePriceHt ?? priceHtFromTtc(productPurchaseTtc(initial), initial.purchaseTaxRate ?? 19),
+          purchaseTaxRate: initial.purchaseTaxRate ?? 19,
+          purchasePriceTtc: productPurchaseTtc(initial),
+          sellPrice: productSellTtc(initial),
+          sellPriceHt: initial.sellPriceHt ?? priceHtFromTtc(productSellTtc(initial), initial.sellTaxRate ?? 19),
+          sellTaxRate: initial.sellTaxRate ?? 19,
+          sellPriceTtc: productSellTtc(initial),
           lowStockThreshold: initial.lowStockThreshold,
           active: initial.active,
         }
@@ -443,14 +767,42 @@ function ProductFormModal({
           supplierId: '',
           brand: '',
           reference: '',
-          barcode: '',
+          barcode: initialBarcode ?? '',
           description: '',
           purchasePrice: 0,
+          purchasePriceHt: 0,
+          purchaseTaxRate: 19,
+          purchasePriceTtc: 0,
           sellPrice: 0,
+          sellPriceHt: 0,
+          sellTaxRate: 19,
+          sellPriceTtc: 0,
           lowStockThreshold: 3,
           active: true,
         },
   });
+
+  const syncPrice = (prefix: 'purchase' | 'sell', source: 'ht' | 'tax' | 'ttc', rawValue: string) => {
+    const htField = `${prefix}PriceHt` as const;
+    const taxField = `${prefix}TaxRate` as const;
+    const ttcField = `${prefix}PriceTtc` as const;
+    const legacyField = prefix === 'purchase' ? 'purchasePrice' : 'sellPrice';
+    const rawNumber = Number(rawValue);
+    const value = Number.isFinite(rawNumber) ? Math.max(0, rawNumber) : 0;
+    const taxRate = source === 'tax' ? Math.min(100, value) : Math.min(100, Math.max(0, Number(getValues(taxField)) || 0));
+
+    if (source === 'ht') {
+      const nextTtc = priceTtcFromHt(value, taxRate);
+      setValue(ttcField, nextTtc, { shouldDirty: true, shouldValidate: true });
+      setValue(legacyField, nextTtc, { shouldDirty: true });
+      return;
+    }
+
+    const ttc = source === 'ttc' ? value : Math.max(0, Number(getValues(ttcField)) || 0);
+    const nextHt = priceHtFromTtc(ttc, taxRate);
+    setValue(htField, nextHt, { shouldDirty: true, shouldValidate: true });
+    setValue(legacyField, ttc, { shouldDirty: true });
+  };
 
   const save = useMutation({
     mutationFn: async (values: FormValues) => {
@@ -477,6 +829,8 @@ function ProductFormModal({
     <Modal
       open
       size="lg"
+      placement="top"
+      bodyClassName="py-3 sm:py-4"
       title={initial ? 'Modifier le produit' : 'Nouveau produit'}
       onClose={onClose}
       footer={
@@ -550,7 +904,22 @@ function ProductFormModal({
 
         <div>
           <label className="label">Code-barres</label>
-          <input className="input" {...register('barcode')} />
+          <div className="flex gap-2">
+            <input className="input" {...register('barcode')} />
+            <button
+              type="button"
+              className="btn-secondary min-h-[44px] min-w-[44px] !px-3"
+              title="Scanner un code-barres"
+              aria-label="Scanner un code-barres"
+              onClick={() => {
+                setBarcodeScannerError(null);
+                setBarcodeScannerOpen(true);
+              }}
+            >
+              <ScanLine className="h-5 w-5" />
+            </button>
+          </div>
+          {barcodeScannerError && <p className="mt-1 text-xs text-amber-700">{barcodeScannerError}</p>}
         </div>
 
         <div>
@@ -558,15 +927,100 @@ function ProductFormModal({
           <input type="number" min={0} className="input" {...register('lowStockThreshold')} />
         </div>
 
-        <div>
-          <label className="label">Prix achat</label>
-          <input type="number" min={0} step="0.01" className="input" {...register('purchasePrice')} />
-        </div>
+        <input type="hidden" {...register('purchasePrice')} />
+        <input type="hidden" {...register('sellPrice')} />
 
-        <div>
-          <label className="label">Prix vente</label>
-          <input type="number" min={0} step="0.01" className="input" {...register('sellPrice')} />
-        </div>
+        <section className="form-section sm:col-span-2">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-900">Prix d'achat</h3>
+            <span className="badge-muted">HT + TVA = TTC</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="label">Prix achat HT</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                className="input"
+                {...register('purchasePriceHt', {
+                  onChange: (event: ChangeEvent<HTMLInputElement>) => syncPrice('purchase', 'ht', event.target.value),
+                })}
+              />
+            </div>
+            <div>
+              <label className="label">TVA achat (%)</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                className="input"
+                {...register('purchaseTaxRate', {
+                  onChange: (event: ChangeEvent<HTMLInputElement>) => syncPrice('purchase', 'tax', event.target.value),
+                })}
+              />
+            </div>
+            <div>
+              <label className="label">Prix achat TTC</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                className="input"
+                {...register('purchasePriceTtc', {
+                  onChange: (event: ChangeEvent<HTMLInputElement>) => syncPrice('purchase', 'ttc', event.target.value),
+                })}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="form-section sm:col-span-2">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-900">Prix de vente</h3>
+            <span className="badge-muted">Calcul dans les deux sens</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="label">Prix vente HT</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                className="input"
+                {...register('sellPriceHt', {
+                  onChange: (event: ChangeEvent<HTMLInputElement>) => syncPrice('sell', 'ht', event.target.value),
+                })}
+              />
+            </div>
+            <div>
+              <label className="label">TVA vente (%)</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                className="input"
+                {...register('sellTaxRate', {
+                  onChange: (event: ChangeEvent<HTMLInputElement>) => syncPrice('sell', 'tax', event.target.value),
+                })}
+              />
+            </div>
+            <div>
+              <label className="label">Prix vente TTC</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                className="input"
+                {...register('sellPriceTtc', {
+                  onChange: (event: ChangeEvent<HTMLInputElement>) => syncPrice('sell', 'ttc', event.target.value),
+                })}
+              />
+            </div>
+          </div>
+        </section>
 
         <div className="sm:col-span-2">
           <label className="label">Description</label>
@@ -583,6 +1037,18 @@ function ProductFormModal({
           </div>
         )}
       </form>
+      {barcodeScannerOpen && (
+        <ScannerModal
+          onClose={() => setBarcodeScannerOpen(false)}
+          onError={setBarcodeScannerError}
+          onScan={(code) => {
+            const nextBarcode = code.trim();
+            setValue('barcode', nextBarcode, { shouldDirty: true, shouldValidate: true });
+            setBarcodeScannerError(null);
+            setBarcodeScannerOpen(false);
+          }}
+        />
+      )}
     </Modal>
   );
 }

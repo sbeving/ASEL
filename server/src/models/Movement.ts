@@ -3,10 +3,12 @@ import { Schema, model, type InferSchemaType } from 'mongoose';
 export const MOVEMENT_TYPES = [
   'stock_in',        // Supplier delivery / manual entry
   'sale',            // Sold to end customer
+  'sale_cancel',     // Sale cancelled and stock restored
   'transfer_out',    // Leaving this franchise for another
   'transfer_in',     // Received from another franchise
   'adjustment',      // Manual correction (+/-)
   'return',          // Customer return (+)
+  'network_point_allocation', // SIM/recharge stock handed to a network point
 ] as const;
 export type MovementType = (typeof MOVEMENT_TYPES)[number];
 

@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Plus, RotateCcw } from 'lucide-react';
 import { api, apiError } from '../lib/api';
 import { dateTime, money } from '../lib/money';
 import { useAuth } from '../auth/AuthContext';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import { TablePagination } from '../components/TablePagination';
+import { SearchableSelect, type SearchableSelectOption } from '../components/SearchableSelect';
 import { useDebouncedValue } from '../lib/hooks';
 import type { Franchise, PageMeta, Product, ReturnRecord, ReturnSummary } from '../lib/types';
 
@@ -39,6 +41,16 @@ export function ReturnsPage() {
   const [page, setPage] = useState(1);
   const pageSize = 30;
   const [creating, setCreating] = useState(false);
+  const hasFilters = Boolean(search || typeFilter || fromDate || toDate || (isGlobal && selectedFranchiseId));
+
+  const resetFilters = () => {
+    setSearch('');
+    setSelectedFranchiseId(isGlobal ? '' : (user?.franchiseId ?? ''));
+    setTypeFilter('');
+    setFromDate('');
+    setToDate('');
+    setPage(1);
+  };
 
   const franchises = useQuery({
     enabled: isGlobal,
@@ -77,13 +89,14 @@ export function ReturnsPage() {
         actions={
           canCreate ? (
             <button className="btn-primary" onClick={() => setCreating(true)}>
-              + Nouveau retour
+              <Plus className="h-4 w-4" />
+              Nouveau retour
             </button>
           ) : undefined
         }
       />
 
-      <section className="mb-5 grid gap-4 md:grid-cols-4">
+      <section className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <MetricCard label="Retours" value={String(returnsQuery.data?.summary.returnCount ?? 0)} />
         <MetricCard label="Echanges" value={String(returnsQuery.data?.summary.exchangeCount ?? 0)} />
         <MetricCard label="Quantite totale" value={String(returnsQuery.data?.summary.totalQuantity ?? 0)} />
@@ -91,7 +104,7 @@ export function ReturnsPage() {
       </section>
 
       <section className="card mb-5 p-4">
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1.4fr)_220px_180px_170px_170px]">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_220px_180px_170px_170px_auto]">
           <input
             type="search"
             className="input"
@@ -151,10 +164,78 @@ export function ReturnsPage() {
               setPage(1);
             }}
           />
+          <button
+            type="button"
+            className="btn-secondary xl:whitespace-nowrap"
+            disabled={!hasFilters}
+            onClick={resetFilters}
+          >
+            <RotateCcw className="h-4 w-4" />
+            Effacer
+          </button>
         </div>
       </section>
 
-      <section className="card overflow-x-auto">
+      <section className="mb-5 grid gap-3 lg:hidden">
+        {(returnsQuery.data?.returns ?? []).map((row) => {
+          const productName =
+            typeof row.productId === 'object' && row.productId ? row.productId.name : 'Produit supprime';
+          const productRef =
+            typeof row.productId === 'object' && row.productId ? row.productId.reference || row.productId.barcode || '' : '';
+          const franchiseName =
+            typeof row.franchiseId === 'object' && row.franchiseId ? row.franchiseId.name : '-';
+          const author =
+            typeof row.userId === 'object' && row.userId ? row.userId.fullName || row.userId.username || '-' : '-';
+          const value = row.returnType === 'return' ? row.quantity * row.unitPrice : 0;
+
+          return (
+            <article key={row._id} className="mobile-record-card space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate font-semibold text-surface-900">{productName}</div>
+                  <div className="mt-1 text-xs text-surface-500">{productRef || 'Sans reference'} / {dateTime(row.createdAt)}</div>
+                </div>
+                {row.returnType === 'return' ? (
+                  <span className="badge-warning">Retour</span>
+                ) : (
+                  <span className="badge-info">Echange</span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="mobile-record-label">Franchise</div>
+                  <div className="mt-1 font-medium text-surface-800">{franchiseName}</div>
+                </div>
+                <div className="text-right">
+                  <div className="mobile-record-label">Quantite</div>
+                  <div className="mt-1 font-semibold text-surface-900">{row.quantity}</div>
+                </div>
+                <div>
+                  <div className="mobile-record-label">Prix unit.</div>
+                  <div className="mt-1 font-medium text-surface-800">{money(row.unitPrice)}</div>
+                </div>
+                <div className="text-right">
+                  <div className="mobile-record-label">Valeur</div>
+                  <div className="mt-1 font-semibold text-surface-900">{money(value)}</div>
+                </div>
+              </div>
+              <div className="mobile-record-row">
+                <span className="mobile-record-label">Par</span>
+                <span className="mobile-record-value">{author}</span>
+              </div>
+              {row.reason && (
+                <div className="rounded-lg bg-surface-50 px-3 py-2 text-sm text-surface-600">{row.reason}</div>
+              )}
+            </article>
+          );
+        })}
+        {!returnsQuery.isLoading && (returnsQuery.data?.returns.length ?? 0) === 0 && (
+          <div className="mobile-record-card text-sm text-surface-500">Aucun retour.</div>
+        )}
+        <TablePagination meta={returnsQuery.data?.meta} onPageChange={setPage} className="px-1 py-2" />
+      </section>
+
+      <section className="card hidden overflow-x-auto lg:block">
         <table className="w-full text-sm">
           <thead>
             <tr>
@@ -261,6 +342,7 @@ function CreateReturnModal({
   const [error, setError] = useState<string | null>(null);
   const {
     register,
+    control,
     watch,
     setError: setFormError,
     handleSubmit,
@@ -295,6 +377,16 @@ function CreateReturnModal({
   });
 
   const returnType = watch('returnType');
+  const productOptions: SearchableSelectOption[] = useMemo(
+    () =>
+      products.map((product) => ({
+        value: product._id,
+        label: product.name,
+        subtitle: [product.reference, product.brand].filter(Boolean).join(' | ') || undefined,
+        keywords: [product.reference, product.barcode, product.brand].filter(Boolean).join(' '),
+      })),
+    [products],
+  );
 
   return (
     <Modal
@@ -302,7 +394,7 @@ function CreateReturnModal({
       title="Nouveau retour / echange"
       onClose={onClose}
       footer={
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button className="btn-secondary" onClick={onClose}>
             Annuler
           </button>
@@ -329,21 +421,24 @@ function CreateReturnModal({
         )}
         <div>
           <label className="label">Produit</label>
-          <select className="input" {...register('productId')}>
-            <option value="">- Selectionner -</option>
-            {products.map((product) => (
-              <option key={product._id} value={product._id}>
-                {product.name}
-                {product.reference ? ` (${product.reference})` : ''}
-              </option>
-            ))}
-          </select>
+          <Controller
+            control={control}
+            name="productId"
+            render={({ field }) => (
+              <SearchableSelect
+                value={field.value}
+                options={productOptions}
+                onChange={field.onChange}
+                placeholder="Rechercher produit"
+              />
+            )}
+          />
           {errors.productId && <p className="mt-1 text-xs text-rose-600">{errors.productId.message}</p>}
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label className="label">Quantite</label>
-            <input type="number" min={1} className="input" {...register('quantity')} />
+            <input type="number" min={1} inputMode="numeric" className="input" {...register('quantity')} />
             {errors.quantity && <p className="mt-1 text-xs text-rose-600">{errors.quantity.message}</p>}
           </div>
           <div>

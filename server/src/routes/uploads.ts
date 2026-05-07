@@ -11,7 +11,7 @@ import { notFound, forbidden } from '../utils/AppError.js';
 const router = Router();
 
 const paramsSchema = z.object({
-  bucket: z.enum(['product-images', 'user-avatars', 'treasury-docs', 'reception-ocr']),
+  bucket: z.enum(['product-images', 'user-avatars', 'treasury-docs', 'treasury-receipts', 'reception-ocr', 'network-point-docs']),
   filename: z.string().min(1).max(220).regex(/^[a-zA-Z0-9._-]+$/),
 });
 

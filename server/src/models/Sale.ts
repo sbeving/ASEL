@@ -51,6 +51,9 @@ const saleSchema = new Schema(
     changeDue: { type: Number, min: 0, default: 0 },
     installmentPlan: { type: installmentPlanSchema, default: undefined },
     note: { type: String, trim: true, maxlength: 500 },
+    cancelledAt: { type: Date, default: null, index: true },
+    cancelledBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    cancelReason: { type: String, trim: true, maxlength: 500, default: '' },
   },
   { timestamps: true, collection: 'sales' },
 );

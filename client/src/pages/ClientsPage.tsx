@@ -3,8 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { ChevronDown, Plus } from 'lucide-react';
 import { api, apiError } from '../lib/api';
 import { ContactActions } from '../components/ContactActions';
+import { SaleDocumentModal } from '../components/SaleDocumentModal';
 import { dateOnly, dateTime, money } from '../lib/money';
 import { PageHeader } from '../components/PageHeader';
 import { TablePagination } from '../components/TablePagination';
@@ -24,6 +26,20 @@ const clientSchema = z.object({
   company: z.string().max(160).optional(),
   taxId: z.string().max(80).optional(),
   cin: z.string().max(40).optional(),
+  creditProfile: z.object({
+    monthlySalary: z.coerce.number().min(0).nullable().optional(),
+    additionalIncome: z.coerce.number().min(0).nullable().optional(),
+    employmentStatus: z.enum(['unknown', 'salaried', 'self_employed', 'business_owner', 'unemployed', 'retired', 'student', 'other']),
+    employer: z.string().max(160).optional(),
+    jobTitle: z.string().max(120).optional(),
+    housingStatus: z.enum(['unknown', 'owner', 'family', 'rent', 'mortgage', 'other']),
+    monthlyRent: z.coerce.number().min(0).nullable().optional(),
+    maritalStatus: z.enum(['unknown', 'single', 'married', 'divorced', 'widowed', 'other']),
+    childrenCount: z.coerce.number().int().min(0).max(20).optional(),
+    spouseWorks: z.enum(['unknown', 'yes', 'no']),
+    distanceKmToFranchise: z.coerce.number().min(0).nullable().optional(),
+    creditNotes: z.string().max(1500).optional(),
+  }),
   notes: z.string().max(1000).optional(),
   franchiseId: z.string().optional().nullable(),
   active: z.boolean().optional(),
@@ -38,6 +54,21 @@ const clientTypeLabels: Record<NonNullable<Client['clientType']>, string> = {
   passager: 'Passager',
   other: 'Autre',
 };
+
+const creditTierClasses: Record<NonNullable<Client['creditScore']>['tier'], string> = {
+  excellent: 'badge-success',
+  good: 'badge-info',
+  watch: 'badge-warning',
+  risky: 'badge-danger',
+};
+
+function scoreLabel(client: Client) {
+  if (!client.creditScore) return { text: 'Non calcule', className: 'badge-muted' };
+  return {
+    text: `${client.creditScore.score}/100 | ${client.creditScore.label}`,
+    className: creditTierClasses[client.creditScore.tier],
+  };
+}
 
 function buildClientContactMessage(clientName: string): string {
   return `Bonjour ${clientName}, ici ASEL Mobile Tunisie. N'hésitez pas à nous contacter sur WhatsApp, SMS ou appel si vous avez besoin d'assistance.`;
@@ -89,7 +120,8 @@ export function ClientsPage() {
         actions={
           canManage ? (
             <button className="btn-primary" onClick={() => setCreating(true)}>
-              + Nouveau client
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Nouveau client
             </button>
           ) : undefined
         }
@@ -138,7 +170,53 @@ export function ClientsPage() {
         </div>
       </section>
 
-      <section className="card overflow-x-auto">
+      <section className="grid gap-3 md:hidden">
+        {(query.data?.clients ?? []).map((client) => {
+          const label = scoreLabel(client);
+          return (
+            <article key={client._id} className="card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-semibold text-slate-900">{client.fullName}</div>
+                  <div className="mt-1 text-xs text-slate-500">{client.company || client.cin || client.phone || 'Sans detail'}</div>
+                </div>
+                <span className={label.className}>{label.text}</span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <div className="text-xs font-semibold uppercase text-slate-400">Achats</div>
+                  <div className="font-bold text-slate-900">{money(client.totalSpent ?? 0)}</div>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <div className="text-xs font-semibold uppercase text-slate-400">Solde</div>
+                  <div className={(client.balanceDue ?? 0) > 0 ? 'font-bold text-rose-700' : 'font-bold text-slate-900'}>
+                    {money(client.balanceDue ?? 0)}
+                  </div>
+                </div>
+              </div>
+              <ContactActions
+                phone={client.phone}
+                phone2={client.phone2}
+                message={buildClientContactMessage(client.fullName)}
+                compact
+                className="mt-3"
+              />
+              <div className="mt-3 flex flex-wrap justify-end gap-2">
+                <button className="btn-secondary !px-3 !py-1.5" onClick={() => setViewing(client)}>Voir</button>
+                {canManage && (
+                  <button className="btn-secondary !px-3 !py-1.5" onClick={() => setEditing(client)}>Modifier</button>
+                )}
+              </div>
+            </article>
+          );
+        })}
+        {!query.isLoading && (query.data?.clients.length ?? 0) === 0 && (
+          <div className="card p-5 text-sm text-slate-400">Aucun client trouve.</div>
+        )}
+        <TablePagination meta={query.data?.meta} onPageChange={setPage} className="px-2 py-3" />
+      </section>
+
+      <section className="card hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead>
             <tr>
@@ -148,6 +226,7 @@ export function ClientsPage() {
               <th className="th">Franchise</th>
               <th className="th text-right">Achats</th>
               <th className="th text-right">Solde du</th>
+              <th className="th">Score credit</th>
               <th className="th">Statut</th>
               <th className="th-action">Actions</th>
             </tr>
@@ -155,7 +234,7 @@ export function ClientsPage() {
           <tbody>
             {(query.data?.clients ?? []).map((client) => (
               <tr key={client._id}>
-                <td className="td-action">
+                <td className="td">
                   <div className="font-medium text-slate-900">{client.fullName}</div>
                   <div className="text-xs text-slate-500">{client.company || client.cin || 'Sans detail'}</div>
                 </td>
@@ -183,6 +262,12 @@ export function ClientsPage() {
                   </span>
                 </td>
                 <td className="td">
+                  {(() => {
+                    const label = scoreLabel(client);
+                    return <span className={label.className}>{label.text}</span>;
+                  })()}
+                </td>
+                <td className="td">
                   {(client.lateInstallments ?? 0) > 0 ? (
                     <span className="badge-danger">Retard</span>
                   ) : client.active ? (
@@ -191,7 +276,7 @@ export function ClientsPage() {
                     <span className="badge-muted">Inactif</span>
                   )}
                 </td>
-                <td className="td">
+                <td className="td-action">
                   <div className="flex justify-end gap-2">
                     <button className="btn-secondary !px-3 !py-1.5" onClick={() => setViewing(client)}>
                       Voir
@@ -214,7 +299,7 @@ export function ClientsPage() {
             ))}
             {!query.isLoading && (query.data?.clients.length ?? 0) === 0 && (
               <tr>
-                <td className="td text-slate-400" colSpan={8}>Aucun client trouve.</td>
+                <td className="td text-slate-400" colSpan={9}>Aucun client trouve.</td>
               </tr>
             )}
           </tbody>
@@ -257,23 +342,61 @@ export function ClientsPage() {
 }
 
 function ClientOverviewModal({ client, onClose }: { client: Client; onClose: () => void }) {
+  const [viewingSaleId, setViewingSaleId] = useState<string | null>(null);
   const overview = useQuery({
     queryKey: ['client-overview', client._id],
     queryFn: async () => (await api.get<ClientOverview>(`/clients/${client._id}/overview`)).data,
   });
 
   return (
-    <Modal open size="lg" title={client.fullName} onClose={onClose}>
+    <Modal open size="xl" title={client.fullName} onClose={onClose}>
       {overview.isLoading || !overview.data ? (
         <div className="text-sm text-slate-500">Chargement...</div>
       ) : (
         <div className="space-y-5">
-          <div className="grid gap-3 sm:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <MetricCard label="Total achats" value={money(overview.data.salesSummary.totalSpent)} />
             <MetricCard label="Ventes" value={String(overview.data.salesSummary.saleCount)} />
             <MetricCard label="Solde du" value={money(overview.data.installmentSummary.balanceDue)} />
             <MetricCard label="Retards" value={String(overview.data.installmentSummary.lateInstallments)} />
+            <MetricCard label="Score credit" value={`${overview.data.creditScore.score}/100`} />
           </div>
+
+          <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">Scoring & confiance</h3>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className={creditTierClasses[overview.data.creditScore.tier]}>
+                    {overview.data.creditScore.label}
+                  </span>
+                  <span className="text-sm font-semibold text-slate-700">
+                    Plafond recommande: {money(overview.data.creditScore.recommendedCreditLimit)}
+                  </span>
+                  <span className="text-sm text-slate-500">
+                    Mensualite max: {money(overview.data.creditScore.maxMonthlyPayment)}
+                  </span>
+                </div>
+              </div>
+              <div className="grid min-w-0 grid-cols-5 gap-2 text-center text-[11px] font-semibold text-slate-500">
+                {Object.entries(overview.data.creditScore.factors).map(([key, value]) => (
+                  <div key={key} className="rounded-xl bg-white px-2 py-2">
+                    <div className="text-sm font-bold text-slate-900">{value}</div>
+                    <div className="truncate capitalize">{key}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {overview.data.creditScore.reasons.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {overview.data.creditScore.reasons.map((reason) => (
+                  <span key={reason} className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                    {reason}
+                  </span>
+                ))}
+              </div>
+            )}
+          </section>
 
           <div className="grid gap-4 md:grid-cols-[1fr_1.2fr]">
             <section className="rounded-2xl border border-slate-200 p-4">
@@ -285,6 +408,12 @@ function ClientOverviewModal({ client, onClose }: { client: Client; onClose: () 
                 <div><span className="text-slate-400">Entreprise:</span> {overview.data.client.company || '—'}</div>
                 <div><span className="text-slate-400">Matricule fiscal:</span> {overview.data.client.taxId || '—'}</div>
                 <div><span className="text-slate-400">Adresse:</span> {overview.data.client.address || '—'}</div>
+                <div className="grid gap-2 rounded-xl bg-slate-50 px-3 py-2 sm:grid-cols-2">
+                  <div><span className="text-slate-400">Salaire:</span> {overview.data.client.creditProfile?.monthlySalary ? money(overview.data.client.creditProfile.monthlySalary) : '-'}</div>
+                  <div><span className="text-slate-400">Logement:</span> {overview.data.client.creditProfile?.housingStatus || '-'}</div>
+                  <div><span className="text-slate-400">Enfants:</span> {overview.data.client.creditProfile?.childrenCount ?? '-'}</div>
+                  <div><span className="text-slate-400">Distance:</span> {overview.data.client.creditProfile?.distanceKmToFranchise != null ? `${overview.data.client.creditProfile.distanceKmToFranchise} km` : '-'}</div>
+                </div>
                 <ContactActions
                   phone={overview.data.client.phone}
                   phone2={overview.data.client.phone2}
@@ -330,6 +459,7 @@ function ClientOverviewModal({ client, onClose }: { client: Client; onClose: () 
                     <th className="th">Date</th>
                     <th className="th">Paiement</th>
                     <th className="th text-right">Total</th>
+                    <th className="th-action">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -339,10 +469,15 @@ function ClientOverviewModal({ client, onClose }: { client: Client; onClose: () 
                       <td className="td text-slate-500">{dateTime(sale.createdAt)}</td>
                       <td className="td">{sale.paymentMethod}</td>
                       <td className="td text-right font-medium">{money(sale.total)}</td>
+                      <td className="td-action">
+                        <button className="btn-secondary !px-3 !py-1.5" onClick={() => setViewingSaleId(sale._id)}>
+                          Voir
+                        </button>
+                      </td>
                     </tr>
                   ))}
                   {overview.data.recentSales.length === 0 && (
-                    <tr><td className="td text-slate-400" colSpan={4}>Aucune vente recente.</td></tr>
+                    <tr><td className="td text-slate-400" colSpan={5}>Aucune vente recente.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -383,6 +518,7 @@ function ClientOverviewModal({ client, onClose }: { client: Client; onClose: () 
               </table>
             </div>
           </section>
+          {viewingSaleId && <SaleDocumentModal saleId={viewingSaleId} onClose={() => setViewingSaleId(null)} />}
         </div>
       )}
     </Modal>
@@ -420,6 +556,7 @@ function ClientFormModal({
     formState: { errors, isSubmitting },
   } = useForm<ClientFormValues>({
     resolver: zodResolver(clientSchema),
+    mode: 'onBlur',
     defaultValues: initial
       ? {
           firstName: initial.firstName ?? '',
@@ -432,6 +569,25 @@ function ClientFormModal({
           company: initial.company ?? '',
           taxId: initial.taxId ?? '',
           cin: initial.cin ?? '',
+          creditProfile: {
+            monthlySalary: initial.creditProfile?.monthlySalary ?? null,
+            additionalIncome: initial.creditProfile?.additionalIncome ?? null,
+            employmentStatus: initial.creditProfile?.employmentStatus ?? 'unknown',
+            employer: initial.creditProfile?.employer ?? '',
+            jobTitle: initial.creditProfile?.jobTitle ?? '',
+            housingStatus: initial.creditProfile?.housingStatus ?? 'unknown',
+            monthlyRent: initial.creditProfile?.monthlyRent ?? null,
+            maritalStatus: initial.creditProfile?.maritalStatus ?? 'unknown',
+            childrenCount: initial.creditProfile?.childrenCount ?? 0,
+            spouseWorks:
+              initial.creditProfile?.spouseWorks === true
+                ? 'yes'
+                : initial.creditProfile?.spouseWorks === false
+                  ? 'no'
+                  : 'unknown',
+            distanceKmToFranchise: initial.creditProfile?.distanceKmToFranchise ?? null,
+            creditNotes: initial.creditProfile?.creditNotes ?? '',
+          },
           notes: initial.notes ?? '',
           franchiseId:
             typeof initial.franchiseId === 'object' && initial.franchiseId
@@ -450,6 +606,20 @@ function ClientFormModal({
           company: '',
           taxId: '',
           cin: '',
+          creditProfile: {
+            monthlySalary: null,
+            additionalIncome: null,
+            employmentStatus: 'unknown',
+            employer: '',
+            jobTitle: '',
+            housingStatus: 'unknown',
+            monthlyRent: null,
+            maritalStatus: 'unknown',
+            childrenCount: 0,
+            spouseWorks: 'unknown',
+            distanceKmToFranchise: null,
+            creditNotes: '',
+          },
           notes: '',
           franchiseId: defaultFranchiseId ?? '',
           active: true,
@@ -459,9 +629,17 @@ function ClientFormModal({
   const save = useMutation({
     mutationFn: async (values: ClientFormValues) => {
       const fullName = [values.firstName?.trim(), values.lastName.trim()].filter(Boolean).join(' ').trim();
+      const creditProfile = {
+        ...values.creditProfile,
+        spouseWorks:
+          values.creditProfile.spouseWorks === 'unknown'
+            ? null
+            : values.creditProfile.spouseWorks === 'yes',
+      };
       const payload = {
         ...values,
         fullName,
+        creditProfile,
         franchiseId: allowFranchiseSelection ? values.franchiseId || null : undefined,
         email: values.email || '',
       };
@@ -476,11 +654,13 @@ function ClientFormModal({
   return (
     <Modal
       open
-      size="lg"
+      size="xl"
+      placement="top"
+      bodyClassName="py-3 sm:py-4"
       title={initial ? 'Modifier le client' : 'Nouveau client'}
       onClose={onClose}
       footer={
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button className="btn-secondary" onClick={onClose}>Annuler</button>
           <button className="btn-primary" form="client-form" disabled={isSubmitting || save.isPending}>
             {isSubmitting || save.isPending ? 'Enregistrement...' : 'Enregistrer'}
@@ -488,78 +668,184 @@ function ClientFormModal({
         </div>
       }
     >
-      <form id="client-form" onSubmit={handleSubmit((values) => save.mutate(values))} className="grid gap-4 sm:grid-cols-2">
-        {allowFranchiseSelection && (
-          <div className="sm:col-span-2">
-            <label className="label">Franchise</label>
-            <select className="input" {...register('franchiseId')}>
-              <option value="">Aucune</option>
-              {franchises.map((franchise) => (
-                <option key={franchise._id} value={franchise._id}>{franchise.name}</option>
-              ))}
-            </select>
-          </div>
-        )}
-        <div>
-          <label className="label">Nom</label>
-          <input className="input" {...register('lastName')} />
-          {errors.lastName && <p className="mt-1 text-xs text-rose-600">{errors.lastName.message}</p>}
-        </div>
-        <div>
-          <label className="label">Prenom</label>
-          <input className="input" {...register('firstName')} />
-        </div>
-        <div>
-          <label className="label">Type</label>
-          <select className="input" {...register('clientType')}>
-            <option value="passager">Passager</option>
-            <option value="boutique">Boutique</option>
-            <option value="wholesale">Grossiste</option>
-            <option value="walkin">Passage</option>
-            <option value="other">Autre</option>
-          </select>
-        </div>
-        <div>
-          <label className="label">CIN</label>
-          <input className="input" {...register('cin')} />
-        </div>
-        <div>
-          <label className="label">Telephone</label>
-          <input className="input" {...register('phone')} />
-        </div>
-        <div>
-          <label className="label">Telephone 2</label>
-          <input className="input" {...register('phone2')} />
-        </div>
-        <div>
-          <label className="label">Email</label>
-          <input className="input" {...register('email')} />
-          {errors.email && <p className="mt-1 text-xs text-rose-600">{errors.email.message}</p>}
-        </div>
-        <div>
-          <label className="label">Entreprise</label>
-          <input className="input" {...register('company')} />
-        </div>
-        <div>
-          <label className="label">Matricule fiscal</label>
-          <input className="input" {...register('taxId')} />
-        </div>
-        <div className="sm:col-span-2">
-          <label className="label">Adresse</label>
-          <input className="input" {...register('address')} />
-        </div>
-        <div className="sm:col-span-2">
-          <label className="label">Notes</label>
-          <textarea rows={3} className="input" {...register('notes')} />
-        </div>
-        <label className="inline-flex items-center gap-2 text-sm sm:col-span-2">
-          <input type="checkbox" {...register('active')} /> Client actif
-        </label>
+      <form id="client-form" onSubmit={handleSubmit((values) => save.mutate(values))} className="space-y-3">
         {error && (
-          <div className="sm:col-span-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
             {error}
           </div>
         )}
+        <section className="form-section bg-white">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-900">Coordonnees client</h3>
+            <span className="badge-muted">Nom requis</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label className="label">Nom</label>
+              <input className="input" autoComplete="family-name" autoFocus {...register('lastName')} />
+              {errors.lastName && <p className="mt-1 text-xs text-rose-600">{errors.lastName.message}</p>}
+            </div>
+            <div>
+              <label className="label">Prenom</label>
+              <input className="input" autoComplete="given-name" {...register('firstName')} />
+            </div>
+            <div>
+              <label className="label">Telephone</label>
+              <input type="tel" className="input" autoComplete="tel" {...register('phone')} />
+            </div>
+            <div>
+              <label className="label">Telephone 2</label>
+              <input type="tel" className="input" autoComplete="tel-national" {...register('phone2')} />
+            </div>
+            <div>
+              <label className="label">Type</label>
+              <select className="input" {...register('clientType')}>
+                <option value="passager">Passager</option>
+                <option value="boutique">Boutique</option>
+                <option value="wholesale">Grossiste</option>
+                <option value="walkin">Passage</option>
+                <option value="other">Autre</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">CIN</label>
+              <input className="input" autoComplete="off" {...register('cin')} />
+            </div>
+            <div>
+              <label className="label">Email</label>
+              <input type="email" className="input" autoComplete="email" {...register('email')} />
+              {errors.email && <p className="mt-1 text-xs text-rose-600">{errors.email.message}</p>}
+            </div>
+            <div>
+              <label className="label">Entreprise</label>
+              <input className="input" autoComplete="organization" {...register('company')} />
+            </div>
+            <div>
+              <label className="label">Matricule fiscal</label>
+              <input className="input" autoComplete="off" {...register('taxId')} />
+            </div>
+            {allowFranchiseSelection && (
+              <div>
+                <label className="label">Franchise</label>
+                <select className="input" {...register('franchiseId')}>
+                  <option value="">Aucune</option>
+                  {franchises.map((franchise) => (
+                    <option key={franchise._id} value={franchise._id}>{franchise.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="sm:col-span-2 lg:col-span-3">
+              <label className="label">Adresse</label>
+              <input className="input" autoComplete="street-address" {...register('address')} />
+            </div>
+          </div>
+        </section>
+
+        <section className="form-section bg-white">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-start">
+            <div>
+              <label className="label">Notes</label>
+              <textarea rows={2} className="input" {...register('notes')} />
+            </div>
+            <label className="checkbox-field lg:mt-6">
+              <input type="checkbox" {...register('active')} />
+              Client actif
+            </label>
+          </div>
+        </section>
+
+        <details className="group rounded-lg border border-surface-200 bg-surface-50">
+          <summary className="flex min-h-[56px] cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 [&::-webkit-details-marker]:hidden sm:px-4">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-slate-900">Fiche scoring credit</h3>
+              <p className="mt-0.5 text-xs text-slate-500">Optionnel pour les plafonds de credit et les echeances.</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="badge-muted">Optionnel</span>
+              <ChevronDown className="h-4 w-4 text-slate-500 transition-transform group-open:rotate-180" aria-hidden="true" />
+            </div>
+          </summary>
+          <div className="border-t border-surface-200 p-3 sm:p-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <label className="label">Salaire mensuel</label>
+                <input type="number" min={0} step="0.01" className="input" {...register('creditProfile.monthlySalary')} />
+              </div>
+              <div>
+                <label className="label">Revenu additionnel</label>
+                <input type="number" min={0} step="0.01" className="input" {...register('creditProfile.additionalIncome')} />
+              </div>
+              <div>
+                <label className="label">Situation emploi</label>
+                <select className="input" {...register('creditProfile.employmentStatus')}>
+                  <option value="unknown">Non renseigne</option>
+                  <option value="salaried">Salarie</option>
+                  <option value="self_employed">Independant</option>
+                  <option value="business_owner">Patron / commerce</option>
+                  <option value="unemployed">Sans emploi</option>
+                  <option value="retired">Retraite</option>
+                  <option value="student">Etudiant</option>
+                  <option value="other">Autre</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Employeur</label>
+                <input className="input" {...register('creditProfile.employer')} />
+              </div>
+              <div>
+                <label className="label">Poste</label>
+                <input className="input" {...register('creditProfile.jobTitle')} />
+              </div>
+              <div>
+                <label className="label">Logement</label>
+                <select className="input" {...register('creditProfile.housingStatus')}>
+                  <option value="unknown">Non renseigne</option>
+                  <option value="owner">Proprietaire</option>
+                  <option value="family">Chez famille</option>
+                  <option value="rent">Location</option>
+                  <option value="mortgage">Credit logement</option>
+                  <option value="other">Autre</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Loyer / mensualite</label>
+                <input type="number" min={0} step="0.01" className="input" {...register('creditProfile.monthlyRent')} />
+              </div>
+              <div>
+                <label className="label">Situation familiale</label>
+                <select className="input" {...register('creditProfile.maritalStatus')}>
+                  <option value="unknown">Non renseigne</option>
+                  <option value="single">Celibataire</option>
+                  <option value="married">Marie</option>
+                  <option value="divorced">Divorce</option>
+                  <option value="widowed">Veuf</option>
+                  <option value="other">Autre</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Nombre enfants</label>
+                <input type="number" min={0} max={20} className="input" {...register('creditProfile.childrenCount')} />
+              </div>
+              <div>
+                <label className="label">Conjoint travaille</label>
+                <select className="input" {...register('creditProfile.spouseWorks')}>
+                  <option value="unknown">Non renseigne</option>
+                  <option value="yes">Oui</option>
+                  <option value="no">Non</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Distance franchise (km)</label>
+                <input type="number" min={0} step="0.1" className="input" {...register('creditProfile.distanceKmToFranchise')} />
+              </div>
+              <div className="sm:col-span-2 lg:col-span-3">
+                <label className="label">Notes credit internes</label>
+                <textarea rows={2} className="input" {...register('creditProfile.creditNotes')} />
+              </div>
+            </div>
+          </div>
+        </details>
       </form>
     </Modal>
   );

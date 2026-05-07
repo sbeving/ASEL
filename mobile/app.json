@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "ASEL Pointage",
+    "slug": "asel-pointage",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "aselpointage",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "UIBackgroundModes": ["location"],
+        "NSLocationWhenInUseUsageDescription": "ASEL utilise votre position pour le pointage et le suivi des commerciaux pendant les heures de travail.",
+        "NSLocationAlwaysUsageDescription": "ASEL utilise la position en arriere-plan uniquement quand un commercial est en travail.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "ASEL envoie la position toutes les 5 minutes pour la tracabilite des commerciaux."
+      }
+    },
+    "android": {
+      "package": "com.asel.pointage",
+      "versionCode": 1,
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "ASEL utilise votre position pour verifier le pointage et afficher la carte.",
+          "locationAlwaysAndWhenInUsePermission": "ASEL envoie la position toutes les 5 minutes pendant le pointage.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ]
+    ],
+    "extra": {
+      "apiBaseUrl": "https://asel.saleheddinetouil.tech/api"
+    }
+  }
+}

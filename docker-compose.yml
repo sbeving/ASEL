@@ -7,7 +7,7 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-asel-dev-password}
       MONGO_INITDB_DATABASE: ${MONGO_DB:-asel}
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongo-data:/data/db
     healthcheck:
@@ -15,6 +15,93 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 15s
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      MONGODB_URI: ${MONGODB_URI:-mongodb://asel:asel-dev-password@mongo:27017/asel?authSource=admin}
+      JWT_SECRET: ${JWT_SECRET:-asel-dev-jwt-secret-change-me-1234567890}
+      JWT_EXPIRES: ${JWT_EXPIRES:-12h}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-10}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      UPLOAD_DIR: uploads
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      MISTRAL_OCR_MODEL: ${MISTRAL_OCR_MODEL:-mistral-ocr-latest}
+      OCR_LOCAL_ENABLED: ${OCR_LOCAL_ENABLED:-true}
+      OCR_PREPROCESS_MAX_EDGE: ${OCR_PREPROCESS_MAX_EDGE:-2600}
+      BACKUP_ENABLED: ${BACKUP_ENABLED:-true}
+      BACKUP_DIR: ${BACKUP_DIR:-/app/backups}
+      BACKUP_HOUR: ${BACKUP_HOUR:-3}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_MAX_FILES: ${BACKUP_MAX_FILES:-30}
+      BACKUP_MAX_TOTAL_MB: ${BACKUP_MAX_TOTAL_MB:-512}
+      SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-AdminDev123!}
+      SEED_SHARED_PASSWORD: ${SEED_SHARED_PASSWORD:-UserDev123!}
+      CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
+    command: sh -c "test -d node_modules/tsx || npm ci; npm run dev"
+    ports:
+      - "127.0.0.1:${API_PORT:-4000}:4000"
+    volumes:
+      - ./server:/app
+      - server-node-modules:/app/node_modules
+      - server-uploads:/app/uploads
+      - ./backups:/app/backups
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${CLIENT_PORT:-5173}:5173"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5173/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  dev-tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on:
+      client:
+        condition: service_healthy
+    command: tunnel --no-autoupdate --url http://client:5173
+
+  dev-tunnel-named:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles:
+      - cloudflare-named
+    depends_on:
+      client:
+        condition: service_healthy
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TOKEN:-}
 
 volumes:
   mongo-data:
+  server-node-modules:
+  client-node-modules:
+  server-uploads:
