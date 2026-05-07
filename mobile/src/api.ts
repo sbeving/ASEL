@@ -1,10 +1,10 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import type { User } from './types';
 
 export const SESSION_COOKIE_KEY = 'asel.session.cookie';
 export const SESSION_TOKEN_KEY = 'asel.session.token';
 export const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://asel.saleheddinetouil.tech/api';
+  (process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://localhost:4000/api').replace(/\/$/, '');
 
 interface ApiErrorPayload {
   code?: string;
@@ -18,8 +18,8 @@ function cookieValue(raw: string | null): string {
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const [sessionCookie, sessionToken] = await Promise.all([
-    AsyncStorage.getItem(SESSION_COOKIE_KEY),
-    AsyncStorage.getItem(SESSION_TOKEN_KEY),
+    SecureStore.getItemAsync(SESSION_COOKIE_KEY),
+    SecureStore.getItemAsync(SESSION_TOKEN_KEY),
   ]);
   const headers = new Headers(init.headers);
   headers.set('Accept', 'application/json');
@@ -35,7 +35,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 
   const setCookie = response.headers.get('set-cookie');
   if (setCookie) {
-    await AsyncStorage.setItem(SESSION_COOKIE_KEY, cookieValue(setCookie));
+    await SecureStore.setItemAsync(SESSION_COOKIE_KEY, cookieValue(setCookie));
   }
 
   const text = await response.text();
@@ -53,7 +53,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   }
   if (!response.ok) {
     if (response.status === 401) {
-      await AsyncStorage.multiRemove([SESSION_COOKIE_KEY, SESSION_TOKEN_KEY]);
+      await clearSession();
     }
     const payload = (((data as { error?: unknown })?.error ?? data) as ApiErrorPayload);
     throw new Error(payload.message || `HTTP ${response.status}`);
@@ -66,7 +66,7 @@ export async function login(username: string, password: string): Promise<User> {
     method: 'POST',
     body: JSON.stringify({ username, password }),
   });
-  if (data.token) await AsyncStorage.setItem(SESSION_TOKEN_KEY, data.token);
+  if (data.token) await SecureStore.setItemAsync(SESSION_TOKEN_KEY, data.token);
   return data.user;
 }
 
@@ -83,6 +83,13 @@ export async function logout(): Promise<void> {
   try {
     await apiFetch('/auth/logout', { method: 'POST' });
   } finally {
-    await AsyncStorage.multiRemove([SESSION_COOKIE_KEY, SESSION_TOKEN_KEY]);
+    await clearSession();
   }
+}
+
+async function clearSession() {
+  await Promise.all([
+    SecureStore.deleteItemAsync(SESSION_COOKIE_KEY),
+    SecureStore.deleteItemAsync(SESSION_TOKEN_KEY),
+  ]);
 }

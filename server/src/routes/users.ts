@@ -9,7 +9,7 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { User } from '../models/User.js';
 import { Franchise } from '../models/Franchise.js';
 import { audit } from '../services/audit.service.js';
-import { ROLES, isFranchiseScoped } from '../utils/roles.js';
+import { ROLES, isCompatibleManagerRole, isFranchiseScoped, type Role } from '../utils/roles.js';
 import { PERMISSIONS, normalizeCustomPermissionOverrides } from '../utils/permissions.js';
 import { badRequest, notFound, forbidden } from '../utils/AppError.js';
 import { userAvatarUpload, toUploadPath } from '../middleware/upload.js';
@@ -70,11 +70,33 @@ async function ensureFranchiseConsistency(role: string, franchiseId: unknown) {
   }
 }
 
-async function ensureManagerConsistency(managerId: string | null | undefined, userId?: string) {
+async function ensureManagerConsistency(
+  role: Role,
+  franchiseId: string | null | undefined,
+  managerId: string | null | undefined,
+  userId?: string,
+) {
   if (!managerId) return;
   if (userId && managerId === userId) throw badRequest('A user cannot manage themselves');
-  const manager = await User.findOne({ _id: managerId, active: true }).select('role').lean();
+  const manager = await User.findOne({ _id: managerId, active: true }).select('role franchiseId managerId').lean();
   if (!manager) throw badRequest('managerId does not exist or is inactive');
+  if (!isCompatibleManagerRole(role, manager.role as Role)) {
+    throw badRequest(`A ${role} user cannot be managed by a ${manager.role} user`);
+  }
+  const managerFranchiseId = manager.franchiseId?.toString();
+  if (['seller', 'vendeur', 'viewer'].includes(role) && franchiseId && managerFranchiseId !== franchiseId) {
+    throw badRequest('Seller/viewer manager must belong to the same franchise');
+  }
+
+  let nextManagerId = manager.managerId?.toString();
+  const seen = new Set<string>([managerId]);
+  while (userId && nextManagerId) {
+    if (nextManagerId === userId) throw badRequest('Manager hierarchy cannot contain cycles');
+    if (seen.has(nextManagerId)) throw badRequest('Manager hierarchy cannot contain cycles');
+    seen.add(nextManagerId);
+    const next = await User.findById(nextManagerId).select('managerId').lean();
+    nextManagerId = next?.managerId?.toString();
+  }
 }
 
 router.get(
@@ -92,7 +114,7 @@ router.post(
     const input = req.body as z.infer<typeof createSchema>;
     if (input.role === 'superadmin' && req.user!.role !== 'superadmin') { throw forbidden('Only superadmins can create superadmin accounts'); }
     await ensureFranchiseConsistency(input.role, input.franchiseId);
-    await ensureManagerConsistency(input.managerId);
+    await ensureManagerConsistency(input.role, input.franchiseId ?? null, input.managerId);
 
     const passwordHash = await bcrypt.hash(input.password, env.BCRYPT_ROUNDS);
     const user = await User.create({
@@ -131,8 +153,15 @@ router.patch(
       if ('franchiseId' in input) user.franchiseId = (input.franchiseId as any) ?? null;
     }
     if ('managerId' in input) {
-      await ensureManagerConsistency(input.managerId, id);
+      await ensureManagerConsistency(user.role as Role, user.franchiseId?.toString() ?? null, input.managerId, id);
       user.managerId = (input.managerId as any) ?? null;
+    } else if (input.role || 'franchiseId' in input) {
+      await ensureManagerConsistency(
+        user.role as Role,
+        user.franchiseId?.toString() ?? null,
+        user.managerId?.toString(),
+        id,
+      );
     }
     if (input.fullName !== undefined) user.fullName = input.fullName;
     if (input.active !== undefined) user.active = input.active;

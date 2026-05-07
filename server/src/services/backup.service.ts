@@ -3,6 +3,7 @@ import path from 'node:path';
 import { deflateRawSync } from 'node:zlib';
 import mongoose from 'mongoose';
 import { env } from '../config/env.js';
+import { uploadRoot } from '../config/uploads.js';
 import { auditSystem } from './audit.service.js';
 import { logger } from '../utils/logger.js';
 
@@ -157,6 +158,31 @@ async function collectionDocuments(collectionName: string, now: Date) {
   return db.collection(collectionName).find({}).toArray();
 }
 
+async function collectUploadEntries(root: string, now: Date, base = root): Promise<ZipEntry[]> {
+  try {
+    const rows = await fs.readdir(root, { withFileTypes: true });
+    const entries: ZipEntry[] = [];
+    for (const row of rows) {
+      const absolutePath = path.join(root, row.name);
+      if (row.isDirectory()) {
+        entries.push(...await collectUploadEntries(absolutePath, now, base));
+      } else if (row.isFile()) {
+        const relativePath = path.relative(base, absolutePath).split(path.sep).join('/');
+        const stat = await fs.stat(absolutePath);
+        entries.push({
+          name: `uploads/${relativePath}`,
+          data: await fs.readFile(absolutePath),
+          mtime: stat.mtime || now,
+        });
+      }
+    }
+    return entries;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
+}
+
 export async function createOperationalBackup(now = new Date()) {
   if (backupRunning) return { skipped: true, reason: 'already_running' as const };
   backupRunning = true;
@@ -170,13 +196,17 @@ export async function createOperationalBackup(now = new Date()) {
       createdAt: now.toISOString(),
       database: mongoose.connection.db?.databaseName ?? 'unknown',
       collections: [...COLLECTIONS, 'audit_logs'],
-      excludes: ['uploads', 'product-images', 'user-avatars', 'treasury-docs', 'reception-ocr'],
+      includes: ['database', 'uploads'],
+      uploadFiles: 0,
       retention: {
         days: env.BACKUP_RETENTION_DAYS,
         maxFiles: env.BACKUP_MAX_FILES,
         maxTotalMb: env.BACKUP_MAX_TOTAL_MB,
       },
     };
+
+    const uploadEntries = await collectUploadEntries(uploadRoot, now);
+    metadata.uploadFiles = uploadEntries.length;
 
     const entries: ZipEntry[] = [
       {
@@ -195,10 +225,12 @@ export async function createOperationalBackup(now = new Date()) {
       });
     }
 
+    entries.push(...uploadEntries);
+
     const filename = `asel-backup-${dateStamp(now)}.zip`;
     const filePath = path.join(dir, filename);
     const archive = zip(entries);
-    await fs.writeFile(filePath, archive, { mode: 0o644 });
+    await fs.writeFile(filePath, archive, { mode: 0o600 });
 
     await cleanupBackups(dir);
 

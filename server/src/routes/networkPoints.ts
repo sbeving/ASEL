@@ -10,6 +10,7 @@ import { requireAuth, requirePermission, requireRole, type JwtPayload } from '..
 import { networkPointDocumentUpload, toUploadPath } from '../middleware/upload.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { withMongoTransaction } from '../db/transaction.js';
 import { NetworkPoint } from '../models/NetworkPoint.js';
 import { NetworkPointAllocation } from '../models/NetworkPointAllocation.js';
 import { CommercialZone } from '../models/CommercialZone.js';
@@ -838,47 +839,67 @@ router.post(
     let quantity = input.quantity;
     let amount = input.amount ?? 0;
 
-    if (input.kind === 'sim') {
-      if (!input.productId) throw badRequest('Produit SIM requis');
-      product = await Product.findById(input.productId)
-        .select('active purchasePrice')
-        .lean<AllocationProduct>();
-      if (!product || !product.active) throw badRequest('Product not found or inactive');
-      quantity = barcodes.length;
-      amount = 0;
-      if (quantity === 0) throw badRequest('SIM allocation requires scanned barcodes');
+    const allocation = await withMongoTransaction(async (session) => {
+      if (input.kind === 'sim') {
+        if (!input.productId) throw badRequest('Produit SIM requis');
+        quantity = barcodes.length;
+        amount = 0;
+        if (quantity === 0) throw badRequest('SIM allocation requires scanned barcodes');
 
-      await applyStockDelta({
-        franchiseId: fid,
-        productId: product._id,
-        delta: -quantity,
-        type: 'network_point_allocation',
-        userId: req.user!.sub,
-        unitPrice: product.purchasePrice ?? 0,
-        note: `Dotation SIM - ${point.name}`,
-        refId: allocationId,
-      });
-    } else if (input.kind === 'recharge') {
-      quantity = 0;
-      if (!amount || amount <= 0) throw badRequest('Montant solde requis');
-    } else {
-      quantity = input.quantity || 0;
-      amount = input.amount ?? 0;
-    }
+        const duplicateAllocation = await NetworkPointAllocation.exists({
+          barcodes: mongoose.trusted({ $in: barcodes }),
+        }).session(session ?? null);
+        if (duplicateAllocation) {
+          throw badRequest('One or more SIM barcodes are already allocated to a network point');
+        }
 
-    const allocation = await NetworkPointAllocation.create({
-      _id: allocationId,
-      networkPointId: point._id,
-      franchiseId: fid,
-      productId: product?._id ?? null,
-      kind: input.kind,
-      quantity,
-      amount,
-      barcodes: input.kind === 'sim' ? barcodes : [],
-      note: input.note ?? '',
-      commercialId: point.commercialId ?? (req.user!.role === 'commercial' ? req.user!.sub : null),
-      createdBy: req.user!.sub,
+        product = await Product.findById(input.productId)
+          .select('active purchasePrice')
+          .session(session ?? null)
+          .lean<AllocationProduct>();
+        if (!product || !product.active) throw badRequest('Product not found or inactive');
+
+        await applyStockDelta({
+          franchiseId: fid,
+          productId: product._id,
+          delta: -quantity,
+          type: 'network_point_allocation',
+          userId: req.user!.sub,
+          unitPrice: product.purchasePrice ?? 0,
+          note: `Dotation SIM - ${point.name}`,
+          refId: allocationId,
+          session,
+        });
+      } else if (input.kind === 'recharge') {
+        quantity = 0;
+        if (!amount || amount <= 0) throw badRequest('Montant solde requis');
+      } else {
+        quantity = input.quantity || 0;
+        amount = input.amount ?? 0;
+      }
+
+      const [createdAllocation] = await NetworkPointAllocation.create(
+        [
+          {
+            _id: allocationId,
+            networkPointId: point._id,
+            franchiseId: fid,
+            productId: product?._id ?? null,
+            kind: input.kind,
+            quantity,
+            amount,
+            barcodes: input.kind === 'sim' ? barcodes : [],
+            note: input.note ?? '',
+            commercialId: point.commercialId ?? (req.user!.role === 'commercial' ? req.user!.sub : null),
+            createdBy: req.user!.sub,
+          },
+        ],
+        { session },
+      );
+      if (!createdAllocation) throw badRequest('Allocation could not be created');
+      return createdAllocation;
     });
+    if (!allocation) throw badRequest('Allocation could not be created');
 
     await audit(req, {
       action: 'network_point.allocation.create',
@@ -887,7 +908,7 @@ router.post(
       franchiseId: fid,
       details: {
         networkPointId: id,
-        productId: product?._id.toString() ?? null,
+        productId: input.kind === 'sim' ? input.productId ?? null : null,
         kind: input.kind,
         quantity,
         amount,

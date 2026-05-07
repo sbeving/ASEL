@@ -9,7 +9,9 @@
     "ios": {
       "supportsTablet": false,
       "infoPlist": {
-        "UIBackgroundModes": ["location"],
+        "UIBackgroundModes": [
+          "location"
+        ],
         "NSLocationWhenInUseUsageDescription": "ASEL utilise votre position pour le pointage et le suivi des commerciaux pendant les heures de travail.",
         "NSLocationAlwaysUsageDescription": "ASEL utilise la position en arriere-plan uniquement quand un commercial est en travail.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "ASEL envoie la position toutes les 5 minutes pour la tracabilite des commerciaux."
@@ -35,10 +37,11 @@
           "isIosBackgroundLocationEnabled": true,
           "isAndroidBackgroundLocationEnabled": true
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "extra": {
-      "apiBaseUrl": "https://asel.saleheddinetouil.tech/api"
+      "apiBaseUrl": "http://localhost:4000/api"
     }
   }
 }

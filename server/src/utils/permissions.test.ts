@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isPermissionGranted, normalizeCustomPermissionOverrides, type Permission } from './permissions.js';
-import { ROLES, type Role } from './roles.js';
+import { ROLES, isCompatibleManagerRole, type Role } from './roles.js';
 
 describe('permissions', () => {
   it('uses role baseline permissions', () => {
@@ -92,5 +92,16 @@ describe('permissions', () => {
       revokes: ['sales.create'],
     });
     expect(isPermissionGranted('seller', 'sales.create', overrides)).toBe(false);
+  });
+
+  it('keeps manager hierarchy aligned with business roles', () => {
+    expect(isCompatibleManagerRole('vendeur', 'franchise')).toBe(true);
+    expect(isCompatibleManagerRole('vendeur', 'commercial_director')).toBe(false);
+    expect(isCompatibleManagerRole('commercial', 'commercial_director')).toBe(true);
+    expect(isCompatibleManagerRole('commercial', 'franchise')).toBe(false);
+    expect(isCompatibleManagerRole('siege_employee', 'hr_admin')).toBe(true);
+    expect(isCompatibleManagerRole('siege_employee', 'franchise')).toBe(false);
+    expect(isCompatibleManagerRole('franchise', 'manager')).toBe(true);
+    expect(isCompatibleManagerRole('franchise', 'commercial_director')).toBe(false);
   });
 });

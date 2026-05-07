@@ -15,8 +15,8 @@ Services:
 - `server`: API watch mode on `localhost:4000`
 - `client`: Vite dev server on `localhost:5173`
 - `dev-tunnel`: public Cloudflare quick tunnel to the Vite app
-- `dev-tunnel-named`: optional named Cloudflare tunnel for
-  `https://asel.saleheddinetouil.tech`
+- `dev-tunnel-named`: optional named Cloudflare tunnel, reserved for the VPS
+  hosted domain workflow
 
 Get the public dev URL:
 
@@ -26,10 +26,12 @@ docker compose logs -f dev-tunnel
 
 Use the `https://....trycloudflare.com` URL shown by Cloudflare. The tunnel points at the Vite container, and Vite proxies `/api` to the API container.
 
-### Stable Cloudflare subdomain
+### Stable Cloudflare Subdomain
 
-For a stable dev URL, create a named Cloudflare Tunnel in the Cloudflare Zero
-Trust dashboard:
+Keep `asel.saleheddinetouil.tech` for the VPS-hosted version. The local stack
+should normally use the random `trycloudflare.com` URL shown by `dev-tunnel`.
+When you intentionally work on the named-domain deployment, create a named
+Cloudflare Tunnel in the Cloudflare Zero Trust dashboard:
 
 - Tunnel name: `asel-dev`
 - Public hostname: `asel.saleheddinetouil.tech`
@@ -49,14 +51,14 @@ docker compose --profile cloudflare-named up -d dev-tunnel-named
 docker compose logs -f dev-tunnel-named
 ```
 
-The dev app is served at `https://asel.saleheddinetouil.tech`; `/api` is routed
-by Vite to the API container.
+The named-domain app is served at `https://asel.saleheddinetouil.tech`; `/api`
+is routed by Vite to the API container.
 
-For Expo/mobile testing against this dev tunnel:
+For Expo/mobile testing against the random local tunnel:
 
 ```bash
 cd mobile
-EXPO_PUBLIC_API_BASE_URL=https://asel.saleheddinetouil.tech/api npm start
+EXPO_PUBLIC_API_BASE_URL=https://your-random-name.trycloudflare.com/api npm start
 ```
 
 Seed the dev database:

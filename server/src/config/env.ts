@@ -6,6 +6,7 @@ const schema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   MONGODB_URI: z.string().min(1),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 chars'),
+  SECRET_ENCRYPTION_KEY: z.string().min(32, 'SECRET_ENCRYPTION_KEY must be at least 32 chars').optional(),
   JWT_EXPIRES: z.string().default('12h'),
   BCRYPT_ROUNDS: z.coerce.number().int().min(10).max(14).default(12),
   COOKIE_SECURE: z.string().optional(),

@@ -1,34 +1,35 @@
-
+import { lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import { LoginPage } from './pages/LoginPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { ProductsPage } from './pages/ProductsPage';
-import { StockPage } from './pages/StockPage';
-import { SalesPage } from './pages/SalesPage';
-import { POSPage } from './pages/POSPage';
-import { TransfersPage } from './pages/TransfersPage';
-import { FranchisesPage } from './pages/FranchisesPage';
-import { UsersPage } from './pages/UsersPage';
-import { CategoriesPage } from './pages/CategoriesPage';
-import { SuppliersPage } from './pages/SuppliersPage';
-import { AuditPage } from './pages/AuditPage';
-import { ClientsPage } from './pages/ClientsPage';
-import { ReceptionsPage } from './pages/ReceptionsPage';
-import { ClosingsPage } from './pages/ClosingsPage';
-import { InstallmentsPage } from './pages/InstallmentsPage';
-import { MonthlyInventoryPage } from './pages/MonthlyInventoryPage';
-import { MapPage } from './pages/MapPage';
-import { ReturnsPage } from './pages/ReturnsPage';
-import { TimeLogsPage } from './pages/TimeLogsPage';
-import { HrPage } from './pages/HrPage';
-import { DemandsPage } from './pages/DemandsPage';
-import { ServicesPage } from './pages/ServicesPage';
-import { NetworkPointsPage } from './pages/NetworkPointsPage';
-import { NotificationsPage } from './pages/NotificationsPage';
-import { CashFlowsPage } from './pages/CashFlowsPage';
+
+const LoginPage = lazy(() => import('./pages/LoginPage').then((module) => ({ default: module.LoginPage })));
+const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })));
+const ProductsPage = lazy(() => import('./pages/ProductsPage').then((module) => ({ default: module.ProductsPage })));
+const StockPage = lazy(() => import('./pages/StockPage').then((module) => ({ default: module.StockPage })));
+const SalesPage = lazy(() => import('./pages/SalesPage').then((module) => ({ default: module.SalesPage })));
+const POSPage = lazy(() => import('./pages/POSPage').then((module) => ({ default: module.POSPage })));
+const TransfersPage = lazy(() => import('./pages/TransfersPage').then((module) => ({ default: module.TransfersPage })));
+const FranchisesPage = lazy(() => import('./pages/FranchisesPage').then((module) => ({ default: module.FranchisesPage })));
+const UsersPage = lazy(() => import('./pages/UsersPage').then((module) => ({ default: module.UsersPage })));
+const CategoriesPage = lazy(() => import('./pages/CategoriesPage').then((module) => ({ default: module.CategoriesPage })));
+const SuppliersPage = lazy(() => import('./pages/SuppliersPage').then((module) => ({ default: module.SuppliersPage })));
+const AuditPage = lazy(() => import('./pages/AuditPage').then((module) => ({ default: module.AuditPage })));
+const ClientsPage = lazy(() => import('./pages/ClientsPage').then((module) => ({ default: module.ClientsPage })));
+const ReceptionsPage = lazy(() => import('./pages/ReceptionsPage').then((module) => ({ default: module.ReceptionsPage })));
+const ClosingsPage = lazy(() => import('./pages/ClosingsPage').then((module) => ({ default: module.ClosingsPage })));
+const InstallmentsPage = lazy(() => import('./pages/InstallmentsPage').then((module) => ({ default: module.InstallmentsPage })));
+const MonthlyInventoryPage = lazy(() => import('./pages/MonthlyInventoryPage').then((module) => ({ default: module.MonthlyInventoryPage })));
+const MapPage = lazy(() => import('./pages/MapPage').then((module) => ({ default: module.MapPage })));
+const ReturnsPage = lazy(() => import('./pages/ReturnsPage').then((module) => ({ default: module.ReturnsPage })));
+const TimeLogsPage = lazy(() => import('./pages/TimeLogsPage').then((module) => ({ default: module.TimeLogsPage })));
+const HrPage = lazy(() => import('./pages/HrPage').then((module) => ({ default: module.HrPage })));
+const DemandsPage = lazy(() => import('./pages/DemandsPage').then((module) => ({ default: module.DemandsPage })));
+const ServicesPage = lazy(() => import('./pages/ServicesPage').then((module) => ({ default: module.ServicesPage })));
+const NetworkPointsPage = lazy(() => import('./pages/NetworkPointsPage').then((module) => ({ default: module.NetworkPointsPage })));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage').then((module) => ({ default: module.NotificationsPage })));
+const CashFlowsPage = lazy(() => import('./pages/CashFlowsPage').then((module) => ({ default: module.CashFlowsPage })));
 
 const ERP_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur', 'viewer'] as const;
 const STOCK_VIEW_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'stock_central_maintainer', 'franchise', 'seller', 'vendeur', 'viewer'] as const;
@@ -44,18 +45,27 @@ function HomeRoute() {
   return <DashboardPage />;
 }
 
+function PageLoader() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 text-sm font-medium text-slate-600">
+      Chargement...
+    </div>
+  );
+}
+
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route
-        path="/"
-        element={
-          <ProtectedRoute>
-            <Layout />
-          </ProtectedRoute>
-        }
-      >
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <Layout />
+            </ProtectedRoute>
+          }
+        >
         <Route index element={<HomeRoute />} />
         <Route
           path="stock"
@@ -249,7 +259,8 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-      </Route>
-    </Routes>
+        </Route>
+      </Routes>
+    </Suspense>
   );
 }

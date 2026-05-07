@@ -5,7 +5,7 @@ const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 
 function secretKey(): Buffer {
-  return crypto.createHash('sha256').update(env.JWT_SECRET).digest();
+  return crypto.createHash('sha256').update(env.SECRET_ENCRYPTION_KEY ?? env.JWT_SECRET).digest();
 }
 
 export function encryptSecret(value: string): string {

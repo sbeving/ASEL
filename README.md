@@ -26,8 +26,7 @@ The default Compose file is the development stack:
 - MongoDB
 - API with TypeScript watch mode
 - Vite client with hot reload
-- Cloudflare quick tunnel for a public dev URL, with an optional named tunnel
-  for `https://asel.saleheddinetouil.tech`
+- Cloudflare quick tunnel for a random public dev URL
 
 ```bash
 cp .env.example .env
@@ -48,10 +47,10 @@ docker compose logs -f dev-tunnel
 
 Look for the `https://....trycloudflare.com` URL in the logs. Anyone with that URL can reach the dev app while the tunnel is running.
 
-### Stable Cloudflare dev URL
+### Stable Cloudflare URL
 
-Use this when you want `https://asel.saleheddinetouil.tech` instead of a random
-`trycloudflare.com` URL.
+Keep `https://asel.saleheddinetouil.tech` for the VPS-hosted version. For local
+development, prefer the random `trycloudflare.com` URL printed by `dev-tunnel`.
 
 1. In Cloudflare Zero Trust, create a Cloudflared tunnel named `asel-dev`.
 2. Add a public hostname:
@@ -118,15 +117,15 @@ npm install
 npm start
 ```
 
-For now the mobile app defaults to the stable Cloudflare dev URL:
-`https://asel.saleheddinetouil.tech/api`.
-You can also run Expo with the named dev API explicitly:
+For local mobile testing, point Expo at the random Cloudflare API URL from the
+local tunnel:
 
 ```bash
-EXPO_PUBLIC_API_BASE_URL=https://asel.saleheddinetouil.tech/api npm start
+EXPO_PUBLIC_API_BASE_URL=https://your-random-name.trycloudflare.com/api npm start
 ```
 
-Override with `EXPO_PUBLIC_API_BASE_URL` again when we move to OVH production.
+The app falls back to `http://localhost:4000/api` for local simulators. Override
+with `EXPO_PUBLIC_API_BASE_URL` for iPhone testing and later for OVH production.
 
 ## Production deployment
 

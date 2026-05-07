@@ -7,7 +7,7 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-asel-dev-password}
       MONGO_INITDB_DATABASE: ${MONGO_DB:-asel}
     ports:
-      - "127.0.0.1:27017:27017"
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
     volumes:
       - mongo-data:/data/db
     healthcheck:
@@ -30,6 +30,7 @@ services:
       PORT: 4000
       MONGODB_URI: ${MONGODB_URI:-mongodb://asel:asel-dev-password@mongo:27017/asel?authSource=admin}
       JWT_SECRET: ${JWT_SECRET:-asel-dev-jwt-secret-change-me-1234567890}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-asel-dev-secret-encryption-key-change-me-1234567890}
       JWT_EXPIRES: ${JWT_EXPIRES:-12h}
       BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-10}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}

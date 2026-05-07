@@ -4,6 +4,7 @@ import mongoose, { isValidObjectId } from 'mongoose';
 import { franchiseScopeFilter, requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { withMongoTransaction } from '../db/transaction.js';
 import { Sale } from '../models/Sale.js';
 import { Product } from '../models/Product.js';
 import { Client } from '../models/Client.js';
@@ -11,6 +12,7 @@ import { Installment } from '../models/Installment.js';
 import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
 import { refreshClosingSystemTotals } from '../services/closing.service.js';
+import { nextSequenceValue } from '../services/sequence.service.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
 import { buildInstallmentSchedule, roundCurrency } from '../utils/installments.js';
 import { isGlobalRole } from '../utils/roles.js';
@@ -57,10 +59,6 @@ const saleSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
-function startOfLocalDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
 function formatInvoiceNumber(date: Date, saleType: 'ticket' | 'facture' | 'devis', sequence: number) {
   const prefixMap = {
     ticket: 'TK',
@@ -75,6 +73,15 @@ function formatInvoiceNumber(date: Date, saleType: 'ticket' | 'facture' | 'devis
   ].join('');
 
   return `${prefixMap[saleType]}-${stamp}-${String(sequence).padStart(4, '0')}`;
+}
+
+function invoiceSequenceKey(date: Date, saleType: 'ticket' | 'facture' | 'devis') {
+  const stamp = [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('');
+  return `sale:${saleType}:${stamp}`;
 }
 
 function canCancelSale(req: Express.Request, sale: any) {
@@ -157,17 +164,6 @@ router.post(
     const franchiseObjectId = new mongoose.Types.ObjectId(fid);
     const userObjectId = new mongoose.Types.ObjectId(req.user!.sub);
 
-    const now = new Date();
-    const dayStart = startOfLocalDay(now);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
-    const dailySequence =
-      (await Sale.countDocuments({
-        saleType: input.saleType,
-        createdAt: mongoose.trusted({ $gte: dayStart, $lt: dayEnd }),
-      })) + 1;
-    const invoiceNumber = formatInvoiceNumber(now, input.saleType, dailySequence);
-
     const installmentSchedule = isInstallmentSale
       ? buildInstallmentSchedule({
           totalAmount: total,
@@ -178,34 +174,47 @@ router.post(
         })
       : [];
 
-    const sale = await Sale.create({
-      invoiceNumber,
-      saleType: input.saleType,
-      franchiseId: franchiseObjectId,
-      clientId: client?._id ?? null,
-      userId: userObjectId,
-      items: computedItems,
-      subtotal,
-      discount,
-      total,
-      paymentMethod: input.paymentMethod,
-      paymentStatus,
-      amountReceived,
-      changeDue,
-      installmentPlan: isInstallmentSale
-        ? {
-            totalLots: input.installmentPlan!.nbLots,
-            intervalDays: input.installmentPlan!.intervalDays,
-            upfrontAmount: amountReceived,
-            remainingAmount: roundCurrency(total - amountReceived),
-            firstDueDate: new Date(input.installmentPlan!.startDate),
-            generatedLots: installmentSchedule.length,
-          }
-        : undefined,
-      note: input.note,
-    });
+    let invoiceNumber = '';
+    let createdSaleId: mongoose.Types.ObjectId | null = null;
+    const transactionResult = await withMongoTransaction(async (session) => {
+      const now = new Date();
+      const dailySequence = await nextSequenceValue(invoiceSequenceKey(now, input.saleType), session);
+      invoiceNumber = formatInvoiceNumber(now, input.saleType, dailySequence);
 
-    try {
+      const [createdSale] = await Sale.create(
+        [
+          {
+            invoiceNumber,
+            saleType: input.saleType,
+            franchiseId: franchiseObjectId,
+            clientId: client?._id ?? null,
+            userId: userObjectId,
+            items: computedItems,
+            subtotal,
+            discount,
+            total,
+            paymentMethod: input.paymentMethod,
+            paymentStatus,
+            amountReceived,
+            changeDue,
+            installmentPlan: isInstallmentSale
+              ? {
+                  totalLots: input.installmentPlan!.nbLots,
+                  intervalDays: input.installmentPlan!.intervalDays,
+                  upfrontAmount: amountReceived,
+                  remainingAmount: roundCurrency(total - amountReceived),
+                  firstDueDate: new Date(input.installmentPlan!.startDate),
+                  generatedLots: installmentSchedule.length,
+                }
+              : undefined,
+            note: input.note,
+          },
+        ],
+        { session },
+      );
+      if (!createdSale) throw badRequest('Sale could not be created');
+      createdSaleId = createdSale._id;
+
       for (const item of computedItems) {
         await applyStockDelta({
           franchiseId: fid,
@@ -214,29 +223,33 @@ router.post(
           type: 'sale',
           userId: req.user!.sub,
           unitPrice: item.unitPrice,
-          refId: sale._id,
+          refId: createdSale._id,
+          session,
         });
       }
-    } catch (err) {
-      await Sale.deleteOne({ _id: sale._id });
-      throw err;
-    }
 
-    const installments = installmentSchedule.length > 0
-      ? await Installment.insertMany(
-          installmentSchedule.map((item) => ({
-            saleId: sale._id,
-            franchiseId: franchiseObjectId,
-            clientId: client!._id,
-            amount: item.amount,
-            dueDate: item.dueDate,
-            note: input.installmentPlan?.note
-              ? `${input.installmentPlan.note} (Lot ${item.installmentNumber}/${item.totalInstallments})`
-              : `Lot ${item.installmentNumber}/${item.totalInstallments}`,
-            userId: userObjectId,
-          })),
-        )
-      : [];
+      const createdInstallments = installmentSchedule.length > 0
+        ? await Installment.insertMany(
+            installmentSchedule.map((item) => ({
+              saleId: createdSale._id,
+              franchiseId: franchiseObjectId,
+              clientId: client!._id,
+              amount: item.amount,
+              dueDate: item.dueDate,
+              note: input.installmentPlan?.note
+                ? `${input.installmentPlan.note} (Lot ${item.installmentNumber}/${item.totalInstallments})`
+                : `Lot ${item.installmentNumber}/${item.totalInstallments}`,
+              userId: userObjectId,
+            })),
+            { session },
+          )
+        : [];
+
+      return { sale: createdSale, installments: createdInstallments };
+    });
+
+    if (!createdSaleId || !transactionResult?.sale) throw badRequest('Sale could not be created');
+    const { sale, installments } = transactionResult;
 
     await audit(req, {
       action: 'sale.create',
@@ -399,29 +412,38 @@ router.post(
     if (sale.cancelledAt) throw badRequest('Sale already cancelled');
     if (!canCancelSale(req, sale)) throw forbidden('Only the seller who created the sale or a franchise superior can cancel it');
 
-    const paidInstallments = await Installment.countDocuments({ saleId: sale._id, status: 'paid' });
-    sale.cancelledAt = new Date();
-    sale.cancelledBy = req.user!.sub as any;
-    sale.cancelReason = input.reason || 'Annulation vente';
-    await sale.save();
+    let paidInstallments = 0;
+    let deletedPendingInstallments = 0;
+    const restoredQuantity = sale.items.reduce((sum, item) => sum + item.quantity, 0);
 
-    for (const item of sale.items) {
-      await applyStockDelta({
-        franchiseId: sale.franchiseId,
-        productId: item.productId,
-        delta: item.quantity,
-        type: 'sale_cancel',
-        userId: req.user!.sub,
-        unitPrice: item.unitPrice,
-        note: `Annulation vente ${sale.invoiceNumber || sale._id.toString()}`,
-        refId: sale._id,
-      });
-    }
+    await withMongoTransaction(async (session) => {
+      paidInstallments = await Installment.countDocuments({ saleId: sale._id, status: 'paid' }).session(session ?? null);
+      sale.cancelledAt = new Date();
+      sale.cancelledBy = req.user!.sub as any;
+      sale.cancelReason = input.reason || 'Annulation vente';
+      await sale.save({ session });
 
-    const deletedPendingInstallments = await Installment.deleteMany({
-      saleId: sale._id,
-      status: mongoose.trusted({ $in: ['pending', 'late'] }),
+      for (const item of sale.items) {
+        await applyStockDelta({
+          franchiseId: sale.franchiseId,
+          productId: item.productId,
+          delta: item.quantity,
+          type: 'sale_cancel',
+          userId: req.user!.sub,
+          unitPrice: item.unitPrice,
+          note: `Annulation vente ${sale.invoiceNumber || sale._id.toString()}`,
+          refId: sale._id,
+          session,
+        });
+      }
+
+      const result = await Installment.deleteMany({
+        saleId: sale._id,
+        status: mongoose.trusted({ $in: ['pending', 'late'] }),
+      }).session(session ?? null);
+      deletedPendingInstallments = result.deletedCount ?? 0;
     });
+
     const refreshedClosing = await refreshClosingSystemTotals(
       sale.franchiseId.toString(),
       sale.createdAt,
@@ -438,9 +460,9 @@ router.post(
         total: sale.total,
         reason: sale.cancelReason,
         restoredItems: sale.items.length,
-        restoredQuantity: sale.items.reduce((sum, item) => sum + item.quantity, 0),
+        restoredQuantity,
         paidInstallments,
-        deletedPendingInstallments: deletedPendingInstallments.deletedCount ?? 0,
+        deletedPendingInstallments,
         refreshedClosingId: refreshedClosing?._id?.toString?.() ?? null,
         revenueRemovedFromCA: sale.total,
       },

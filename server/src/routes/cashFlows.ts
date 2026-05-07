@@ -40,7 +40,9 @@ const listQuerySchema = z.object({
   status: z.enum(['pending', 'approved', 'rejected']).optional(),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  limit: z.coerce.number().int().min(1).max(500).default(100),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(500).default(100),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
 const superiorTreasuryRoles = new Set(['ceo', 'admin', 'superadmin', 'manager', 'cash_central_maintainer']);
@@ -297,14 +299,28 @@ router.get(
       });
     }
 
-    const flows = await CashFlow.find(filter)
-      .sort({ date: -1 })
-      .limit(query.limit)
-      .populate('userId', 'fullName username')
-      .populate('franchiseId', 'name taxId')
-      .populate('counterpartyFranchiseId', 'name taxId')
-      .populate('reviewedBy', 'fullName username');
-    res.json({ flows });
+    const effectivePageSize = query.limit ?? query.pageSize;
+    const skip = (query.page - 1) * effectivePageSize;
+    const [total, flows] = await Promise.all([
+      CashFlow.countDocuments(filter),
+      CashFlow.find(filter)
+        .sort({ date: -1 })
+        .skip(skip)
+        .limit(effectivePageSize)
+        .populate('userId', 'fullName username')
+        .populate('franchiseId', 'name taxId')
+        .populate('counterpartyFranchiseId', 'name taxId')
+        .populate('reviewedBy', 'fullName username'),
+    ]);
+    res.json({
+      flows,
+      meta: {
+        page: query.page,
+        pageSize: effectivePageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / effectivePageSize)),
+      },
+    });
   }),
 );
 

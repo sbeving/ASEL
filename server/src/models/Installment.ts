@@ -1,5 +1,16 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
 
+const installmentDueDateHistorySchema = new Schema(
+  {
+    from: { type: Date, required: true },
+    to: { type: Date, required: true },
+    reason: { type: String, trim: true, maxlength: 1000, default: '' },
+    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    createdAt: { type: Date, default: Date.now },
+  },
+  { _id: false },
+);
+
 const installmentSchema = new Schema(
   {
     saleId: { type: Schema.Types.ObjectId, ref: 'Sale', required: true },
@@ -9,8 +20,13 @@ const installmentSchema = new Schema(
     originalAmount: { type: Number, min: 0, default: null },
     paidAmount: { type: Number, min: 0, default: 0 },
     dueDate: { type: Date, required: true },
+    dueDateHistory: { type: [installmentDueDateHistorySchema], default: [] },
+    dueDateUpdatedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    dueDateUpdatedAt: { type: Date, default: null },
     status: { type: String, enum: ['pending', 'paid', 'late'], default: 'pending' },
     paidAt: { type: Date, default: null },
+    paidAtUpdatedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    paidAtUpdatedAt: { type: Date, default: null },
     paymentMethod: { type: String, trim: true, maxlength: 40, default: null },
     note: { type: String, trim: true, maxlength: 1000 },
     splitFromInstallmentId: { type: Schema.Types.ObjectId, ref: 'Installment', default: null },
