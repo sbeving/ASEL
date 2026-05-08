@@ -9,6 +9,7 @@ import { Sale } from '../models/Sale.js';
 import { Product } from '../models/Product.js';
 import { Client } from '../models/Client.js';
 import { Installment } from '../models/Installment.js';
+import { Stock } from '../models/Stock.js';
 import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
 import { refreshClosingSystemTotals } from '../services/closing.service.js';
@@ -90,9 +91,31 @@ function canCancelSale(req: Express.Request, sale: any) {
   if (['ceo', 'admin', 'superadmin', 'manager'].includes(user.role)) return true;
   if (user.role === 'franchise') return Boolean(user.franchiseId && user.franchiseId === saleFranchiseId);
   if (user.role === 'seller' || user.role === 'vendeur') {
-    return Boolean(user.franchiseId && user.franchiseId === saleFranchiseId && sale.userId?.toString() === user.sub);
+    const createdAt = sale.createdAt instanceof Date ? sale.createdAt : new Date(sale.createdAt);
+    const within24Hours = Date.now() - createdAt.getTime() <= 24 * 60 * 60 * 1000;
+    return Boolean(
+      within24Hours &&
+      user.franchiseId &&
+      user.franchiseId === saleFranchiseId &&
+      sale.userId?.toString() === user.sub,
+    );
   }
   return false;
+}
+
+function productTypeOf(product: any): 'standard' | 'asel_recharge' | 'asel_forfait' {
+  if (product?.productType === 'asel_recharge' || product?.productType === 'asel_forfait') return product.productType;
+  return 'standard';
+}
+
+function rateValue(value: unknown, fallback: number) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(100, Math.max(0, roundCurrency(numeric)));
+}
+
+function isVariablePriceProduct(product: any) {
+  return product?.priceMode === 'variable' || product?.productType === 'asel_recharge';
 }
 
 router.post(
@@ -106,11 +129,25 @@ router.post(
     const fid = resolveFranchiseId(req.user, input.franchiseId);
     const isInstallmentSale = input.paymentMethod === 'installment';
 
-    const productIds = input.items.map((item) => item.productId);
-    const products = await Product.find({ _id: mongoose.trusted({ $in: productIds }) }).select('_id active sellPrice');
+    const productIds = [...new Set(input.items.map((item) => item.productId))];
+    const products = await Product.find({ _id: mongoose.trusted({ $in: productIds }) }).select(
+      '_id active sellPrice productType priceMode stockManaged commissionRate companyShareRate franchiseManagerShareRate',
+    );
     if (products.length !== productIds.length) throw badRequest('One or more products not found');
     if (products.some((product) => !product.active)) throw badRequest('Cannot sell inactive products');
     const productById = new Map(products.map((product) => [product._id.toString(), product]));
+    const stockPrices = await Stock.find({
+      franchiseId: fid,
+      productId: mongoose.trusted({ $in: productIds }),
+    }).select('productId sellPrice');
+    const stockPriceByProductId = new Map(
+      stockPrices.map((stock) => [stock.productId.toString(), stock.sellPrice ?? null]),
+    );
+    const effectiveSellPrice = (productId: string) => {
+      const product = productById.get(productId);
+      const stockPrice = stockPriceByProductId.get(productId);
+      return stockPrice ?? product?.sellPrice ?? 0;
+    };
     const canOverridePrices = isPermissionGranted(
       req.user!.role,
       'sales.price.override',
@@ -119,10 +156,16 @@ router.post(
     if (!canOverridePrices) {
       const hasPriceOverride = input.items.some((item) => {
         const product = productById.get(item.productId);
-        return product ? Math.abs(roundCurrency(item.unitPrice) - roundCurrency(product.sellPrice ?? 0)) > 0.001 : false;
+        if (!product || isVariablePriceProduct(product)) return false;
+        return Math.abs(roundCurrency(item.unitPrice) - roundCurrency(effectiveSellPrice(item.productId))) > 0.001;
       });
       if (hasPriceOverride) throw forbidden('You are not allowed to modify item prices');
     }
+    const hasInvalidVariableAmount = input.items.some((item) => {
+      const product = productById.get(item.productId);
+      return product && isVariablePriceProduct(product) && roundCurrency(item.unitPrice) <= 0;
+    });
+    if (hasInvalidVariableAmount) throw badRequest('Variable price products require an amount greater than zero');
 
     const client = input.clientId
       ? await Client.findById(input.clientId).select('_id franchiseId fullName')
@@ -138,16 +181,48 @@ router.post(
       throw badRequest('installmentPlan is required when paymentMethod is installment');
     }
 
-    const computedItems = input.items.map((item) => ({
-      productId: new mongoose.Types.ObjectId(item.productId),
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      total: roundCurrency(item.quantity * item.unitPrice),
-    }));
-    const subtotal = computedItems.reduce((sum, item) => sum + item.total, 0);
+    const baseItems = input.items.map((item) => {
+      const product = productById.get(item.productId);
+      if (!product) throw badRequest('One or more products not found');
+      return {
+        productId: new mongoose.Types.ObjectId(item.productId),
+        quantity: item.quantity,
+        unitPrice: roundCurrency(item.unitPrice),
+        total: roundCurrency(item.quantity * item.unitPrice),
+        product,
+      };
+    });
+    const subtotal = baseItems.reduce((sum, item) => sum + item.total, 0);
     const discount = input.discount ?? 0;
     if (discount > subtotal) throw badRequest('Discount cannot exceed subtotal');
     const total = Math.max(0, roundCurrency(subtotal - discount));
+    const computedItems = baseItems.map((item) => {
+      const productType = productTypeOf(item.product);
+      const isAselProduct = productType === 'asel_recharge' || productType === 'asel_forfait';
+      const discountShare = subtotal > 0 ? roundCurrency((item.total / subtotal) * discount) : 0;
+      const commissionBase = Math.max(0, roundCurrency(item.total - discountShare));
+      const commissionRate = rateValue(item.product.commissionRate, isAselProduct ? 10 : 0);
+      const companyShareRate = rateValue(item.product.companyShareRate, isAselProduct ? 90 : 100);
+      const franchiseManagerShareRate = rateValue(item.product.franchiseManagerShareRate, isAselProduct ? 10 : 0);
+      return {
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        total: item.total,
+        productType,
+        stockManaged: item.product.stockManaged !== false,
+        commissionRate,
+        commissionBase,
+        commissionAmount: roundCurrency(commissionBase * (commissionRate / 100)),
+        companyShareAmount: roundCurrency(commissionBase * (companyShareRate / 100)),
+        franchiseManagerShareAmount: roundCurrency(commissionBase * (franchiseManagerShareRate / 100)),
+      };
+    });
+    const commissionTotal = roundCurrency(computedItems.reduce((sum, item) => sum + item.commissionAmount, 0));
+    const companyShareTotal = roundCurrency(computedItems.reduce((sum, item) => sum + item.companyShareAmount, 0));
+    const franchiseManagerShareTotal = roundCurrency(
+      computedItems.reduce((sum, item) => sum + item.franchiseManagerShareAmount, 0),
+    );
 
     const amountReceived = roundCurrency(input.amountReceived ?? (isInstallmentSale ? 0 : total));
     if (!isInstallmentSale && amountReceived < total) {
@@ -193,6 +268,9 @@ router.post(
             subtotal,
             discount,
             total,
+            commissionTotal,
+            companyShareTotal,
+            franchiseManagerShareTotal,
             paymentMethod: input.paymentMethod,
             paymentStatus,
             amountReceived,
@@ -216,6 +294,7 @@ router.post(
       createdSaleId = createdSale._id;
 
       for (const item of computedItems) {
+        if (item.stockManaged === false) continue;
         await applyStockDelta({
           franchiseId: fid,
           productId: item.productId,
@@ -263,6 +342,9 @@ router.post(
         paymentMethod: input.paymentMethod,
         invoiceNumber,
         installmentCount: installments.length,
+        commissionTotal,
+        franchiseManagerShareTotal,
+        companyShareTotal,
       },
     });
 
@@ -410,11 +492,16 @@ router.post(
     const scope = franchiseScopeFilter(req.user);
     if (scope.franchiseId && sale.franchiseId?.toString() !== scope.franchiseId) throw forbidden();
     if (sale.cancelledAt) throw badRequest('Sale already cancelled');
-    if (!canCancelSale(req, sale)) throw forbidden('Only the seller who created the sale or a franchise superior can cancel it');
+    if (!canCancelSale(req, sale)) {
+      throw forbidden('Only the seller who created the sale within 24h or a franchise superior can cancel it');
+    }
 
     let paidInstallments = 0;
     let deletedPendingInstallments = 0;
-    const restoredQuantity = sale.items.reduce((sum, item) => sum + item.quantity, 0);
+    const restoredQuantity = sale.items.reduce(
+      (sum, item) => ((item as any).stockManaged === false ? sum : sum + item.quantity),
+      0,
+    );
 
     await withMongoTransaction(async (session) => {
       paidInstallments = await Installment.countDocuments({ saleId: sale._id, status: 'paid' }).session(session ?? null);
@@ -424,6 +511,7 @@ router.post(
       await sale.save({ session });
 
       for (const item of sale.items) {
+        if ((item as any).stockManaged === false) continue;
         await applyStockDelta({
           franchiseId: sale.franchiseId,
           productId: item.productId,

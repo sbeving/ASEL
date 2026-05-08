@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const schema = new mongoose.Schema({
   franchiseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Franchise', default: null },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  type: { type: String, enum: ['entree', 'sortie', 'pause_debut', 'pause_fin'], required: true },
+  type: { type: String, enum: ['entree', 'sortie', 'pause_debut', 'pause_fin', 'verif'], required: true },
   timestamp: { type: Date, default: Date.now },
   source: { type: String, enum: ['manual', 'auto_login'], default: 'manual' },
   localDate: { type: String, trim: true, maxlength: 10, default: null },

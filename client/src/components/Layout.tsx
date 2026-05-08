@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 import { useQuery } from '@tanstack/react-query';
@@ -23,6 +23,7 @@ const SELLING_ROLES: Role[] = ['ceo', 'admin', 'superadmin', 'manager', 'franchi
 const STAFF_ROLES: Role[] = ['ceo', 'admin', 'superadmin', 'manager', 'commercial_director', 'stock_central_maintainer', 'cash_central_maintainer', 'hr_admin', 'franchise', 'seller', 'vendeur', 'commercial', 'siege_employee'];
 const COMMERCIAL_ROLES: Role[] = ['ceo', 'admin', 'superadmin', 'manager', 'commercial_director', 'franchise', 'commercial'];
 const FRANCHISE_OPS_ROLES: Role[] = ['ceo', 'admin', 'superadmin', 'manager', 'franchise'];
+const INSTALLMENT_ROLES: Role[] = ['ceo', 'admin', 'superadmin', 'manager', 'cash_central_maintainer', 'franchise', 'seller', 'vendeur'];
 const STOCK_OPS_ROLES: Role[] = ['ceo', 'admin', 'superadmin', 'manager', 'stock_central_maintainer', 'franchise'];
 const CASH_ROLES: Role[] = ['ceo', 'admin', 'superadmin', 'manager', 'cash_central_maintainer', 'franchise'];
 const HR_ROLES: Role[] = ['ceo', 'admin', 'superadmin', 'manager', 'commercial_director', 'hr_admin', 'franchise'];
@@ -38,7 +39,7 @@ const nav: { to: string; label: string; icon: any; section: string; roles?: Role
   { to: '/demands', label: 'Demandes stock', icon: ClipboardList, section: 'Franchise', roles: SELLING_ROLES },
   { to: '/returns', label: 'Retours', icon: RotateCcw, section: 'Franchise', roles: ERP_ROLES },
   { to: '/closings', label: 'Clotures caisse', icon: Lock, section: 'Franchise', roles: FRANCHISE_OPS_ROLES },
-  { to: '/installments', label: 'Echeances clients', icon: CalendarDays, section: 'Franchise', roles: FRANCHISE_OPS_ROLES },
+  { to: '/installments', label: 'Echeances clients', icon: CalendarDays, section: 'Franchise', roles: INSTALLMENT_ROLES },
   { to: '/receptions', label: 'Bons de reception', icon: Truck, section: 'Contrats & Achats', roles: STOCK_OPS_ROLES },
   { to: '/suppliers', label: 'Fournisseurs', icon: Briefcase, section: 'Contrats & Achats', roles: ['ceo', 'admin', 'superadmin', 'manager', 'stock_central_maintainer'] },
   { to: '/products', label: 'Produits', icon: Tag, section: 'Contrats & Achats', roles: STOCK_VIEW_ROLES },
@@ -73,7 +74,11 @@ function roleAllows(roles: Role[] | undefined, role: Role): boolean {
   return !roles || roles.includes(role);
 }
 
-type TimeLogType = 'entree' | 'sortie' | 'pause_debut' | 'pause_fin';
+type TimeLogType = 'entree' | 'sortie' | 'pause_debut' | 'pause_fin' | 'verif';
+const POINTAGE_FRESHNESS_MINUTES = 180;
+const POINTAGE_FRESHNESS_MS = POINTAGE_FRESHNESS_MINUTES * 60 * 1000;
+const POINTAGE_REMINDER_MS = 165 * 60 * 1000;
+const POINTAGE_REMINDER_THROTTLE_MS = 30 * 60 * 1000;
 
 interface LayoutTimeLogRow {
   _id: string;
@@ -91,6 +96,10 @@ interface ProfileSummary {
   salesCount: number;
   salesAmount: number;
   activeShift: boolean;
+  staleShift: boolean;
+  lastType: TimeLogType | null;
+  lastTimestamp: string | null;
+  freshnessMinutes: number;
 }
 
 const PROFILE_TIMELOG_ROLES: Role[] = STAFF_ROLES;
@@ -112,62 +121,97 @@ function formatCompactAmount(amount: number): string {
   return `${Math.round(value)} TND`;
 }
 
-function computeWorkedMinutes(logs: LayoutTimeLogRow[]): { workedMinutes: number; activeShift: boolean } {
+function computeWorkedMinutes(logs: LayoutTimeLogRow[]): {
+  workedMinutes: number;
+  activeShift: boolean;
+  staleShift: boolean;
+  lastType: TimeLogType | null;
+  lastTimestamp: string | null;
+  freshnessMinutes: number;
+} {
   const sorted = [...logs].sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
-  let shiftStart: number | null = null;
-  let breakStart: number | null = null;
-  let pausedMs = 0;
+  let shiftOpen = false;
+  let paused = false;
+  let lastFreshAt: number | null = null;
+  let workSegmentStart: number | null = null;
   let totalMs = 0;
+  let lastType: TimeLogType | null = null;
+  let lastAt: number | null = null;
+
+  function accrueUntil(until: number) {
+    if (!shiftOpen || paused || workSegmentStart === null || lastFreshAt === null) return;
+    const expiry = lastFreshAt + POINTAGE_FRESHNESS_MS;
+    const end = Math.min(until, expiry);
+    if (end > workSegmentStart) totalMs += end - workSegmentStart;
+    workSegmentStart = until >= expiry ? null : end;
+  }
+
+  function refreshAt(at: number) {
+    lastFreshAt = at;
+    if (!paused) workSegmentStart = at;
+  }
 
   for (const log of sorted) {
     const at = new Date(log.timestamp).getTime();
     if (!Number.isFinite(at)) continue;
+    lastType = log.type;
+    lastAt = at;
 
     if (log.type === 'entree') {
-      shiftStart = at;
-      breakStart = null;
-      pausedMs = 0;
-      continue;
-    }
-
-    if (shiftStart === null) continue;
-
-    if (log.type === 'pause_debut') {
-      if (breakStart === null) breakStart = at;
-      continue;
-    }
-
-    if (log.type === 'pause_fin') {
-      if (breakStart !== null) {
-        pausedMs += Math.max(0, at - breakStart);
-        breakStart = null;
+      if (!shiftOpen) {
+        shiftOpen = true;
+        paused = false;
+        refreshAt(at);
+      } else {
+        accrueUntil(at);
+        paused = false;
+        refreshAt(at);
       }
       continue;
     }
 
+    if (!shiftOpen) continue;
+
+    if (log.type === 'verif') {
+      accrueUntil(at);
+      refreshAt(at);
+      continue;
+    }
+
+    if (log.type === 'pause_debut') {
+      accrueUntil(at);
+      paused = true;
+      workSegmentStart = null;
+      continue;
+    }
+
+    if (log.type === 'pause_fin') {
+      paused = false;
+      refreshAt(at);
+      continue;
+    }
+
     if (log.type === 'sortie') {
-      const effectivePausedMs = pausedMs + (breakStart !== null ? Math.max(0, at - breakStart) : 0);
-      totalMs += Math.max(0, at - shiftStart - effectivePausedMs);
-      shiftStart = null;
-      breakStart = null;
-      pausedMs = 0;
+      accrueUntil(at);
+      shiftOpen = false;
+      paused = false;
+      lastFreshAt = null;
+      workSegmentStart = null;
     }
   }
 
-  let activeShift = false;
-  if (shiftStart !== null) {
-    const now = Date.now();
-    const eighteenHoursMs = 18 * 60 * 60 * 1000;
-    if (now - shiftStart <= eighteenHoursMs) {
-      const effectivePausedMs = pausedMs + (breakStart !== null ? Math.max(0, now - breakStart) : 0);
-      totalMs += Math.max(0, now - shiftStart - effectivePausedMs);
-      activeShift = true;
-    }
-  }
+  const now = Date.now();
+  const fresh = lastFreshAt !== null && now - lastFreshAt <= POINTAGE_FRESHNESS_MS;
+  const activeShift = shiftOpen && !paused && fresh;
+  accrueUntil(now);
 
   return {
     workedMinutes: Math.round(totalMs / 60000),
     activeShift,
+    staleShift: shiftOpen && !paused && !activeShift,
+    lastType,
+    lastTimestamp: lastAt === null ? null : new Date(lastAt).toISOString(),
+    freshnessMinutes: POINTAGE_FRESHNESS_MINUTES,
   };
 }
 
@@ -195,6 +239,7 @@ export function Layout() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
+  const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
 
@@ -242,11 +287,24 @@ export function Layout() {
       ]);
 
       const sales = salesResponse.data.sales ?? [];
-      const worked = timeLogsResponse ? computeWorkedMinutes(timeLogsResponse.data.logs ?? []) : { workedMinutes: 0, activeShift: false };
+      const worked = timeLogsResponse
+        ? computeWorkedMinutes(timeLogsResponse.data.logs ?? [])
+        : {
+            workedMinutes: 0,
+            activeShift: false,
+            staleShift: false,
+            lastType: null,
+            lastTimestamp: null,
+            freshnessMinutes: POINTAGE_FRESHNESS_MINUTES,
+          };
 
       return {
         workedMinutes: worked.workedMinutes,
         activeShift: worked.activeShift,
+        staleShift: worked.staleShift,
+        lastType: worked.lastType,
+        lastTimestamp: worked.lastTimestamp,
+        freshnessMinutes: worked.freshnessMinutes,
         salesCount: sales.length,
         salesAmount: sales.reduce((sum, sale) => sum + (sale.total ?? 0), 0),
       };
@@ -254,6 +312,63 @@ export function Layout() {
     staleTime: 30000,
     refetchInterval: 60000,
   });
+  const lastPointageAt = profileSummary.data?.lastTimestamp ? new Date(profileSummary.data.lastTimestamp).getTime() : null;
+  const pointageAgeMs = lastPointageAt && Number.isFinite(lastPointageAt) ? Date.now() - lastPointageAt : null;
+  const pointageDueSoon = Boolean(
+    canSeeWorkedHours &&
+      profileSummary.data?.activeShift &&
+      pointageAgeMs !== null &&
+      pointageAgeMs >= POINTAGE_REMINDER_MS,
+  );
+  const needsPointageVerification = Boolean(canSeeWorkedHours && profileSummary.data?.staleShift);
+  const pointageReminderText = needsPointageVerification
+    ? 'Verification pointage requise: confirmez votre position pour continuer a compter vos heures.'
+    : 'Rappel pointage: faites une verification avant la fin des 3h.';
+
+  useEffect(() => {
+    if (!user || !canSeeWorkedHours || (!needsPointageVerification && !pointageDueSoon)) return;
+    const key = `asel-pointage-reminder:${user.id}`;
+    const lastNotification = Number(window.localStorage.getItem(key) ?? 0);
+    const now = Date.now();
+    if (now - lastNotification < POINTAGE_REMINDER_THROTTLE_MS) return;
+    window.localStorage.setItem(key, String(now));
+    if ('Notification' in window && window.Notification.permission === 'granted') {
+      new window.Notification('ASEL pointage', {
+        body: pointageReminderText,
+        tag: 'asel-pointage-reminder',
+      });
+    }
+  }, [canSeeWorkedHours, needsPointageVerification, pointageDueSoon, pointageReminderText, user]);
+
+  useEffect(() => {
+    if (!user || !needsPointageVerification || location.pathname !== '/') return;
+    const key = `asel-pointage-dashboard-redirect:${user.id}`;
+    const now = Date.now();
+    const lastRedirect = Number(window.sessionStorage.getItem(key) ?? 0);
+    if (now - lastRedirect < 60000) return;
+    window.sessionStorage.setItem(key, String(now));
+
+    const goToPointage = (coords?: GeolocationCoordinates) => {
+      const params = new URLSearchParams({ verify: '1' });
+      if (coords) {
+        params.set('lat', coords.latitude.toFixed(6));
+        params.set('lng', coords.longitude.toFixed(6));
+        if (Number.isFinite(coords.accuracy)) params.set('accuracy', String(Math.round(coords.accuracy)));
+      }
+      navigate(`/timelogs?${params.toString()}`);
+    };
+
+    if (!navigator.geolocation) {
+      goToPointage();
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => goToPointage(position.coords),
+      () => goToPointage(),
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
+    );
+  }, [location.pathname, navigate, needsPointageVerification, user]);
 
   const items = nav.filter((item) => roleAllows(item.roles, user.role));
   const currentItem = items.find((item) => (item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to)));
@@ -369,6 +484,9 @@ export function Layout() {
                 {profileSummary.data?.activeShift && (
                   <div className="mt-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">Pointage actif</div>
                 )}
+                {profileSummary.data?.staleShift && (
+                  <div className="mt-1 text-[11px] font-semibold text-amber-600 dark:text-amber-400">Verification requise</div>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2">
@@ -469,6 +587,34 @@ export function Layout() {
         </header>
 
         <div className="flex-1 overflow-y-auto bg-surface-50/50 p-4 pb-28 custom-scrollbar dark:bg-surface-950 sm:p-5 lg:p-6 xl:p-8">
+          {(needsPointageVerification || pointageDueSoon) && location.pathname !== '/timelogs' && (
+            <div
+              className={clsx(
+                'mx-auto mb-4 flex max-w-7xl flex-col gap-3 rounded-lg border px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between',
+                needsPointageVerification
+                  ? 'border-amber-200 bg-amber-50 text-amber-900'
+                  : 'border-sky-200 bg-sky-50 text-sky-900',
+              )}
+            >
+              <div>
+                <div className="text-sm font-bold">
+                  {needsPointageVerification ? 'Verification pointage obligatoire' : 'Verification pointage bientot requise'}
+                </div>
+                <div className="text-xs font-medium opacity-80">{pointageReminderText}</div>
+              </div>
+              <Link
+                to="/timelogs?verify=1"
+                className={clsx(
+                  'inline-flex min-h-[40px] items-center justify-center rounded-lg px-3 text-sm font-bold transition-colors',
+                  needsPointageVerification
+                    ? 'bg-amber-600 text-white hover:bg-amber-700'
+                    : 'bg-sky-600 text-white hover:bg-sky-700',
+                )}
+              >
+                Pointer verification
+              </Link>
+            </div>
+          )}
           <AnimatePresence mode="wait">
             <motion.div
               key={location.pathname}

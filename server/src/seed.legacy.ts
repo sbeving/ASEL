@@ -455,6 +455,7 @@ async function seedLegacy() {
   }
 
   const productMap = new Map<number, string>();
+  const productSellPriceMap = new Map<string, number>();
   for (const p of productsOld) {
     const categoryId = catMap.get(num(p.categorie_id));
     if (!categoryId) continue;
@@ -474,18 +475,29 @@ async function seedLegacy() {
       updatedAt: parseDateLike(p.date_creation),
     });
     productMap.set(num(p.id), created._id.toString());
+    productSellPriceMap.set(created._id.toString(), created.sellPrice ?? 0);
   }
 
   const aselProductMap = new Map<number, string>();
   for (const p of aselProductsOld) {
+    const legacyType = str(p.type_produit, '').toLowerCase();
+    const productType = legacyType.includes('recharge') ? 'asel_recharge' : 'asel_forfait';
+    const sellPrice = num(p.prix_vente, 0);
+    const legacyCommission = num(p.commission, sellPrice * 0.1);
     const created = await Product.create({
       name: filled(p.nom, `Produit ASEL ${num(p.id) || aselProductMap.size + 1}`),
       categoryId: aselCategoryId,
       brand: p.operateur ? str(p.operateur) : 'ASEL',
       reference: `ASEL-${num(p.id)}`,
-      description: `Type: ${str(p.type_produit, 'autre')} | Commission: ${num(p.commission, 0)}`,
-      purchasePrice: Math.max(0, num(p.prix_vente, 0) - num(p.commission, 0)),
-      sellPrice: num(p.prix_vente, 0),
+      description: `Type: ${str(p.type_produit, 'autre')} | Commission legacy: ${legacyCommission}`,
+      purchasePrice: Math.max(0, sellPrice - legacyCommission),
+      sellPrice,
+      productType,
+      priceMode: productType === 'asel_recharge' ? 'variable' : 'fixed',
+      stockManaged: false,
+      commissionRate: 10,
+      companyShareRate: 90,
+      franchiseManagerShareRate: 10,
       lowStockThreshold: 0,
       active: toBool(p.actif, true),
       createdAt: parseDateLike(p.date_creation),
@@ -563,6 +575,7 @@ async function seedLegacy() {
       franchiseId: frMap.get(num(s.franchise_id)) || null,
       productId: productMap.get(num(s.produit_id)) || null,
       quantity: Math.max(0, num(s.quantite, 0)),
+      sellPrice: productSellPriceMap.get(productMap.get(num(s.produit_id)) || '') ?? 0,
       createdAt: parseDateLike(s.derniere_maj),
       updatedAt: parseDateLike(s.derniere_maj),
     }))

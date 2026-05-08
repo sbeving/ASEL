@@ -22,7 +22,7 @@ export interface User {
   franchiseId: string | null;
 }
 
-export type TimeLogType = 'entree' | 'sortie' | 'pause_debut' | 'pause_fin';
+export type TimeLogType = 'entree' | 'sortie' | 'pause_debut' | 'pause_fin' | 'verif';
 
 export interface NetworkPoint {
   _id: string;

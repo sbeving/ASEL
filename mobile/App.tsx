@@ -31,6 +31,7 @@ import type { CommercialZone, NetworkPoint, TimeLogType, User } from './src/type
 
 const pointageLabels: Record<TimeLogType, string> = {
   entree: 'Entree',
+  verif: 'Verification 3h',
   sortie: 'Sortie',
   pause_debut: 'Pause debut',
   pause_fin: 'Pause fin',
@@ -280,41 +281,65 @@ function isObjectId(id?: string) {
 
 function computeWorkState(logs: TimeLogRow[]): WorkState {
   const sorted = [...logs].sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
-  let start: number | null = null;
-  let pauseStart: number | null = null;
-  let pausedMs = 0;
+  const freshnessMs = 180 * 60 * 1000;
+  let shiftOpen = false;
+  let paused = false;
+  let lastFreshAt: number | null = null;
+  let workSegmentStart: number | null = null;
   let totalMs = 0;
+
+  function accrueUntil(until: number) {
+    if (!shiftOpen || paused || workSegmentStart === null || lastFreshAt === null) return;
+    const expiry = lastFreshAt + freshnessMs;
+    const end = Math.min(until, expiry);
+    if (end > workSegmentStart) totalMs += end - workSegmentStart;
+    workSegmentStart = until >= expiry ? null : end;
+  }
+
+  function refreshAt(at: number) {
+    lastFreshAt = at;
+    if (!paused) workSegmentStart = at;
+  }
 
   for (const log of sorted) {
     const at = new Date(log.timestamp).getTime();
     if (!Number.isFinite(at)) continue;
     if (log.type === 'entree') {
-      start = at;
-      pauseStart = null;
-      pausedMs = 0;
-    } else if (log.type === 'pause_debut' && start !== null && pauseStart === null) {
-      pauseStart = at;
-    } else if (log.type === 'pause_fin' && pauseStart !== null) {
-      pausedMs += Math.max(0, at - pauseStart);
-      pauseStart = null;
-    } else if (log.type === 'sortie' && start !== null) {
-      totalMs += Math.max(0, at - start - pausedMs);
-      start = null;
-      pauseStart = null;
-      pausedMs = 0;
+      if (!shiftOpen) {
+        shiftOpen = true;
+        paused = false;
+        refreshAt(at);
+      } else {
+        accrueUntil(at);
+        paused = false;
+        refreshAt(at);
+      }
+    } else if (log.type === 'verif' && shiftOpen) {
+      accrueUntil(at);
+      refreshAt(at);
+    } else if (log.type === 'pause_debut' && shiftOpen) {
+      accrueUntil(at);
+      paused = true;
+      workSegmentStart = null;
+    } else if (log.type === 'pause_fin' && shiftOpen) {
+      paused = false;
+      refreshAt(at);
+    } else if (log.type === 'sortie' && shiftOpen) {
+      accrueUntil(at);
+      shiftOpen = false;
+      paused = false;
+      lastFreshAt = null;
+      workSegmentStart = null;
     }
   }
 
-  const activeShift = start !== null && Date.now() - start < 18 * 60 * 60 * 1000;
-  if (activeShift && start !== null) {
-    const livePaused = pauseStart !== null ? Date.now() - pauseStart : 0;
-    totalMs += Math.max(0, Date.now() - start - pausedMs - livePaused);
-  }
+  const activeShift = shiftOpen && !paused && lastFreshAt !== null && Date.now() - lastFreshAt <= freshnessMs;
+  accrueUntil(Date.now());
 
   return {
     workedMinutes: Math.round(totalMs / 60000),
     activeShift,
-    paused: activeShift && pauseStart !== null,
+    paused: shiftOpen && paused,
   };
 }
 

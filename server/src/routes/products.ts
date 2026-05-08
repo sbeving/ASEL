@@ -9,6 +9,9 @@ import { Product } from '../models/Product.js';
 import { Category } from '../models/Category.js';
 import { Supplier } from '../models/Supplier.js';
 import { Franchise } from '../models/Franchise.js';
+import { Stock } from '../models/Stock.js';
+import { Movement } from '../models/Movement.js';
+import { Sale } from '../models/Sale.js';
 import { audit } from '../services/audit.service.js';
 import { attachProductListMetrics, getProductOverview } from '../services/productInsights.service.js';
 import { badRequest, notFound } from '../utils/AppError.js';
@@ -17,6 +20,11 @@ import { applyStockDelta } from '../services/stock.service.js';
 
 const router = Router();
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
+const PRODUCT_TYPES = ['standard', 'asel_recharge', 'asel_forfait'] as const;
+const PRICE_MODES = ['fixed', 'variable'] as const;
+type ProductType = (typeof PRODUCT_TYPES)[number];
+type PriceMode = (typeof PRICE_MODES)[number];
+const HIGH_PRODUCT_DELETE_ROLES = new Set(['ceo', 'admin', 'superadmin', 'manager']);
 const importUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
@@ -34,6 +42,10 @@ const PRODUCT_IMPORT_COLUMNS = [
   'purchaseTaxRate',
   'sellPriceTtc',
   'sellTaxRate',
+  'productType',
+  'priceMode',
+  'stockManaged',
+  'commissionRate',
   'lowStockThreshold',
   'franchise',
   'initialQuantity',
@@ -124,6 +136,40 @@ function normalizeTaxRate(value: unknown, fallback = 19): number {
   return Math.min(100, Math.max(0, roundMoney(number)));
 }
 
+function normalizeRate(value: unknown, fallback: number): number {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(100, Math.max(0, roundMoney(number)));
+}
+
+function normalizeProductType(value: unknown, fallback: ProductType = 'standard'): ProductType {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (normalized === 'recharge' || normalized === 'asel_recharge') return 'asel_recharge';
+  if (normalized === 'forfait' || normalized === 'asel_forfait' || normalized === 'package') return 'asel_forfait';
+  if (normalized === 'standard') return 'standard';
+  return fallback;
+}
+
+function normalizePriceMode(value: unknown, fallback: PriceMode = 'fixed'): PriceMode {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'variable' || normalized === 'libre') return 'variable';
+  if (normalized === 'fixed' || normalized === 'fixe') return 'fixed';
+  return fallback;
+}
+
+function normalizeBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'oui', 'y'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'non', 'n'].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
 function priceHtFromTtc(ttc: number, taxRate: number): number {
   return roundMoney(taxRate > 0 ? ttc / (1 + taxRate / 100) : ttc);
 }
@@ -170,10 +216,32 @@ function normalizePriceBlock(
 }
 
 function normalizeProductPayload(input: Record<string, unknown>, existing: Record<string, unknown> | null = null) {
+  const existingType = normalizeProductType(existing?.productType, 'standard');
+  const productType = normalizeProductType(input.productType, existingType);
+  const isAselProduct = productType === 'asel_recharge' || productType === 'asel_forfait';
+  const defaultStockManaged = isAselProduct ? false : normalizeBoolean(existing?.stockManaged, true);
+  const stockManaged = normalizeBoolean(input.stockManaged, defaultStockManaged);
+  const existingPriceMode = normalizePriceMode(existing?.priceMode, 'fixed');
+  const priceMode = productType === 'asel_recharge'
+    ? 'variable'
+    : normalizePriceMode(input.priceMode, productType === 'asel_forfait' ? 'fixed' : existingPriceMode);
+  const commissionRate = normalizeRate(input.commissionRate, isAselProduct ? 10 : normalizeRate(existing?.commissionRate, 0));
+  const companyShareRate = normalizeRate(input.companyShareRate, isAselProduct ? 90 : normalizeRate(existing?.companyShareRate, 100));
+  const franchiseManagerShareRate = normalizeRate(
+    input.franchiseManagerShareRate,
+    isAselProduct ? 10 : normalizeRate(existing?.franchiseManagerShareRate, 0),
+  );
+
   return {
     ...input,
     ...normalizePriceBlock(input, existing, 'purchase'),
     ...normalizePriceBlock(input, existing, 'sell'),
+    productType,
+    priceMode,
+    stockManaged,
+    commissionRate,
+    companyShareRate,
+    franchiseManagerShareRate,
   };
 }
 
@@ -197,6 +265,12 @@ const upsertSchema = z.object({
   sellPriceHt: z.number().min(0).optional(),
   sellTaxRate: z.number().min(0).max(100).optional(),
   sellPriceTtc: z.number().min(0).optional(),
+  productType: z.enum(PRODUCT_TYPES).optional(),
+  priceMode: z.enum(PRICE_MODES).optional(),
+  stockManaged: z.boolean().optional(),
+  commissionRate: z.number().min(0).max(100).optional(),
+  companyShareRate: z.number().min(0).max(100).optional(),
+  franchiseManagerShareRate: z.number().min(0).max(100).optional(),
   lowStockThreshold: z.number().int().min(0).optional(),
   active: z.boolean().optional(),
 });
@@ -204,6 +278,11 @@ const upsertSchema = z.object({
 const listQuery = z.object({
   q: z.string().max(100).optional(),
   categoryId: objectId.optional(),
+  productType: z.enum(PRODUCT_TYPES).optional(),
+  stockManaged: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
   active: z
     .enum(['true', 'false'])
     .optional()
@@ -219,11 +298,13 @@ router.get(
   requirePermission('products.view'),
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
-    const { q, categoryId, active, page, pageSize, limit } = req.query as unknown as z.infer<typeof listQuery>;
+    const { q, categoryId, productType, stockManaged, active, page, pageSize, limit } = req.query as unknown as z.infer<typeof listQuery>;
     const effectivePageSize = limit ?? pageSize;
     const skip = (page - 1) * effectivePageSize;
     const filter: Record<string, unknown> = {};
     if (categoryId) filter.categoryId = categoryId;
+    if (productType) filter.productType = productType;
+    if (stockManaged !== undefined) filter.stockManaged = stockManaged;
     if (active !== undefined) filter.active = active;
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
@@ -276,6 +357,10 @@ router.get(
         '19',
         '599',
         '19',
+        'standard',
+        'fixed',
+        'true',
+        '0',
         '3',
         'Franchise Centre',
         '10',
@@ -324,6 +409,10 @@ router.post(
         const purchaseTaxRate = parseNumber(rowValue(row, ['purchaseTaxRate', 'tva achat', 'tax achat']), 19);
         const sellPriceTtc = parseNumber(rowValue(row, ['sellPriceTtc', 'sellPrice', 'prix vente ttc', 'prix vente', 'prixvente']), 0);
         const sellTaxRate = parseNumber(rowValue(row, ['sellTaxRate', 'tva vente', 'tax vente']), 19);
+        const productType = normalizeProductType(rowValue(row, ['productType', 'type produit', 'type']), 'standard');
+        const priceMode = normalizePriceMode(rowValue(row, ['priceMode', 'mode prix', 'prix mode']), productType === 'asel_recharge' ? 'variable' : 'fixed');
+        const stockManaged = normalizeBoolean(rowValue(row, ['stockManaged', 'gestion stock', 'stock gere']), productType === 'standard');
+        const commissionRate = normalizeRate(rowValue(row, ['commissionRate', 'commission', 'taux commission']), productType === 'standard' ? 0 : 10);
         const lowStockThreshold = Math.max(0, Math.round(parseNumber(rowValue(row, ['lowStockThreshold', 'seuil', 'seuilalerte']), 3)));
         const initialQuantity = Math.max(0, Math.round(parseNumber(rowValue(row, ['initialQuantity', 'quantite', 'stock']), 0)));
 
@@ -370,6 +459,12 @@ router.post(
           purchaseTaxRate,
           sellPriceTtc,
           sellTaxRate,
+          productType,
+          priceMode,
+          stockManaged,
+          commissionRate,
+          companyShareRate: productType === 'standard' ? 100 : 90,
+          franchiseManagerShareRate: productType === 'standard' ? 0 : 10,
           lowStockThreshold,
           active: true,
         });
@@ -379,7 +474,7 @@ router.post(
         if (!product) throw new Error('product could not be saved');
 
         let stockAdded = 0;
-        if (initialQuantity > 0) {
+        if (initialQuantity > 0 && product.stockManaged !== false) {
           if (!franchiseName) throw new Error('franchise is required when initialQuantity is positive');
           const franchise = await Franchise.findOne({ name: exactNameRegex(franchiseName), active: true });
           if (!franchise) throw new Error(`franchise not found: ${franchiseName}`);
@@ -393,6 +488,8 @@ router.post(
             note: `Import produits ligne ${rowNumber}`,
           });
           stockAdded = initialQuantity;
+        } else if (initialQuantity > 0) {
+          throw new Error('initialQuantity is not allowed for products without stock management');
         }
 
         imported.push({
@@ -490,6 +587,26 @@ router.delete(
     const product = await Product.findById(id);
     if (!product) throw notFound('Product not found');
 
+    const canHardDelete = HIGH_PRODUCT_DELETE_ROLES.has(req.user!.role);
+    const [stockRef, movementRef, saleRef] = await Promise.all([
+      Stock.exists({ productId: id }),
+      Movement.exists({ productId: id }),
+      Sale.exists({ 'items.productId': id }),
+    ]);
+    const hasHistory = Boolean(stockRef || movementRef || saleRef);
+
+    if (canHardDelete && !hasHistory) {
+      await Product.deleteOne({ _id: id });
+      await audit(req, {
+        action: 'product.delete',
+        entity: 'Product',
+        entityId: id,
+        details: { name: product.name },
+      });
+      res.json({ product, deleted: true });
+      return;
+    }
+
     product.active = false;
     await product.save();
 
@@ -497,10 +614,10 @@ router.delete(
       action: 'product.archive',
       entity: 'Product',
       entityId: id,
-      details: { name: product.name },
+      details: { name: product.name, hasHistory },
     });
 
-    res.json({ product });
+    res.json({ product, deleted: false, archived: true, hasHistory });
   }),
 );
 

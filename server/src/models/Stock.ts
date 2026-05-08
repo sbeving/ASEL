@@ -5,6 +5,7 @@ const stockSchema = new Schema(
     franchiseId: { type: Schema.Types.ObjectId, ref: 'Franchise', required: true },
     productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
     quantity: { type: Number, default: 0, min: 0 },
+    sellPrice: { type: Number, min: 0, default: null },
   },
   { timestamps: true, collection: 'stocks' },
 );

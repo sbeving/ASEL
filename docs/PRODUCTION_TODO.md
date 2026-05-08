@@ -2,6 +2,24 @@
 
 This is the working roadmap for turning ASEL into a production-grade retail, stock, credit, and franchise management system.
 
+## Execution Queue
+
+Work these one by one. Each item should be implemented, tested, and then marked done with the verification that proved it.
+
+- [x] Sales create/cancel integrity: sale creation, invoice numbering, stock decrement, installment creation, cancellation, stock restoration, and closing refresh are handled through transactional service paths. Verified with current server tests/build.
+- [x] Pointage recurring verification: `verif` every 3h, stale dashboards redirect to pointage, missed verification gaps do not count as worked time. Verified with `workSession` tests and web/server/mobile typechecks.
+- [x] Upload storage hygiene: image uploads are compressed before storage, and local uploads were copied to the VPS Docker uploads volume.
+- [x] Treasury receipt numbering: random receipt IDs were replaced with yearly sequence numbers (`REC-YYYY-000001`) and a sparse unique index. Verified with `documentNumbers` tests and server typecheck.
+- [x] Treasury transaction integrity: cashflow create/update/review/delete and mirrored caisse centrale entries now share Mongo transaction paths with single-node fallback. Verified with focused server tests and typecheck.
+- [ ] Treasury ledger: add immutable account ledger lines for franchise cashboxes and caisse centrale balances.
+- [ ] Installment receipts and payment ledger: generate receipt per payment, keep payment history, and keep partial-payment splits traceable.
+- [ ] Role/API matrix tests: prove every endpoint against CEO/admin/HR/franchise/vendeur/commercial/central roles.
+- [ ] Upload object authorization audit: verify every bucket and linked document has object-level access checks.
+- [ ] Report export system: replace any popup/print report with backend or Blob PDF/CSV/XLSX downloads.
+- [ ] Dashboard drilldowns: CEO, commercial director, HR admin, franchise, vendeur, and commercial dashboards need role-specific drilldown cards and exports.
+- [ ] Mobile production pass: SecureStore/session hardening, offline queue, EAS build, tracking reliability, and commercial UX polish.
+- [ ] Backup/restore playbook: automated DB + uploads + PDFs backup, offsite copy, and restore test.
+
 ## 0. Immediate UI/UX Hardening
 
 - [x] Desktop sidebar can be hidden from the top bar.

@@ -4,6 +4,7 @@ import mongoose, { isValidObjectId } from 'mongoose';
 import { requireAuth, requirePermission, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { withMongoTransaction } from '../db/transaction.js';
 import { Reception } from '../models/Reception.js';
 import { Supplier } from '../models/Supplier.js';
 import { Product } from '../models/Product.js';
@@ -427,23 +428,26 @@ router.post(
     const scope = franchiseScopeFilter(req.user);
     if (scope.franchiseId && scope.franchiseId !== reception.franchiseId.toString()) throw forbidden();
 
-    for (const line of reception.lines) {
-      await applyStockDelta({
-        franchiseId: reception.franchiseId,
-        productId: line.productId,
-        delta: line.quantity,
-        type: 'stock_in',
-        userId: req.user!.sub,
-        unitPrice: line.unitPriceTtc,
-        note: `Reception ${reception.number}`,
-        refId: reception._id,
-      });
-    }
+    await withMongoTransaction(async (session) => {
+      for (const line of reception.lines) {
+        await applyStockDelta({
+          franchiseId: reception.franchiseId,
+          productId: line.productId,
+          delta: line.quantity,
+          type: 'stock_in',
+          userId: req.user!.sub,
+          unitPrice: line.unitPriceTtc,
+          note: `Reception ${reception.number}`,
+          refId: reception._id,
+          session,
+        });
+      }
 
-    reception.status = 'validated';
-    reception.validatedAt = new Date();
-    reception.validatedBy = req.user!.sub as any;
-    await reception.save();
+      reception.status = 'validated';
+      reception.validatedAt = new Date();
+      reception.validatedBy = req.user!.sub as any;
+      await reception.save({ session });
+    });
 
     await audit(req, {
       action: 'reception.validate',

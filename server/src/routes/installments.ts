@@ -4,6 +4,7 @@ import { isValidObjectId } from 'mongoose';
 import { requireAuth, requirePermission, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { withMongoTransaction } from '../db/transaction.js';
 import { Installment } from '../models/Installment.js';
 import { Sale } from '../models/Sale.js';
 import { Client } from '../models/Client.js';
@@ -25,8 +26,20 @@ const payload = z.object({
 const listQuery = z.object({
   franchiseId: objectId.optional(),
   status: z.enum(['pending', 'paid', 'late']).optional(),
-  limit: z.coerce.number().int().min(1).max(500).default(200),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(500).default(50),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
 });
+
+function statusForDueDate(dueDate: Date): 'pending' | 'late' {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDate);
+  due.setHours(0, 0, 0, 0);
+  return due < today ? 'late' : 'pending';
+}
 
 router.get(
   '/',
@@ -34,7 +47,7 @@ router.get(
   requirePermission('installments.view'),
   validate(listQuery, 'query'),
   asyncHandler(async (req, res) => {
-    const { franchiseId, status, limit } = req.query as unknown as z.infer<typeof listQuery>;
+    const { franchiseId, status, from, to, page, pageSize, limit } = req.query as unknown as z.infer<typeof listQuery>;
     await refreshInstallmentNotifications();
 
     const scope = franchiseScopeFilter(req.user);
@@ -44,21 +57,43 @@ router.get(
       filter.franchiseId = franchiseId;
     }
     if (status) filter.status = status;
-    const installments = (await Installment.find(filter)
-      .sort({ dueDate: 1 })
-      .limit(limit)
-      .populate({ path: 'saleId', match: { cancelledAt: null }, select: 'total createdAt invoiceNumber saleType paymentStatus' })
-      .populate('clientId', 'fullName phone phone2')
-      .populate('userId', 'username fullName'))
-      .filter((installment) => installment.saleId);
-    res.json({ installments });
+    if (from || to) {
+      filter.dueDate = {
+        ...(from ? { $gte: new Date(`${from}T00:00:00.000Z`) } : {}),
+        ...(to ? { $lte: new Date(`${to}T23:59:59.999Z`) } : {}),
+      };
+    }
+    const effectivePageSize = limit ?? pageSize;
+    const skip = (page - 1) * effectivePageSize;
+    const [total, rows] = await Promise.all([
+      Installment.countDocuments(filter),
+      Installment.find(filter)
+        .sort({ dueDate: 1, createdAt: 1 })
+        .skip(skip)
+        .limit(effectivePageSize)
+        .populate({ path: 'saleId', match: { cancelledAt: null }, select: 'total createdAt invoiceNumber saleType paymentStatus' })
+        .populate('clientId', 'fullName phone phone2')
+        .populate('userId', 'username fullName')
+        .populate('dueDateUpdatedBy', 'username fullName')
+        .populate('paidAtUpdatedBy', 'username fullName'),
+    ]);
+    const installments = rows.filter((installment) => installment.saleId);
+    res.json({
+      installments,
+      meta: {
+        page,
+        pageSize: effectivePageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / effectivePageSize)),
+      },
+    });
   }),
 );
 
 router.post(
   '/',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise'),
+  requireRole('ceo', 'admin', 'superadmin', 'manager', 'franchise'),
   requirePermission('installments.manage'),
   validate(payload),
   asyncHandler(async (req, res) => {
@@ -98,14 +133,104 @@ router.post(
 const paySchema = z.object({
   paymentMethod: z.string().trim().max(40).optional(),
   amount: z.number().positive().optional(),
+  paidAt: z.string().datetime().optional(),
   remainingDueDate: z.string().datetime().optional(),
   note: z.string().trim().max(1000).optional(),
 });
 
+const updateSchema = z.object({
+  dueDate: z.string().datetime().optional(),
+  paidAt: z.string().datetime().optional(),
+  note: z.string().trim().max(1000).optional(),
+  reason: z.string().trim().max(1000).optional(),
+}).refine((value) => value.dueDate || value.paidAt || value.note !== undefined, {
+  message: 'At least one field is required',
+});
+
+router.patch(
+  '/:id',
+  requireAuth,
+  requireRole('ceo', 'admin', 'superadmin', 'manager', 'cash_central_maintainer', 'franchise', 'seller', 'vendeur'),
+  requirePermission('installments.manage'),
+  validate(z.object({ id: objectId }), 'params'),
+  validate(updateSchema),
+  asyncHandler(async (req, res) => {
+    const input = req.body as z.infer<typeof updateSchema>;
+    const installment = await Installment.findById(req.params.id);
+    if (!installment) throw notFound('Installment not found');
+    const scope = franchiseScopeFilter(req.user);
+    if (scope.franchiseId && scope.franchiseId !== installment.franchiseId.toString()) throw forbidden();
+    const linkedSale = await Sale.findById(installment.saleId).select('cancelledAt');
+    if (!linkedSale) throw notFound('Sale not found');
+    if (linkedSale.cancelledAt) throw badRequest('Cannot modify an installment linked to a cancelled sale');
+
+    const before = {
+      dueDate: installment.dueDate,
+      paidAt: installment.paidAt,
+      status: installment.status,
+      note: installment.note,
+    };
+
+    if (input.dueDate) {
+      if (installment.status === 'paid') throw badRequest('Paid installments cannot be rescheduled');
+      const nextDueDate = new Date(input.dueDate);
+      if (Number.isNaN(nextDueDate.getTime())) throw badRequest('Invalid due date');
+      installment.dueDateHistory.push({
+        from: installment.dueDate,
+        to: nextDueDate,
+        reason: input.reason ?? input.note ?? '',
+        userId: req.user!.sub as any,
+        createdAt: new Date(),
+      } as any);
+      installment.dueDate = nextDueDate;
+      installment.status = statusForDueDate(nextDueDate);
+      installment.remind7dSent = false;
+      installment.remind3dSent = false;
+      installment.dueDateUpdatedBy = req.user!.sub as any;
+      installment.dueDateUpdatedAt = new Date();
+    }
+
+    if (input.paidAt) {
+      if (installment.status !== 'paid') throw badRequest('Only paid installments have an encaissement date');
+      const nextPaidAt = new Date(input.paidAt);
+      if (Number.isNaN(nextPaidAt.getTime())) throw badRequest('Invalid payment date');
+      installment.paidAt = nextPaidAt;
+      installment.paidAtUpdatedBy = req.user!.sub as any;
+      installment.paidAtUpdatedAt = new Date();
+    }
+
+    if (input.note !== undefined) {
+      installment.note = input.note;
+    } else if (input.reason) {
+      installment.note = [installment.note, input.reason].filter(Boolean).join(' | ');
+    }
+
+    await installment.save();
+    await audit(req, {
+      action: 'installment.update',
+      entity: 'Installment',
+      entityId: installment._id.toString(),
+      franchiseId: installment.franchiseId.toString(),
+      details: {
+        before,
+        after: {
+          dueDate: installment.dueDate,
+          paidAt: installment.paidAt,
+          status: installment.status,
+          note: installment.note,
+        },
+        reason: input.reason ?? null,
+      },
+    });
+
+    res.json({ installment });
+  }),
+);
+
 router.post(
   '/:id/pay',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise'),
+  requireRole('ceo', 'admin', 'superadmin', 'manager', 'cash_central_maintainer', 'franchise', 'seller', 'vendeur'),
   requirePermission('installments.manage'),
   validate(z.object({ id: objectId }), 'params'),
   validate(paySchema),
@@ -123,6 +248,8 @@ router.post(
     const paidAmount = Math.round((input.amount ?? installment.amount) * 100) / 100;
     if (paidAmount <= 0) throw badRequest('Payment amount must be positive');
     if (paidAmount > installment.amount) throw badRequest('Payment amount cannot exceed installment amount');
+    const paidAt = input.paidAt ? new Date(input.paidAt) : new Date();
+    if (Number.isNaN(paidAt.getTime())) throw badRequest('Invalid payment date');
 
     let remainderInstallment = null;
     const originalAmount = installment.originalAmount ?? installment.amount;
@@ -133,53 +260,65 @@ router.post(
       if (Number.isNaN(remainderDueDate.getTime())) throw badRequest('Invalid remaining due date');
     }
 
-    installment.originalAmount = originalAmount;
-    installment.amount = paidAmount;
-    installment.paidAmount = paidAmount;
-    installment.status = 'paid';
-    installment.paidAt = new Date();
-    installment.paymentMethod = input.paymentMethod ?? installment.paymentMethod;
-    installment.note = input.note
-      ? [installment.note, input.note].filter(Boolean).join(' | ')
-      : installment.note;
-    await installment.save();
+    let salePaymentStatus: string | null = null;
+    await withMongoTransaction(async (session) => {
+      installment.originalAmount = originalAmount;
+      installment.amount = paidAmount;
+      installment.paidAmount = paidAmount;
+      installment.status = 'paid';
+      installment.paidAt = paidAt;
+      installment.paymentMethod = input.paymentMethod ?? installment.paymentMethod;
+      installment.note = input.note
+        ? [installment.note, input.note].filter(Boolean).join(' | ')
+        : installment.note;
+      await installment.save({ session });
 
-    if (remainingAmount > 0) {
-      remainderInstallment = await Installment.create({
-        saleId: installment.saleId,
-        franchiseId: installment.franchiseId,
-        clientId: installment.clientId ?? null,
-        amount: remainingAmount,
-        originalAmount: remainingAmount,
-        dueDate: remainderDueDate!,
-        status: 'pending',
-        paymentMethod: null,
-        note: input.note
-          ? `Reste apres paiement partiel: ${input.note}`
-          : `Reste apres paiement partiel de ${paidAmount}`,
-        splitFromInstallmentId: installment._id,
-        userId: req.user!.sub,
-      });
-    }
+      if (remainingAmount > 0) {
+        const [createdRemainder] = await Installment.create(
+          [
+            {
+              saleId: installment.saleId,
+              franchiseId: installment.franchiseId,
+              clientId: installment.clientId ?? null,
+              amount: remainingAmount,
+              originalAmount: remainingAmount,
+              dueDate: remainderDueDate!,
+              status: statusForDueDate(remainderDueDate!),
+              paymentMethod: null,
+              note: input.note
+                ? `Reste apres paiement partiel: ${input.note}`
+                : `Reste apres paiement partiel de ${paidAmount}`,
+              splitFromInstallmentId: installment._id,
+              userId: req.user!.sub,
+            },
+          ],
+          { session },
+        );
+        remainderInstallment = createdRemainder ?? null;
+      }
 
-    const sale = await Sale.findById(installment.saleId).select('total amountReceived paymentStatus');
-    if (sale) {
-      const received = Math.round(((sale.amountReceived ?? 0) + paidAmount) * 100) / 100;
-      sale.amountReceived = Math.min(sale.total, received);
-      sale.paymentStatus = sale.amountReceived >= sale.total
-        ? 'paid'
-        : sale.amountReceived > 0
-          ? 'partial'
-          : 'pending';
-      await sale.save();
-    }
+      const sale = await Sale.findById(installment.saleId)
+        .select('total amountReceived paymentStatus')
+        .session(session ?? null);
+      if (sale) {
+        const received = Math.round(((sale.amountReceived ?? 0) + paidAmount) * 100) / 100;
+        sale.amountReceived = Math.min(sale.total, received);
+        sale.paymentStatus = sale.amountReceived >= sale.total
+          ? 'paid'
+          : sale.amountReceived > 0
+            ? 'partial'
+            : 'pending';
+        salePaymentStatus = sale.paymentStatus;
+        await sale.save({ session });
+      }
+    });
 
     await audit(req, {
       action: 'installment.pay',
       entity: 'Installment',
       entityId: installment._id.toString(),
       franchiseId: installment.franchiseId.toString(),
-      details: { amount: paidAmount, remainingAmount, salePaymentStatus: sale?.paymentStatus ?? null },
+      details: { amount: paidAmount, paidAt, remainingAmount, salePaymentStatus },
     });
 
     res.json({ installment, remainderInstallment });
@@ -189,7 +328,7 @@ router.post(
 router.post(
   '/generate',
   requireAuth,
-  requireRole('admin', 'manager', 'franchise'),
+  requireRole('ceo', 'admin', 'superadmin', 'manager', 'franchise'),
   requirePermission('installments.manage'),
   validate(z.object({
     saleId: objectId,

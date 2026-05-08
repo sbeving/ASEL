@@ -6,10 +6,11 @@ import { TimeLog } from '../models/TimeLog.js';
 import { User } from '../models/User.js';
 import { LeaveRequest } from '../models/LeaveRequest.js';
 import { WORKER_ROLES } from '../utils/pointage.js';
+import { computeWorkedMinutes } from '../utils/workSession.js';
 
 const router = Router();
 
-type TimeLogType = 'entree' | 'sortie' | 'pause_debut' | 'pause_fin';
+type TimeLogType = 'entree' | 'sortie' | 'pause_debut' | 'pause_fin' | 'verif';
 
 interface LeanTimeLog {
   userId: string | { _id?: unknown; toString?: () => string };
@@ -30,63 +31,6 @@ function userIdOf(value: LeanTimeLog['userId']) {
   if (typeof value === 'string') return value;
   const id = (value as { _id?: { toString?: () => string } })?._id;
   return id?.toString?.() ?? value?.toString?.() ?? '';
-}
-
-function computeWorked(logs: LeanTimeLog[]) {
-  const sorted = [...logs].sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
-  let shiftStart: number | null = null;
-  let breakStart: number | null = null;
-  let pausedMs = 0;
-  let totalMs = 0;
-  let lastType: TimeLogType | null = null;
-
-  for (const log of sorted) {
-    const at = new Date(log.timestamp).getTime();
-    if (!Number.isFinite(at)) continue;
-    lastType = log.type;
-
-    if (log.type === 'entree') {
-      shiftStart = at;
-      breakStart = null;
-      pausedMs = 0;
-      continue;
-    }
-
-    if (shiftStart === null) continue;
-
-    if (log.type === 'pause_debut') {
-      if (breakStart === null) breakStart = at;
-      continue;
-    }
-
-    if (log.type === 'pause_fin') {
-      if (breakStart !== null) {
-        pausedMs += Math.max(0, at - breakStart);
-        breakStart = null;
-      }
-      continue;
-    }
-
-    if (log.type === 'sortie') {
-      const effectivePausedMs = pausedMs + (breakStart !== null ? Math.max(0, at - breakStart) : 0);
-      totalMs += Math.max(0, at - shiftStart - effectivePausedMs);
-      shiftStart = null;
-      breakStart = null;
-      pausedMs = 0;
-    }
-  }
-
-  const activeShift = shiftStart !== null && Date.now() - shiftStart <= 18 * 60 * 60 * 1000;
-  if (activeShift && shiftStart !== null) {
-    const effectivePausedMs = pausedMs + (breakStart !== null ? Math.max(0, Date.now() - breakStart) : 0);
-    totalMs += Math.max(0, Date.now() - shiftStart - effectivePausedMs);
-  }
-
-  return {
-    workedMinutes: Math.round(totalMs / 60000),
-    activeShift,
-    lastType,
-  };
 }
 
 router.get(
@@ -148,7 +92,7 @@ router.get(
     }
 
     const employees = workers.map((worker) => {
-      const stats = computeWorked(logsByUser.get(worker._id.toString()) ?? []);
+      const stats = computeWorkedMinutes(logsByUser.get(worker._id.toString()) ?? []);
       return {
         _id: worker._id.toString(),
         fullName: worker.fullName,

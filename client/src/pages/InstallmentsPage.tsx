@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { api, apiError } from '../lib/api';
 import { PageHeader } from '../components/PageHeader';
 import { ContactActions } from '../components/ContactActions';
 import { Modal } from '../components/Modal';
+import { TablePagination } from '../components/TablePagination';
 import { dateOnly, dateTime, money } from '../lib/money';
 import { useAuth } from '../auth/AuthContext';
-import type { Client, Franchise, Installment, Sale } from '../lib/types';
+import type { Client, Franchise, Installment, PageMeta, Sale } from '../lib/types';
 
 function toLocalDateTimeInputValue(date: Date): string {
   const year = date.getFullYear();
@@ -56,14 +58,36 @@ function installmentReminderMessage(installment: Installment): string {
   return `Bonjour ${clientName}, rappel ASEL Mobile Tunisie : votre échéance de ${money(installment.amount)} pour ${sale} ${dueText} ${dateOnly(installment.dueDate)}. Merci de nous contacter ou de passer au règlement.`;
 }
 
+type InstallmentStatusFilter = '' | 'pending' | 'paid' | 'late';
+
+function readStatusParam(value: string | null): InstallmentStatusFilter {
+  return value === 'pending' || value === 'paid' || value === 'late' ? value : '';
+}
+
 export function InstallmentsPage() {
   const { user } = useAuth();
-  const isGlobal = user?.role === 'admin' || user?.role === 'manager';
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isGlobal =
+    user?.role === 'ceo' ||
+    user?.role === 'admin' ||
+    user?.role === 'manager' ||
+    user?.role === 'superadmin' ||
+    user?.role === 'cash_central_maintainer';
+  const canCreateInstallments =
+    user?.role === 'ceo' ||
+    user?.role === 'admin' ||
+    user?.role === 'manager' ||
+    user?.role === 'superadmin' ||
+    user?.role === 'franchise';
   const defaultFid = isGlobal ? '' : (user?.franchiseId ?? '');
 
   const qc = useQueryClient();
   const [franchiseId, setFranchiseId] = useState(defaultFid);
-  const [statusFilter, setStatusFilter] = useState<'' | 'pending' | 'paid' | 'late'>('');
+  const [statusFilter, setStatusFilter] = useState<InstallmentStatusFilter>(() => readStatusParam(searchParams.get('status')));
+  const [fromDate, setFromDate] = useState(searchParams.get('from') ?? '');
+  const [toDate, setToDate] = useState(searchParams.get('to') ?? '');
+  const [page, setPage] = useState(1);
+  const pageSize = 40;
   const [saleId, setSaleId] = useState('');
   const [clientId, setClientId] = useState('');
   const [amount, setAmount] = useState(0);
@@ -73,11 +97,35 @@ export function InstallmentsPage() {
   const [paying, setPaying] = useState<Installment | null>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentDateLocal, setPaymentDateLocal] = useState(toLocalDateTimeInputValue(new Date()));
   const [remainingDueDateLocal, setRemainingDueDateLocal] = useState(
     toLocalDateTimeInputValue(new Date(Date.now() + 4 * 24 * 60 * 60 * 1000)),
   );
   const [paymentNote, setPaymentNote] = useState('');
+  const [rescheduling, setRescheduling] = useState<Installment | null>(null);
+  const [rescheduleDueDateLocal, setRescheduleDueDateLocal] = useState('');
+  const [rescheduleReason, setRescheduleReason] = useState('');
+  const [editingPaymentDate, setEditingPaymentDate] = useState<Installment | null>(null);
+  const [editedPaymentDateLocal, setEditedPaymentDateLocal] = useState('');
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setStatusFilter(readStatusParam(searchParams.get('status')));
+    setFromDate(searchParams.get('from') ?? '');
+    setToDate(searchParams.get('to') ?? '');
+  }, [searchParams]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [franchiseId, statusFilter, fromDate, toDate]);
+
+  function updateStatusFilter(value: InstallmentStatusFilter) {
+    setStatusFilter(value);
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set('status', value);
+    else next.delete('status');
+    setSearchParams(next, { replace: true });
+  }
 
   const franchises = useQuery({
     enabled: isGlobal,
@@ -86,6 +134,7 @@ export function InstallmentsPage() {
   });
 
   const sales = useQuery({
+    enabled: canCreateInstallments,
     queryKey: ['sales', franchiseId],
     queryFn: async () =>
       (
@@ -99,6 +148,7 @@ export function InstallmentsPage() {
   });
 
   const clients = useQuery({
+    enabled: canCreateInstallments,
     queryKey: ['clients-for-installments', franchiseId],
     queryFn: async () =>
       (
@@ -112,16 +162,20 @@ export function InstallmentsPage() {
   });
 
   const installments = useQuery({
-    queryKey: ['installments', franchiseId, statusFilter],
+    queryKey: ['installments', franchiseId, statusFilter, fromDate, toDate, page],
     queryFn: async () =>
       (
-        await api.get<{ installments: Installment[] }>('/installments', {
+        await api.get<{ installments: Installment[]; meta: PageMeta }>('/installments', {
           params: {
             franchiseId: franchiseId || undefined,
             status: statusFilter || undefined,
+            from: fromDate || undefined,
+            to: toDate || undefined,
+            page,
+            pageSize,
           },
         })
-      ).data.installments,
+      ).data,
   });
 
   const selectedSaleAmount = useMemo(() => {
@@ -161,9 +215,12 @@ export function InstallmentsPage() {
       if (isPartial && Number.isNaN(remainingDueDate.getTime())) {
         throw new Error('Date du reste invalide');
       }
+      const paidAt = new Date(paymentDateLocal);
+      if (Number.isNaN(paidAt.getTime())) throw new Error("Date d'encaissement invalide");
       await api.post(`/installments/${paying._id}/pay`, {
         paymentMethod,
         amount: numericPaymentAmount,
+        paidAt: paidAt.toISOString(),
         remainingDueDate: isPartial ? remainingDueDate.toISOString() : undefined,
         note: paymentNote || undefined,
       });
@@ -172,6 +229,7 @@ export function InstallmentsPage() {
       setPaying(null);
       setPaymentAmount('');
       setPaymentMethod('cash');
+      setPaymentDateLocal(toLocalDateTimeInputValue(new Date()));
       setPaymentNote('');
       qc.invalidateQueries({ queryKey: ['installments'] });
       qc.invalidateQueries({ queryKey: ['clients'] });
@@ -179,12 +237,49 @@ export function InstallmentsPage() {
     onError: (error) => setErr(error instanceof Error ? error.message : apiError(error).message),
   });
 
+  const updateInstallment = useMutation({
+    mutationFn: async (payload: { id: string; dueDate?: string; paidAt?: string; note?: string; reason?: string }) => {
+      await api.patch(`/installments/${payload.id}`, payload);
+    },
+    onSuccess: () => {
+      setErr(null);
+      setRescheduling(null);
+      setEditingPaymentDate(null);
+      setRescheduleReason('');
+      qc.invalidateQueries({ queryKey: ['installments'] });
+    },
+    onError: (error) => setErr(error instanceof Error ? error.message : apiError(error).message),
+  });
+
+  function openPaymentModal(installment: Installment) {
+    setPaying(installment);
+    setPaymentAmount(String(installment.amount));
+    setPaymentDateLocal(toLocalDateTimeInputValue(new Date()));
+    setRemainingDueDateLocal(toLocalDateTimeInputValue(new Date(Date.now() + 4 * 24 * 60 * 60 * 1000)));
+    setPaymentMethod('cash');
+    setPaymentNote('');
+    setErr(null);
+  }
+
+  function openRescheduleModal(installment: Installment) {
+    setRescheduling(installment);
+    setRescheduleDueDateLocal(toLocalDateTimeInputValue(new Date(installment.dueDate)));
+    setRescheduleReason('');
+    setErr(null);
+  }
+
+  function openPaymentDateModal(installment: Installment) {
+    setEditingPaymentDate(installment);
+    setEditedPaymentDateLocal(toLocalDateTimeInputValue(new Date(installment.paidAt || new Date())));
+    setErr(null);
+  }
+
   return (
     <>
       <PageHeader title="Échéances" subtitle="Suivi des paiements à terme" />
 
       <section className="card mb-5 p-4">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
           {isGlobal ? (
             <select className="input" value={franchiseId} onChange={(e) => setFranchiseId(e.target.value)}>
               <option value="">Toutes franchises</option>
@@ -195,51 +290,92 @@ export function InstallmentsPage() {
           ) : (
             <input className="input" disabled value={user?.franchiseId ? 'Franchise courante' : 'Aucune franchise'} />
           )}
-          <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as '' | 'pending' | 'paid' | 'late')}>
+          <select className="input" value={statusFilter} onChange={(e) => updateStatusFilter(e.target.value as InstallmentStatusFilter)}>
             <option value="">Tous statuts</option>
             <option value="pending">En attente</option>
             <option value="paid">Payée</option>
             <option value="late">En retard</option>
           </select>
-          <div className="self-center text-sm text-slate-500">{installments.data?.length ?? 0} échéance(s)</div>
+          <input type="date" className="input" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+          <input type="date" className="input" value={toDate} onChange={(event) => setToDate(event.target.value)} />
+          <div className="self-center text-sm text-slate-500">{installments.data?.meta.total ?? 0} échéance(s)</div>
         </div>
-      </section>
-
-      <section className="card mb-5 p-4">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-          <select className="input" value={saleId} onChange={(e) => setSaleId(e.target.value)}>
-            <option value="">— Vente —</option>
-            {(sales.data ?? []).map((sale) => (
-              <option key={sale._id} value={sale._id}>
-                {(sale.invoiceNumber || dateTime(sale.createdAt))} · {money(sale.total)}
-              </option>
-            ))}
-          </select>
-          <select className="input" value={clientId} onChange={(e) => setClientId(e.target.value)}>
-            <option value="">Sans client</option>
-            {(clients.data ?? []).map((client) => (
-              <option key={client._id} value={client._id}>{client.fullName}</option>
-            ))}
-          </select>
-          <input
-            type="number"
-            min={0}
-            step="0.01"
-            className="input"
-            value={amount}
-            onChange={(e) => setAmount(Math.max(0, Number(e.target.value) || 0))}
-          />
-          <input type="datetime-local" className="input" value={dueDateLocal} onChange={(e) => setDueDateLocal(e.target.value)} />
-          <button className="btn-primary" disabled={!saleId || create.isPending} onClick={() => create.mutate()}>
-            {create.isPending ? 'Création…' : 'Créer échéance'}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn-secondary !px-3 !py-1.5 !text-xs"
+            onClick={() => {
+              const today = new Date().toISOString().slice(0, 10);
+              setFromDate(today);
+              setToDate(today);
+            }}
+          >
+            Aujourd'hui
+          </button>
+          <button
+            type="button"
+            className="btn-secondary !px-3 !py-1.5 !text-xs"
+            onClick={() => {
+              const now = new Date();
+              setFromDate(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10));
+              setToDate(new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10));
+            }}
+          >
+            Ce mois
+          </button>
+          <button
+            type="button"
+            className="btn-ghost !px-3 !py-1.5 !text-xs"
+            onClick={() => {
+              updateStatusFilter('');
+              setFromDate('');
+              setToDate('');
+              setFranchiseId(defaultFid);
+            }}
+          >
+            Effacer filtres
           </button>
         </div>
-        {saleId && <div className="mt-2 text-sm text-slate-500">Montant de la vente: {money(selectedSaleAmount)}</div>}
-        {err && <div className="mt-2 text-sm text-rose-600">{err}</div>}
+        <TablePagination meta={installments.data?.meta} onPageChange={setPage} className="px-1 py-3" />
       </section>
 
+      {canCreateInstallments && (
+        <section className="card mb-5 p-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+            <select className="input" value={saleId} onChange={(e) => setSaleId(e.target.value)}>
+              <option value="">— Vente —</option>
+              {(sales.data ?? []).map((sale) => (
+                <option key={sale._id} value={sale._id}>
+                  {(sale.invoiceNumber || dateTime(sale.createdAt))} · {money(sale.total)}
+                </option>
+              ))}
+            </select>
+            <select className="input" value={clientId} onChange={(e) => setClientId(e.target.value)}>
+              <option value="">Sans client</option>
+              {(clients.data ?? []).map((client) => (
+                <option key={client._id} value={client._id}>{client.fullName}</option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              className="input"
+              value={amount}
+              onChange={(e) => setAmount(Math.max(0, Number(e.target.value) || 0))}
+            />
+            <input type="datetime-local" className="input" value={dueDateLocal} onChange={(e) => setDueDateLocal(e.target.value)} />
+            <button className="btn-primary" disabled={!saleId || create.isPending} onClick={() => create.mutate()}>
+              {create.isPending ? 'Création…' : 'Créer échéance'}
+            </button>
+          </div>
+          {saleId && <div className="mt-2 text-sm text-slate-500">Montant de la vente: {money(selectedSaleAmount)}</div>}
+          {err && <div className="mt-2 text-sm text-rose-600">{err}</div>}
+        </section>
+      )}
+
       <section className="grid gap-3 md:hidden">
-        {(installments.data ?? []).map((installment) => {
+        {(installments.data?.installments ?? []).map((installment) => {
           const saleLabel =
             typeof installment.saleId === 'object' && installment.saleId
               ? installment.saleId.invoiceNumber || dateTime(installment.saleId.createdAt)
@@ -276,27 +412,32 @@ export function InstallmentsPage() {
                   className="mt-3"
                 />
               )}
-              {installment.status !== 'paid' && (
-                <div className="mt-3 flex justify-end">
+              {installment.status !== 'paid' ? (
+                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  <button
+                    className="btn-ghost !px-3 !py-1.5"
+                    onClick={() => openRescheduleModal(installment)}
+                  >
+                    Reporter
+                  </button>
                   <button
                     className="btn-secondary !px-3 !py-1.5"
-                    onClick={() => {
-                      setPaying(installment);
-                      setPaymentAmount(String(installment.amount));
-                      setRemainingDueDateLocal(toLocalDateTimeInputValue(new Date(Date.now() + 4 * 24 * 60 * 60 * 1000)));
-                      setPaymentMethod('cash');
-                      setPaymentNote('');
-                      setErr(null);
-                    }}
+                    onClick={() => openPaymentModal(installment)}
                   >
                     Encaisser
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-3 flex justify-end">
+                  <button className="btn-ghost !px-3 !py-1.5" onClick={() => openPaymentDateModal(installment)}>
+                    Modifier date paiement
                   </button>
                 </div>
               )}
             </article>
           );
         })}
-        {!installments.isLoading && (installments.data?.length ?? 0) === 0 && (
+        {!installments.isLoading && (installments.data?.installments.length ?? 0) === 0 && (
           <div className="card p-5 text-sm text-slate-400">Aucune echeance.</div>
         )}
       </section>
@@ -316,7 +457,7 @@ export function InstallmentsPage() {
               </tr>
             </thead>
             <tbody>
-              {(installments.data ?? []).map((installment) => (
+              {(installments.data?.installments ?? []).map((installment) => (
                 <tr key={installment._id}>
                   <td className="td-action">
                     {typeof installment.saleId === 'object' && installment.saleId
@@ -345,26 +486,38 @@ export function InstallmentsPage() {
                   </td>
                   <td className="td">{installment.paidAt ? dateOnly(installment.paidAt) : '—'}</td>
                   <td className="td">
-                    {installment.status !== 'paid' && (
-                      <button
-                        className="btn btn-secondary"
-                        onClick={() => {
-                          setPaying(installment);
-                          setPaymentAmount(String(installment.amount));
-                          setRemainingDueDateLocal(toLocalDateTimeInputValue(new Date(Date.now() + 4 * 24 * 60 * 60 * 1000)));
-                          setPaymentMethod('cash');
-                          setPaymentNote('');
-                          setErr(null);
-                        }}
-                        disabled={pay.isPending}
-                      >
-                        Encaisser
-                      </button>
-                    )}
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {installment.status !== 'paid' ? (
+                        <>
+                          <button
+                            className="btn-ghost !px-3 !py-1.5"
+                            onClick={() => openRescheduleModal(installment)}
+                            disabled={updateInstallment.isPending}
+                          >
+                            Reporter
+                          </button>
+                          <button
+                            className="btn btn-secondary"
+                            onClick={() => openPaymentModal(installment)}
+                            disabled={pay.isPending}
+                          >
+                            Encaisser
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className="btn-ghost !px-3 !py-1.5"
+                          onClick={() => openPaymentDateModal(installment)}
+                          disabled={updateInstallment.isPending}
+                        >
+                          Modifier date
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
-              {!installments.isLoading && (installments.data?.length ?? 0) === 0 && (
+              {!installments.isLoading && (installments.data?.installments.length ?? 0) === 0 && (
                 <tr>
                   <td className="td text-slate-400" colSpan={7}>Aucune échéance.</td>
                 </tr>
@@ -372,6 +525,7 @@ export function InstallmentsPage() {
             </tbody>
           </table>
         </div>
+        <TablePagination meta={installments.data?.meta} onPageChange={setPage} className="px-1 py-3" />
       </section>
 
       {paying && (
@@ -422,6 +576,15 @@ export function InstallmentsPage() {
                   <option value="other">Autre</option>
                 </select>
               </div>
+              <div className="sm:col-span-2">
+                <label className="label">Date d'encaissement</label>
+                <input
+                  type="datetime-local"
+                  className="input"
+                  value={paymentDateLocal}
+                  onChange={(event) => setPaymentDateLocal(event.target.value)}
+                />
+              </div>
             </div>
             {Math.max(0, Number(paymentAmount) || 0) < paying.amount && (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
@@ -440,6 +603,110 @@ export function InstallmentsPage() {
             <div>
               <label className="label">Note paiement</label>
               <textarea className="input min-h-[88px]" value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} />
+            </div>
+            {err && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</div>}
+          </div>
+        </Modal>
+      )}
+
+      {rescheduling && (
+        <Modal
+          open
+          size="md"
+          title="Reporter echeance"
+          onClose={() => setRescheduling(null)}
+          footer={
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button className="btn-secondary" onClick={() => setRescheduling(null)}>Annuler</button>
+              <button
+                className="btn-primary"
+                disabled={updateInstallment.isPending}
+                onClick={() => {
+                  const dueDate = new Date(rescheduleDueDateLocal);
+                  if (Number.isNaN(dueDate.getTime())) {
+                    setErr('Nouvelle date invalide');
+                    return;
+                  }
+                  updateInstallment.mutate({
+                    id: rescheduling._id,
+                    dueDate: dueDate.toISOString(),
+                    reason: rescheduleReason || undefined,
+                  });
+                }}
+              >
+                {updateInstallment.isPending ? 'Modification...' : 'Valider report'}
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              Si le client ne peut pas payer a la date prevue, on garde la trace de l'ancienne date et on reporte cette echeance.
+            </div>
+            <div>
+              <label className="label">Nouvelle date d'echeance</label>
+              <input
+                type="datetime-local"
+                className="input"
+                value={rescheduleDueDateLocal}
+                onChange={(event) => setRescheduleDueDateLocal(event.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">Motif / note</label>
+              <textarea
+                className="input min-h-[88px]"
+                value={rescheduleReason}
+                onChange={(event) => setRescheduleReason(event.target.value)}
+                placeholder="Client indisponible, salaire reporte, arrangement..."
+              />
+            </div>
+            {err && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</div>}
+          </div>
+        </Modal>
+      )}
+
+      {editingPaymentDate && (
+        <Modal
+          open
+          size="md"
+          title="Modifier date d'encaissement"
+          onClose={() => setEditingPaymentDate(null)}
+          footer={
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button className="btn-secondary" onClick={() => setEditingPaymentDate(null)}>Annuler</button>
+              <button
+                className="btn-primary"
+                disabled={updateInstallment.isPending}
+                onClick={() => {
+                  const paidAt = new Date(editedPaymentDateLocal);
+                  if (Number.isNaN(paidAt.getTime())) {
+                    setErr("Date d'encaissement invalide");
+                    return;
+                  }
+                  updateInstallment.mutate({ id: editingPaymentDate._id, paidAt: paidAt.toISOString() });
+                }}
+              >
+                {updateInstallment.isPending ? 'Modification...' : 'Enregistrer'}
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Paiement encaisse</div>
+              <div className="mt-1 text-2xl font-bold text-slate-900">
+                {money(editingPaymentDate.paidAmount || editingPaymentDate.amount)}
+              </div>
+            </div>
+            <div>
+              <label className="label">Date d'encaissement</label>
+              <input
+                type="datetime-local"
+                className="input"
+                value={editedPaymentDateLocal}
+                onChange={(event) => setEditedPaymentDateLocal(event.target.value)}
+              />
             </div>
             {err && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</div>}
           </div>

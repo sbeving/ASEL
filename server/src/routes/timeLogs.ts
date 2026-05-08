@@ -16,6 +16,7 @@ import { env } from '../config/env.js';
 import { ROLES, type Role, isGlobalRole } from '../utils/roles.js';
 import { getSiegePointageZone, isSiegePointageRole, saveSiegePointageZone } from '../utils/pointage.js';
 import { assertLocationIntegrity, deviceIntegritySchema } from '../utils/locationIntegrity.js';
+import { computeWorkedMinutes } from '../utils/workSession.js';
 
 const router = Router();
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
@@ -25,7 +26,7 @@ interface GeoPoint {
 }
 
 const logSchema = z.object({
-  type: z.enum(['entree', 'sortie', 'pause_debut', 'pause_fin']),
+  type: z.enum(['entree', 'sortie', 'pause_debut', 'pause_fin', 'verif']),
   gps: z.object({
     lat: z.number().min(-90).max(90),
     lng: z.number().min(-180).max(180),
@@ -171,6 +172,27 @@ function commercialZoneAccessFilter(user: JwtPayload, activeOnly = true) {
   return filter;
 }
 
+function canSeeSiegePointageZone(user: JwtPayload) {
+  return isGlobalRole(user.role) || isSiegePointageRole(user.role);
+}
+
+function groupLogsByUser(logs: Array<{ userId: unknown; type: string; timestamp: Date }>) {
+  const logsByUser = new Map<string, Array<{ type: string; timestamp: Date }>>();
+  for (const log of logs) {
+    const id =
+      typeof log.userId === 'string'
+        ? log.userId
+        : (log.userId as { _id?: { toString?: () => string }; toString?: () => string } | null)?._id?.toString?.() ??
+          (log.userId as { toString?: () => string } | null)?.toString?.() ??
+          '';
+    if (!id) continue;
+    const rows = logsByUser.get(id) ?? [];
+    rows.push({ type: log.type, timestamp: log.timestamp });
+    logsByUser.set(id, rows);
+  }
+  return logsByUser;
+}
+
 function pointInPolygon(point: GeoPoint, polygon: GeoPoint[]): boolean {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
@@ -276,7 +298,8 @@ router.get(
   '/siege-zone',
   requireAuth,
   requirePermission('timelogs.view.self', 'timelogs.view.all'),
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    if (!canSeeSiegePointageZone(req.user!)) throw forbidden();
     res.json({ zone: await getSiegePointageZone() });
   }),
 );
@@ -284,7 +307,7 @@ router.get(
 router.patch(
   '/siege-zone',
   requireAuth,
-  requireRole('admin', 'manager'),
+  requireRole('ceo', 'admin', 'superadmin', 'manager'),
   validate(siegeZoneSchema),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof siegeZoneSchema>;
@@ -358,7 +381,7 @@ router.get(
     if (timestampFilter) filter.timestamp = mongoose.trusted(timestampFilter);
 
     const skip = (page - 1) * pageSize;
-    const [total, logs, activeUsers, entreeCount, sortieCount, pauseDebutCount, pauseFinCount] = await Promise.all([
+    const [total, logs, activityLogs, entreeCount, sortieCount, pauseDebutCount, pauseFinCount, verifCount] = await Promise.all([
       TimeLog.countDocuments(filter),
       TimeLog.find(filter)
         .sort({ timestamp: -1 })
@@ -366,23 +389,28 @@ router.get(
         .limit(pageSize)
         .populate('userId', 'fullName username role')
         .populate('franchiseId', 'name'),
-      TimeLog.distinct('userId', filter),
+      TimeLog.find(filter).sort({ timestamp: 1 }).select('userId type timestamp').lean(),
       TimeLog.countDocuments({ ...filter, type: 'entree' }),
       TimeLog.countDocuments({ ...filter, type: 'sortie' }),
       TimeLog.countDocuments({ ...filter, type: 'pause_debut' }),
       TimeLog.countDocuments({ ...filter, type: 'pause_fin' }),
+      TimeLog.countDocuments({ ...filter, type: 'verif' }),
     ]);
+    const activeUsers = [...groupLogsByUser(activityLogs).values()]
+      .map((rows) => computeWorkedMinutes(rows))
+      .filter((row) => row.activeShift).length;
 
     res.json({
       logs,
       summary: {
         total,
-        activeUsers: activeUsers.length,
+        activeUsers,
         byType: {
           entree: entreeCount,
           sortie: sortieCount,
           pause_debut: pauseDebutCount,
           pause_fin: pauseFinCount,
+          verif: verifCount,
         },
       },
       meta: {
@@ -560,7 +588,7 @@ router.get(
       string,
       { _id: string; name: string; kind: 'franchise' | 'siege'; gps: { lat: number; lng: number }; radiusMeters: number }
     >();
-    if (!commercialZoneId && (!workingZone || workingZone === 'siege')) {
+    if (canSeeSiegePointageZone(req.user!) && !commercialZoneId && (!workingZone || workingZone === 'siege')) {
       zonesMap.set('siege', {
         _id: 'siege',
         name: siegeZone.name,

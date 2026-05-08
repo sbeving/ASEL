@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleMarker, MapContainer, Polygon, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet';
+import { CircleMarker, MapContainer, Polygon, Popup, useMap, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { api, apiError } from '../lib/api';
 import { useAuth } from '../auth/AuthContext';
 import { PageHeader } from '../components/PageHeader';
+import { MapTileToggle, MapTiles, type MapTileMode } from '../components/MapTiles';
 import type { CommercialZone, Franchise, NetworkPoint, User } from '../lib/types';
 
 const typeLabel: Record<NetworkPoint['type'], string> = {
@@ -66,6 +67,7 @@ export function MapPage() {
   const qc = useQueryClient();
   const [typeFilter, setTypeFilter] = useState<'all' | NetworkPoint['type']>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | NetworkPoint['status']>('all');
+  const [mapTileMode, setMapTileMode] = useState<MapTileMode>('street');
   const [selectedPointId, setSelectedPointId] = useState('');
   const [live, setLive] = useState(true);
   const [drawingZone, setDrawingZone] = useState(false);
@@ -395,10 +397,7 @@ export function MapPage() {
             <div className="relative z-0 h-[calc(100vh-330px)] min-h-[480px]">
               <MapContainer center={[36.8, 10.1]} zoom={7} scrollWheelZoom className="h-full w-full">
                 <FitBounds points={points} selectedPoint={selectedPoint} />
-                <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
+                <MapTiles mode={mapTileMode} />
                 {zones.map((zone) => (
                   <Polygon
                     key={zone._id}
@@ -471,6 +470,7 @@ export function MapPage() {
                   </Fragment>
                 ))}
               </MapContainer>
+              <MapTileToggle value={mapTileMode} onChange={setMapTileMode} className="absolute right-3 top-3" />
               <MapLegend items={mapLegendItems} />
             </div>
           </div>

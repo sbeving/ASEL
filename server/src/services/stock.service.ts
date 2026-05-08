@@ -13,6 +13,8 @@ interface StockChange {
   type: MovementType;
   userId?: string | mongoose.Types.ObjectId;
   unitPrice?: number;
+  sellPrice?: number;
+  sellPriceOnInsert?: number;
   note?: string;
   refId?: mongoose.Types.ObjectId | null;
   session?: mongoose.ClientSession;
@@ -23,7 +25,7 @@ interface StockChange {
  * if the resulting quantity would go negative. Logs a Movement row.
  */
 export async function applyStockDelta(change: StockChange) {
-  const { franchiseId, productId, delta, type, userId, unitPrice, note, refId, session } = change;
+  const { franchiseId, productId, delta, type, userId, unitPrice, sellPrice, sellPriceOnInsert, note, refId, session } = change;
 
   if (!Number.isFinite(delta) || delta === 0) {
     throw badRequest('Stock delta must be a non-zero number');
@@ -39,9 +41,15 @@ export async function applyStockDelta(change: StockChange) {
     );
     if (!updatedStock) throw badRequest('Insufficient stock for this operation');
   } else {
+    const update: Record<string, unknown> = { $inc: { quantity: delta } };
+    if (sellPrice !== undefined) {
+      update.$set = { sellPrice };
+    } else if (sellPriceOnInsert !== undefined) {
+      update.$setOnInsert = { sellPrice: sellPriceOnInsert };
+    }
     updatedStock = await Stock.findOneAndUpdate(
       { franchiseId, productId },
-      { $inc: { quantity: delta } },
+      update,
       { upsert: true, new: true, session },
     );
   }

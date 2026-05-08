@@ -111,6 +111,7 @@ const entrySchema = z.object({
   productId: objectId,
   quantity: z.number().int().positive(),
   unitPrice: z.number().min(0).optional(),
+  sellPrice: z.number().min(0).optional(),
   note: z.string().max(500).optional(),
 });
 
@@ -126,6 +127,7 @@ router.post(
 
     const product = await Product.findById(body.productId);
     if (!product) throw badRequest('Product not found');
+    if (product.stockManaged === false) throw badRequest('This product does not manage physical stock');
 
     await applyStockDelta({
       franchiseId: fid,
@@ -134,13 +136,15 @@ router.post(
       type: 'stock_in',
       userId: req.user!.sub,
       unitPrice: body.unitPrice ?? product.purchasePrice ?? 0,
+      sellPrice: body.sellPrice,
+      sellPriceOnInsert: product.sellPrice ?? 0,
       note: body.note,
     });
     await audit(req, {
       action: 'stock.entry',
       entity: 'Stock',
       franchiseId: fid,
-      details: { productId: body.productId, quantity: body.quantity },
+      details: { productId: body.productId, quantity: body.quantity, sellPrice: body.sellPrice ?? null },
     });
     res.status(201).json({ ok: true });
   }),
@@ -153,10 +157,15 @@ const adjustSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
-const stockUpdateSchema = z.object({
-  quantity: z.number().int().min(0),
-  note: z.string().max(500).optional(),
-});
+const stockUpdateSchema = z
+  .object({
+    quantity: z.number().int().min(0).optional(),
+    sellPrice: z.number().min(0).optional(),
+    note: z.string().max(500).optional(),
+  })
+  .refine((value) => value.quantity !== undefined || value.sellPrice !== undefined, {
+    message: 'quantity or sellPrice is required',
+  });
 
 router.post(
   '/adjust',
@@ -167,6 +176,9 @@ router.post(
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof adjustSchema>;
     const fid = resolveFranchiseId(req.user, body.franchiseId);
+    const product = await Product.findById(body.productId).select('_id stockManaged');
+    if (!product) throw badRequest('Product not found');
+    if (product.stockManaged === false) throw badRequest('This product does not manage physical stock');
     await applyStockDelta({
       franchiseId: fid,
       productId: body.productId,
@@ -188,8 +200,8 @@ router.post(
 router.patch(
   '/:id',
   requireAuth,
-  requireRole('admin', 'manager', 'stock_central_maintainer'),
-  requirePermission('stock.adjust'),
+  requireRole('admin', 'manager', 'stock_central_maintainer', 'franchise'),
+  requirePermission('stock.adjust', 'stock.entry'),
   validate(z.object({ id: objectId }), 'params'),
   validate(stockUpdateSchema),
   asyncHandler(async (req, res) => {
@@ -197,7 +209,13 @@ router.patch(
     const stock = await Stock.findById(req.params.id);
     if (!stock) throw notFound('Stock line not found');
     const fid = resolveFranchiseId(req.user, stock.franchiseId.toString());
-    const delta = body.quantity - stock.quantity;
+    if (req.user!.role === 'franchise' && body.quantity !== undefined) {
+      throw forbidden('Franchise users can update the selling price only');
+    }
+    const previousQuantity = stock.quantity;
+    const previousSellPrice = stock.sellPrice ?? null;
+    const nextQuantity = body.quantity ?? stock.quantity;
+    const delta = nextQuantity - stock.quantity;
     if (delta !== 0) {
       await applyStockDelta({
         franchiseId: fid,
@@ -208,12 +226,23 @@ router.patch(
         note: body.note || `Correction admin stock: ${stock.quantity} -> ${body.quantity}`,
       });
     }
+    if (body.sellPrice !== undefined) {
+      stock.sellPrice = body.sellPrice;
+      await stock.save();
+    }
     await audit(req, {
       action: 'stock.set_quantity',
       entity: 'Stock',
       entityId: stock._id.toString(),
       franchiseId: fid,
-      details: { productId: stock.productId.toString(), before: stock.quantity, after: body.quantity, delta },
+      details: {
+        productId: stock.productId.toString(),
+        quantityBefore: previousQuantity,
+        quantityAfter: nextQuantity,
+        delta,
+        sellPriceBefore: previousSellPrice,
+        sellPriceAfter: body.sellPrice ?? previousSellPrice,
+      },
     });
     res.json({ ok: true });
   }),

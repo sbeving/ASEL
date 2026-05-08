@@ -28,7 +28,7 @@ const cashFlowSchema = new Schema(
     reviewedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     reviewedAt: { type: Date, default: null },
     reviewNote: { type: String, trim: true, maxlength: 1000, default: '' },
-    receiptNumber: { type: String, trim: true, maxlength: 80, default: null, index: true },
+    receiptNumber: { type: String, trim: true, maxlength: 80, default: null },
     receiptPath: { type: String, trim: true, maxlength: 260, default: null },
     receiptCreatedAt: { type: Date, default: null },
     date: { type: Date, default: Date.now, index: true },
@@ -40,6 +40,10 @@ const cashFlowSchema = new Schema(
 cashFlowSchema.index({ franchiseId: 1, date: -1 });
 cashFlowSchema.index({ type: 1, date: -1 });
 cashFlowSchema.index({ isCentralCashbox: 1, date: -1 });
+cashFlowSchema.index(
+  { receiptNumber: 1 },
+  { unique: true, partialFilterExpression: { receiptNumber: { $type: 'string' } } },
+);
 
 export type CashFlowDoc = InferSchemaType<typeof cashFlowSchema>;
 export const CashFlow = model('CashFlow', cashFlowSchema);

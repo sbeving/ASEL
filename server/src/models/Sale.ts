@@ -6,6 +6,17 @@ const saleItemSchema = new Schema(
     quantity: { type: Number, required: true, min: 1 },
     unitPrice: { type: Number, required: true, min: 0 },
     total: { type: Number, required: true, min: 0 },
+    productType: {
+      type: String,
+      enum: ['standard', 'asel_recharge', 'asel_forfait'],
+      default: 'standard',
+    },
+    stockManaged: { type: Boolean, default: true },
+    commissionRate: { type: Number, min: 0, max: 100, default: 0 },
+    commissionBase: { type: Number, min: 0, default: 0 },
+    commissionAmount: { type: Number, min: 0, default: 0 },
+    companyShareAmount: { type: Number, min: 0, default: 0 },
+    franchiseManagerShareAmount: { type: Number, min: 0, default: 0 },
   },
   { _id: false },
 );
@@ -37,6 +48,9 @@ const saleSchema = new Schema(
     subtotal: { type: Number, required: true, min: 0 },
     discount: { type: Number, default: 0, min: 0 },
     total: { type: Number, required: true, min: 0 },
+    commissionTotal: { type: Number, min: 0, default: 0 },
+    companyShareTotal: { type: Number, min: 0, default: 0 },
+    franchiseManagerShareTotal: { type: Number, min: 0, default: 0 },
     paymentMethod: {
       type: String,
       enum: ['cash', 'card', 'transfer', 'installment', 'other'],

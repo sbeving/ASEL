@@ -36,6 +36,7 @@ const STOCK_VIEW_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'stock_centra
 const STAFF_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'commercial_director', 'stock_central_maintainer', 'cash_central_maintainer', 'hr_admin', 'franchise', 'seller', 'vendeur', 'commercial', 'siege_employee'] as const;
 const COMMERCIAL_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'commercial_director', 'franchise', 'commercial'] as const;
 const FRANCHISE_OPS_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'franchise'] as const;
+const INSTALLMENT_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'cash_central_maintainer', 'franchise', 'seller', 'vendeur'] as const;
 const STOCK_OPS_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'stock_central_maintainer', 'franchise'] as const;
 const CASH_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'cash_central_maintainer', 'franchise'] as const;
 const HR_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'commercial_director', 'hr_admin', 'franchise'] as const;
@@ -190,7 +191,7 @@ export default function App() {
         <Route
           path="installments"
           element={
-            <ProtectedRoute roles={[...FRANCHISE_OPS_ROLES]}>
+            <ProtectedRoute roles={[...INSTALLMENT_ROLES]}>
               <InstallmentsPage />
             </ProtectedRoute>
           }

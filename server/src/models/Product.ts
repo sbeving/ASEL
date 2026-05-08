@@ -18,6 +18,21 @@ const productSchema = new Schema(
     sellPriceHt: { type: Number, min: 0, default: 0 },
     sellTaxRate: { type: Number, min: 0, max: 100, default: 19 },
     sellPriceTtc: { type: Number, min: 0, default: 0 },
+    productType: {
+      type: String,
+      enum: ['standard', 'asel_recharge', 'asel_forfait'],
+      default: 'standard',
+      index: true,
+    },
+    priceMode: {
+      type: String,
+      enum: ['fixed', 'variable'],
+      default: 'fixed',
+    },
+    stockManaged: { type: Boolean, default: true, index: true },
+    commissionRate: { type: Number, min: 0, max: 100, default: 0 },
+    companyShareRate: { type: Number, min: 0, max: 100, default: 100 },
+    franchiseManagerShareRate: { type: Number, min: 0, max: 100, default: 0 },
     lowStockThreshold: { type: Number, min: 0, default: 3 },
     active: { type: Boolean, default: true },
   },
@@ -28,6 +43,8 @@ productSchema.index({ name: 'text', reference: 'text', barcode: 'text', brand: '
 productSchema.index({ reference: 1 });
 productSchema.index({ barcode: 1 });
 productSchema.index({ categoryId: 1, active: 1 });
+productSchema.index({ productType: 1, active: 1 });
+productSchema.index({ stockManaged: 1, active: 1 });
 
 export type ProductDoc = InferSchemaType<typeof productSchema>;
 export const Product = model('Product', productSchema);

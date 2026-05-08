@@ -14,6 +14,11 @@ import { audit } from '../services/audit.service.js';
 import { treasuryAttachmentUpload, toUploadPath } from '../middleware/upload.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
 import { ensureUploadDir } from '../config/uploads.js';
+import { nextSequenceValue } from '../services/sequence.service.js';
+import { cashFlowReceiptSequenceKey, formatCashFlowReceiptNumber } from '../utils/documentNumbers.js';
+import { withMongoTransaction } from '../db/transaction.js';
+import { CashLedgerEntry } from '../models/CashLedgerEntry.js';
+import { postCashFlowLedger, voidCashFlowLedger } from '../services/treasuryLedger.service.js';
 
 const router = Router();
 
@@ -45,6 +50,16 @@ const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
+const ledgerQuerySchema = z.object({
+  franchiseId: z.string().refine(isValidObjectId).optional(),
+  accountType: z.enum(['franchise_cashbox', 'central_cashbox']).optional(),
+  active: z.enum(['true', 'false', 'all']).default('true'),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(500).default(100),
+});
+
 const superiorTreasuryRoles = new Set(['ceo', 'admin', 'superadmin', 'manager', 'cash_central_maintainer']);
 
 const cashFlowSubTypeLabel: Record<string, string> = {
@@ -67,14 +82,6 @@ function flowNeedsCentralReview(flow: { subType?: string; isCentralCashbox?: boo
   return flow.subType === 'central_cashbox' && !flow.isCentralCashbox;
 }
 
-function receiptNumberFromDate(date = new Date()) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  const rand = crypto.randomBytes(3).toString('hex').toUpperCase();
-  return `REC-${y}${m}${d}-${rand}`;
-}
-
 function formatMoney(value: number) {
   return `${value.toLocaleString('fr-TN', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} TND`;
 }
@@ -86,9 +93,20 @@ function writeReceiptField(doc: PDFKit.PDFDocument, label: string, value?: strin
   doc.moveDown(0.45);
 }
 
+async function assignCashFlowReceiptNumber(flow: any, session?: mongoose.ClientSession) {
+  if (flow.status !== 'approved' || flow.receiptNumber) return flow;
+  const receiptDate = flow.date instanceof Date ? flow.date : new Date(flow.date);
+  const sequence = await nextSequenceValue(cashFlowReceiptSequenceKey(receiptDate), session);
+  flow.receiptNumber = formatCashFlowReceiptNumber(receiptDate, sequence);
+  await flow.save({ session });
+  return flow;
+}
+
 async function ensureCashFlowReceipt(flow: any, force = false) {
   if (flow.status !== 'approved') return flow;
   if (flow.receiptPath && !force) return flow;
+
+  await assignCashFlowReceiptNumber(flow);
 
   const populated = await flow.populate([
     { path: 'franchiseId', select: 'name address phone manager taxId' },
@@ -96,7 +114,7 @@ async function ensureCashFlowReceipt(flow: any, force = false) {
     { path: 'userId', select: 'fullName username role' },
     { path: 'reviewedBy', select: 'fullName username role' },
   ]);
-  const receiptNumber = flow.receiptNumber || receiptNumberFromDate(flow.date instanceof Date ? flow.date : new Date(flow.date));
+  const receiptNumber = flow.receiptNumber;
   const filename = `${Date.now()}-${crypto.randomUUID()}-${receiptNumber.toLowerCase()}.pdf`;
   const absolutePath = path.join(ensureUploadDir('treasury-receipts'), filename);
 
@@ -141,22 +159,40 @@ async function ensureCashFlowReceipt(flow: any, force = false) {
     doc.end();
   });
 
-  flow.receiptNumber = receiptNumber;
   flow.receiptPath = toUploadPath('treasury-receipts', filename);
   flow.receiptCreatedAt = new Date();
   await flow.save();
   return flow;
 }
 
-async function syncCentralCashboxMirror(flow: any, actorId?: string) {
+async function deleteCentralCashboxMirror(flow: any, session?: mongoose.ClientSession, actorId?: string) {
+  const querySession = session ?? null;
+  const linkedFlowId = flow.linkedFlowId;
+  if (linkedFlowId) {
+    await voidCashFlowLedger({ _id: linkedFlowId }, actorId, 'linked central cashbox movement removed', session);
+    await CashFlow.deleteOne({ _id: linkedFlowId }).session(querySession);
+  }
+  const linkedMirrors = await CashFlow.find({ linkedFlowId: flow._id }).select('_id').session(querySession);
+  for (const mirror of linkedMirrors) {
+    await voidCashFlowLedger(mirror, actorId, 'linked central cashbox movement removed', session);
+  }
+  await CashFlow.deleteMany({ linkedFlowId: flow._id }).session(querySession);
+  if (flow.linkedFlowId) {
+    flow.linkedFlowId = null;
+    await flow.save({ session });
+  }
+}
+
+async function syncCentralCashboxMirror(flow: any, actorId?: string, session?: mongoose.ClientSession) {
   if (flow.subType !== 'central_cashbox' || flow.status !== 'approved') return null;
 
+  const querySession = session ?? null;
   const mirrorIsCentralCashbox = !flow.isCentralCashbox;
-  let mirror = flow.linkedFlowId
-    ? await CashFlow.findOne({ _id: flow.linkedFlowId, isCentralCashbox: mirrorIsCentralCashbox })
+  let mirror: any = flow.linkedFlowId
+    ? await CashFlow.findOne({ _id: flow.linkedFlowId, isCentralCashbox: mirrorIsCentralCashbox }).session(querySession)
     : null;
   if (!mirror) {
-    mirror = await CashFlow.findOne({ linkedFlowId: flow._id, isCentralCashbox: mirrorIsCentralCashbox });
+    mirror = await CashFlow.findOne({ linkedFlowId: flow._id, isCentralCashbox: mirrorIsCentralCashbox }).session(querySession);
   }
 
   const mirrorPayload = {
@@ -183,19 +219,19 @@ async function syncCentralCashboxMirror(flow: any, actorId?: string) {
   if (mirror) {
     mirror.set(mirrorPayload);
     mirror.receiptPath = null;
-    mirror.receiptNumber = null;
     mirror.receiptCreatedAt = null;
-    await mirror.save();
+    await mirror.save({ session });
   } else {
-    mirror = await CashFlow.create(mirrorPayload);
+    const [createdMirror] = await CashFlow.create([mirrorPayload], { session });
+    if (!createdMirror) throw badRequest('Central cashbox mirror could not be created');
+    mirror = createdMirror;
   }
 
   if (!flow.linkedFlowId || flow.linkedFlowId.toString() !== mirror._id.toString()) {
     flow.linkedFlowId = mirror._id;
-    await flow.save();
+    await flow.save({ session });
   }
 
-  await ensureCashFlowReceipt(mirror, true);
   return mirror;
 }
 
@@ -233,29 +269,46 @@ router.post(
     const subType = isCentralCashbox ? 'central_cashbox' : (input.subType ?? (input.type === 'encaissement' ? 'cash_sale' : 'expense'));
     if (isCentralCashbox && subType !== 'central_cashbox') throw badRequest('Caisse centrale movements must use central_cashbox detail');
 
-    const flow = await CashFlow.create({
-      franchiseId: fid,
-      userId: req.user!.sub,
-      type: input.type,
-      subType,
-      amount: input.amount,
-      reason: input.reason,
-      reference: input.reference ?? '',
-      status: flowNeedsCentralReview({ subType, isCentralCashbox }) ? 'pending' : 'approved',
-      isCentralCashbox,
-      counterpartyFranchiseId: subType === 'central_cashbox' ? fid : null,
-      date: movementDate,
-      ...(req.file
-        ? {
-            attachmentPath: toUploadPath('treasury-docs', req.file.filename),
-            attachmentMimeType: req.file.mimetype,
-            attachmentOriginalName: req.file.originalname,
-          }
-        : {}),
+    let flow: any = null;
+    let mirrorFlow: any = null;
+    await withMongoTransaction(async (session) => {
+      const [createdFlow] = await CashFlow.create(
+        [
+          {
+            franchiseId: fid,
+            userId: req.user!.sub,
+            type: input.type,
+            subType,
+            amount: input.amount,
+            reason: input.reason,
+            reference: input.reference ?? '',
+            status: flowNeedsCentralReview({ subType, isCentralCashbox }) ? 'pending' : 'approved',
+            isCentralCashbox,
+            counterpartyFranchiseId: subType === 'central_cashbox' ? fid : null,
+            date: movementDate,
+            ...(req.file
+              ? {
+                  attachmentPath: toUploadPath('treasury-docs', req.file.filename),
+                  attachmentMimeType: req.file.mimetype,
+                  attachmentOriginalName: req.file.originalname,
+                }
+              : {}),
+          },
+        ],
+        { session },
+      );
+      flow = createdFlow;
+      mirrorFlow = await syncCentralCashboxMirror(flow, req.user!.sub, session);
+      await assignCashFlowReceiptNumber(flow, session);
+      await postCashFlowLedger(flow, req.user!.sub, session);
+      if (mirrorFlow) {
+        await assignCashFlowReceiptNumber(mirrorFlow, session);
+        await postCashFlowLedger(mirrorFlow, req.user!.sub, session);
+      }
     });
 
     await ensureCashFlowReceipt(flow);
-    await syncCentralCashboxMirror(flow, req.user!.sub);
+    if (mirrorFlow) await ensureCashFlowReceipt(mirrorFlow, true);
 
     await audit(req, {
       action: 'cashflow.create',
@@ -324,6 +377,61 @@ router.get(
   }),
 );
 
+router.get(
+  '/ledger',
+  requireAuth,
+  requirePermission('cashflows.view'),
+  validate(ledgerQuerySchema, 'query'),
+  asyncHandler(async (req, res) => {
+    const query = req.query as unknown as z.infer<typeof ledgerQuerySchema>;
+    const scope = franchiseScopeFilter(req.user);
+    const filter: Record<string, unknown> = {};
+
+    if (scope.franchiseId) {
+      if (query.accountType === 'central_cashbox') throw forbidden();
+      filter.franchiseId = new mongoose.Types.ObjectId(String(scope.franchiseId));
+      filter.accountType = 'franchise_cashbox';
+    } else {
+      if (query.franchiseId) filter.franchiseId = new mongoose.Types.ObjectId(query.franchiseId);
+      if (query.accountType) filter.accountType = query.accountType;
+    }
+    if (query.active !== 'all') filter.active = query.active === 'true';
+    if (query.from || query.to) {
+      filter.date = mongoose.trusted({
+        ...(query.from ? { $gte: new Date(`${query.from}T00:00:00.000Z`) } : {}),
+        ...(query.to ? { $lte: new Date(`${query.to}T23:59:59.999Z`) } : {}),
+      });
+    }
+
+    const skip = (query.page - 1) * query.pageSize;
+    const [total, balanceAgg, entries] = await Promise.all([
+      CashLedgerEntry.countDocuments(filter),
+      CashLedgerEntry.aggregate([
+        { $match: filter },
+        { $group: { _id: null, balance: { $sum: '$signedAmount' }, credits: { $sum: { $cond: [{ $gt: ['$signedAmount', 0] }, '$signedAmount', 0] } }, debits: { $sum: { $cond: [{ $lt: ['$signedAmount', 0] }, { $abs: '$signedAmount' }, 0] } } } },
+      ]),
+      CashLedgerEntry.find(filter)
+        .sort({ date: -1, postedAt: -1 })
+        .skip(skip)
+        .limit(query.pageSize)
+        .populate('franchiseId', 'name taxId')
+        .populate('cashFlowId', 'receiptNumber reference status')
+        .populate('postedBy', 'fullName username role'),
+    ]);
+
+    res.json({
+      entries,
+      summary: balanceAgg[0] ?? { balance: 0, credits: 0, debits: 0 },
+      meta: {
+        page: query.page,
+        pageSize: query.pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / query.pageSize)),
+      },
+    });
+  }),
+);
+
 router.patch(
   '/:id',
   requireAuth,
@@ -384,9 +492,28 @@ router.patch(
       flow.reviewedBy = null as any;
     }
 
-    await flow.save();
+    let mirrorFlow: any = null;
+    await withMongoTransaction(async (session) => {
+      await flow.save({ session });
+      if (flow.subType === 'central_cashbox' && flow.status === 'approved') {
+        mirrorFlow = await syncCentralCashboxMirror(flow, req.user!.sub, session);
+        await assignCashFlowReceiptNumber(flow, session);
+        await postCashFlowLedger(flow, req.user!.sub, session);
+        if (mirrorFlow) {
+          await assignCashFlowReceiptNumber(mirrorFlow, session);
+          await postCashFlowLedger(mirrorFlow, req.user!.sub, session);
+        }
+      } else {
+        await voidCashFlowLedger(flow, req.user!.sub, flow.status === 'approved' ? 'cashflow moved outside central mirror' : 'cashflow not approved', session);
+        if (flow.status === 'approved') {
+          await assignCashFlowReceiptNumber(flow, session);
+          await postCashFlowLedger(flow, req.user!.sub, session);
+        }
+        await deleteCentralCashboxMirror(flow, session, req.user!.sub);
+      }
+    });
     await ensureCashFlowReceipt(flow, flow.status === 'approved');
-    await syncCentralCashboxMirror(flow, req.user!.sub);
+    if (mirrorFlow) await ensureCashFlowReceipt(mirrorFlow, true);
     await audit(req, {
       action: 'cashflow.update',
       entity: 'CashFlow',
@@ -420,13 +547,28 @@ router.patch(
     if (!flow) throw notFound('Cashflow not found');
     if (flow.subType !== 'central_cashbox') throw badRequest('Only central cashbox movements require review');
 
-    flow.status = input.status;
-    flow.reviewNote = input.reviewNote ?? '';
-    flow.reviewedAt = new Date();
-    flow.reviewedBy = req.user!.sub as any;
-    await flow.save();
+    let mirrorFlow: any = null;
+    await withMongoTransaction(async (session) => {
+      flow.status = input.status;
+      flow.reviewNote = input.reviewNote ?? '';
+      flow.reviewedAt = new Date();
+      flow.reviewedBy = req.user!.sub as any;
+      await flow.save({ session });
+      if (input.status === 'approved') {
+        mirrorFlow = await syncCentralCashboxMirror(flow, req.user!.sub, session);
+        await assignCashFlowReceiptNumber(flow, session);
+        await postCashFlowLedger(flow, req.user!.sub, session);
+        if (mirrorFlow) {
+          await assignCashFlowReceiptNumber(mirrorFlow, session);
+          await postCashFlowLedger(mirrorFlow, req.user!.sub, session);
+        }
+      } else {
+        await voidCashFlowLedger(flow, req.user!.sub, 'cashflow rejected', session);
+        await deleteCentralCashboxMirror(flow, session, req.user!.sub);
+      }
+    });
     await ensureCashFlowReceipt(flow, input.status === 'approved');
-    if (input.status === 'approved') await syncCentralCashboxMirror(flow, req.user!.sub);
+    if (mirrorFlow) await ensureCashFlowReceipt(mirrorFlow, true);
 
     await audit(req, {
       action: 'cashflow.central_review',
@@ -454,13 +596,11 @@ router.delete(
     if (!flow) throw notFound('Cashflow not found');
     if (req.user!.franchiseId && flow.franchiseId.toString() !== req.user!.franchiseId) throw forbidden();
 
-    const linkedFlowId = flow.linkedFlowId;
-    await flow.deleteOne();
-    if (linkedFlowId) {
-      await CashFlow.deleteOne({ _id: linkedFlowId });
-    } else {
-      await CashFlow.deleteMany({ linkedFlowId: flow._id });
-    }
+    await withMongoTransaction(async (session) => {
+      await voidCashFlowLedger(flow, req.user!.sub, 'cashflow deleted', session);
+      await deleteCentralCashboxMirror(flow, session, req.user!.sub);
+      await flow.deleteOne({ session });
+    });
     await audit(req, {
       action: 'cashflow.delete',
       entity: 'CashFlow',

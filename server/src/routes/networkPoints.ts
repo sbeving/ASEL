@@ -223,6 +223,9 @@ type PointSnapshot = {
   schedule?: string;
   gps?: { lat?: number | null; lng?: number | null };
   internalNotes?: string;
+  contractDate?: Date | string | null;
+  activationDate?: Date | string | null;
+  createdAt?: Date | string | null;
   documents?: PointDocuments;
 };
 
@@ -232,13 +235,164 @@ type AllocationProduct = {
   purchasePrice?: number | null;
 };
 
+type AllocationStats = {
+  totalSims: number;
+  totalRecharge: number;
+  monthlySims: number;
+  monthlyRecharge: number;
+  allocationCount: number;
+  lastAllocationAt: Date | null;
+};
+
+const EMPTY_ALLOCATION_STATS: AllocationStats = {
+  totalSims: 0,
+  totalRecharge: 0,
+  monthlySims: 0,
+  monthlyRecharge: 0,
+  allocationCount: 0,
+  lastAllocationAt: null,
+};
+
+function startOfCurrentMonth() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
+function daysSince(date: Date | string | null | undefined) {
+  if (!date) return null;
+  const value = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(value.getTime())) return null;
+  return Math.max(0, Math.floor((Date.now() - value.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+function trustRecommendation(point: { status?: string }, stats: AllocationStats, dormantDays: number) {
+  const inactive = point.status === 'suspendu' || point.status === 'resilie';
+  const days = daysSince(stats.lastAllocationAt);
+  if (inactive) return 'revoked';
+  if (stats.allocationCount === 0) return 'review';
+  if (days != null && days >= dormantDays * 2) return 'revoke_candidate';
+  if (days != null && days >= dormantDays) return 'dormant';
+  if (stats.monthlySims >= 10 || stats.monthlyRecharge >= 500) return 'worthy';
+  return 'watch';
+}
+
+async function getAllocationStatsForPoints(pointIds: mongoose.Types.ObjectId[], monthStart = startOfCurrentMonth()) {
+  if (pointIds.length === 0) return new Map<string, AllocationStats>();
+
+  const rows = await NetworkPointAllocation.aggregate<{
+    _id: mongoose.Types.ObjectId;
+    totalSims: number;
+    totalRecharge: number;
+    monthlySims: number;
+    monthlyRecharge: number;
+    allocationCount: number;
+    lastAllocationAt: Date | null;
+  }>([
+    { $match: { networkPointId: { $in: pointIds } } },
+    {
+      $group: {
+        _id: '$networkPointId',
+        totalSims: {
+          $sum: {
+            $cond: [
+              { $eq: ['$kind', 'sim'] },
+              { $max: ['$quantity', { $size: { $ifNull: ['$barcodes', []] } }] },
+              0,
+            ],
+          },
+        },
+        totalRecharge: { $sum: { $cond: [{ $eq: ['$kind', 'recharge'] }, '$amount', 0] } },
+        monthlySims: {
+          $sum: {
+            $cond: [
+              { $and: [{ $eq: ['$kind', 'sim'] }, { $gte: ['$createdAt', monthStart] }] },
+              { $max: ['$quantity', { $size: { $ifNull: ['$barcodes', []] } }] },
+              0,
+            ],
+          },
+        },
+        monthlyRecharge: {
+          $sum: {
+            $cond: [
+              { $and: [{ $eq: ['$kind', 'recharge'] }, { $gte: ['$createdAt', monthStart] }] },
+              '$amount',
+              0,
+            ],
+          },
+        },
+        allocationCount: { $sum: 1 },
+        lastAllocationAt: { $max: '$createdAt' },
+      },
+    },
+  ]);
+
+  return new Map(
+    rows.map((row) => [
+      row._id.toString(),
+      {
+        totalSims: row.totalSims ?? 0,
+        totalRecharge: row.totalRecharge ?? 0,
+        monthlySims: row.monthlySims ?? 0,
+        monthlyRecharge: row.monthlyRecharge ?? 0,
+        allocationCount: row.allocationCount ?? 0,
+        lastAllocationAt: row.lastAllocationAt ?? null,
+      },
+    ]),
+  );
+}
+
 function pdfField(doc: PDFKit.PDFDocument, label: string, value?: string | number | null) {
   doc.fontSize(9).fillColor('#64748b').text(label, { continued: false });
   doc.fontSize(11).fillColor('#0f172a').text(value == null || value === '' ? '-' : String(value));
   doc.moveDown(0.35);
 }
 
-function pdfImage(doc: PDFKit.PDFDocument, label: string, uploadPath?: string | null) {
+function pdfDate(value?: Date | string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('fr-TN');
+}
+
+function pdfValue(value?: string | number | null) {
+  return value == null || value === '' ? '........................................' : String(value);
+}
+
+function pdfSection(doc: PDFKit.PDFDocument, title: string) {
+  if (doc.y > 690) doc.addPage();
+  doc.moveDown(0.6);
+  doc.fontSize(12).fillColor('#0f172a').text(title, { underline: true });
+  doc.moveDown(0.35);
+}
+
+function pdfLine(doc: PDFKit.PDFDocument, label: string, value?: string | number | null) {
+  doc.fontSize(9).fillColor('#334155').text(`${label} : `, { continued: true });
+  doc.fontSize(9).fillColor('#0f172a').text(pdfValue(value));
+  doc.moveDown(0.22);
+}
+
+function pdfTwoLines(
+  doc: PDFKit.PDFDocument,
+  leftLabel: string,
+  leftValue: string | number | null | undefined,
+  rightLabel: string,
+  rightValue: string | number | null | undefined,
+) {
+  const startX = doc.x;
+  const startY = doc.y;
+  const columnWidth = (doc.page.width - doc.page.margins.left - doc.page.margins.right - 18) / 2;
+  doc.fontSize(9).fillColor('#334155').text(`${leftLabel} : `, startX, startY, { continued: true, width: columnWidth });
+  doc.fontSize(9).fillColor('#0f172a').text(pdfValue(leftValue), { width: columnWidth });
+  doc.fontSize(9).fillColor('#334155').text(`${rightLabel} : `, startX + columnWidth + 18, startY, { continued: true, width: columnWidth });
+  doc.fontSize(9).fillColor('#0f172a').text(pdfValue(rightValue), { width: columnWidth });
+  doc.x = startX;
+  doc.y = Math.max(doc.y, startY + 17);
+}
+
+function pdfCheckbox(doc: PDFKit.PDFDocument, checked: boolean, label: string, options: { continued?: boolean } = {}) {
+  doc.fontSize(9).fillColor('#0f172a').text(`${checked ? '[x]' : '[ ]'} ${label}`, { continued: options.continued === true });
+}
+
+function pdfImage(doc: PDFKit.PDFDocument, label: string, uploadPath?: string | null, fit: [number, number] = [230, 150]) {
   if (!uploadPath) return;
   doc.moveDown(0.5);
   doc.fontSize(11).fillColor('#0f172a').text(label);
@@ -249,10 +403,24 @@ function pdfImage(doc: PDFKit.PDFDocument, label: string, uploadPath?: string | 
   }
   try {
     const absolutePath = resolveStoredUploadPath(uploadPath);
-    if (existsSync(absolutePath)) doc.image(absolutePath, { fit: [230, 150] });
+    if (existsSync(absolutePath)) doc.image(absolutePath, { fit });
     else doc.fontSize(9).fillColor('#64748b').text(uploadPath);
   } catch {
     doc.fontSize(9).fillColor('#64748b').text(uploadPath);
+  }
+}
+
+function pdfSignatureImage(doc: PDFKit.PDFDocument, uploadPath?: string | null) {
+  if (!uploadPath) return false;
+  const ext = path.extname(uploadPath).toLowerCase();
+  if (!['.jpg', '.jpeg', '.png'].includes(ext)) return false;
+  try {
+    const absolutePath = resolveStoredUploadPath(uploadPath);
+    if (!existsSync(absolutePath)) return false;
+    doc.image(absolutePath, { fit: [210, 76] });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -299,36 +467,82 @@ async function generateNetworkPointPdf(
     doc.on('error', reject);
     doc.pipe(stream);
 
-    doc.fontSize(18).fillColor('#0f172a').text('Fiche de renseignement point reseau');
-    doc.fontSize(9).fillColor('#64748b').text(`Generee le ${new Date().toLocaleString('fr-TN')}`);
-    doc.moveDown();
+    const responsibleName =
+      point.responsible ||
+      [point.responsibleFirstName, point.responsibleLastName].filter(Boolean).join(' ');
+    const partnershipDate = pdfDate(point.activationDate ?? point.contractDate ?? point.createdAt);
+    const address = [point.address, point.city, point.governorate].filter(Boolean).join(', ');
+    const gps =
+      point.gps?.lat != null && point.gps?.lng != null
+        ? `${point.gps.lat}, ${point.gps.lng}`
+        : '';
 
-    pdfField(doc, 'Point', point.name);
-    pdfField(doc, 'Type', point.type);
-    pdfField(doc, 'Statut', point.status);
-    pdfField(doc, 'Responsable', point.responsible);
-    pdfField(doc, 'Prenom responsable', point.responsibleFirstName);
-    pdfField(doc, 'Nom responsable', point.responsibleLastName);
-    pdfField(doc, 'CIN', point.cin);
-    pdfField(doc, 'Telephone 1', point.phone);
-    pdfField(doc, 'Telephone 2', point.phone2);
-    pdfField(doc, 'Email', point.email);
-    pdfField(doc, 'Adresse', [point.address, point.city, point.governorate].filter(Boolean).join(', '));
-    pdfField(
-      doc,
-      'GPS',
-      point.gps?.lat != null && point.gps?.lng != null ? `${point.gps.lat}, ${point.gps.lng}` : '',
-    );
-    pdfField(doc, 'Horaires', point.schedule);
-    pdfField(doc, 'Notes', point.internalNotes);
-    pdfField(doc, 'Signature le', documents.signedAt ? new Date(documents.signedAt).toLocaleString('fr-TN') : '');
+    doc.fontSize(17).fillColor('#0f172a').text('Fiche Franchise / PDV', { align: 'center' });
+    doc.fontSize(8).fillColor('#64748b').text(`Generee le ${new Date().toLocaleString('fr-TN')}`, { align: 'center' });
 
-    pdfImage(doc, 'Preuve CIN', documents.cinImagePath);
-    pdfImage(doc, 'Image boutique', documents.shopImagePath);
-    if (signatureTrace?.length || documents.signatureText) {
+    pdfSection(doc, '1. Informations generales');
+    pdfLine(doc, 'Date debut partenariat', partnershipDate);
+    pdfLine(doc, 'Nom du responsable du PDV', responsibleName);
+    pdfTwoLines(doc, 'N deg CIN', point.cin, 'Telephone responsable', point.phone);
+    pdfLine(doc, 'Email', point.email);
+    pdfLine(doc, 'Type de commerce', point.type);
+    pdfTwoLines(doc, 'Nom du vendeur', '', 'N deg CIN vendeur', '');
+    pdfTwoLines(doc, 'Telephone vendeur', point.phone2, 'Email vendeur', '');
+    pdfLine(doc, 'Matricule fiscal', '');
+    pdfLine(doc, 'Adresse complete', address);
+    pdfTwoLines(doc, 'Ville', point.city, 'Code postal', '');
+    pdfLine(doc, 'Gouvernorat', point.governorate);
+    pdfLine(doc, 'GPS', gps);
+
+    pdfSection(doc, "2. Details de l'activite commerciale");
+    doc.fontSize(9).fillColor('#334155').text('Experience dans la vente de produits similaires : ', { continued: true });
+    pdfCheckbox(doc, false, 'Oui precisez la duree : ........ ans', { continued: true });
+    doc.text('   ', { continued: true });
+    pdfCheckbox(doc, false, 'Non');
+    pdfLine(doc, 'Volume moyen de ventes mensuelles estime', '');
+    pdfTwoLines(doc, 'Cartes SIM', '', 'Recharges', '');
+
+    pdfSection(doc, '3. Infrastructure disponible');
+    doc.fontSize(9).fillColor('#334155').text('Espace dedie pour la presentation des produits de telecommunications : ', { continued: true });
+    pdfCheckbox(doc, false, 'Oui', { continued: true });
+    doc.text('   ', { continued: true });
+    pdfCheckbox(doc, false, 'Non');
+    doc.fontSize(9).fillColor('#334155').text('Acces a une connexion internet : ', { continued: true });
+    pdfCheckbox(doc, false, 'Oui', { continued: true });
+    doc.text('   ', { continued: true });
+    pdfCheckbox(doc, false, 'Non');
+
+    pdfSection(doc, '4. Documents requis');
+    pdfCheckbox(doc, false, "Copie d'une preuve legale d'activite : Patente");
+    pdfCheckbox(doc, Boolean(documents.cinImagePath), "Copie de la piece d'identite du responsable");
+    pdfCheckbox(doc, Boolean(documents.shopImagePath), "Une photo de l'emplacement du point de vente");
+
+    pdfSection(doc, '5. Declaration');
+    doc
+      .fontSize(9)
+      .fillColor('#0f172a')
+      .text(`Je soussigne(e), ${pdfValue(responsibleName)}, certifie que les informations fournies dans ce formulaire sont exactes.`);
+    doc
+      .fontSize(9)
+      .fillColor('#0f172a')
+      .text("Je m'engage a respecter les conditions generales de partenariat definies par Asel Mobile.");
+    doc.moveDown(0.4);
+    pdfTwoLines(doc, 'Tunis le', pdfDate(documents.signedAt) || pdfDate(new Date()), 'Signature', '');
+    const signatureTop = doc.y + 2;
+    const signatureRendered = pdfSignatureImage(doc, documents.signaturePath);
+    if (!signatureRendered) {
       pdfSignatureTrace(doc, signatureTrace, documents.signatureText);
-    } else {
-      pdfImage(doc, 'Signature electronique', documents.signaturePath);
+    }
+    if (!signatureRendered && !signatureTrace?.length && documents.signatureText) {
+      doc.fontSize(9).fillColor('#64748b').text(documents.signatureText);
+    }
+    doc.y = Math.max(doc.y, signatureTop + 82);
+
+    if (documents.cinImagePath || documents.shopImagePath) {
+      doc.addPage();
+      doc.fontSize(14).fillColor('#0f172a').text('Documents joints');
+      pdfImage(doc, 'Preuve CIN', documents.cinImagePath, [245, 180]);
+      pdfImage(doc, 'Image boutique', documents.shopImagePath, [245, 180]);
     }
 
     doc.end();
@@ -448,7 +662,7 @@ router.get(
     const skip = (page - 1) * pageSize;
     const filter = mergeFilter(buildPointFilter(input), await accessFilter(req.user));
 
-    const [total, points, countsByType, countsByStatus, mappedCount] = await Promise.all([
+    const [total, rawPoints, countsByType, countsByStatus, mappedCount] = await Promise.all([
       NetworkPoint.countDocuments(filter),
       NetworkPoint.find(filter)
         .sort({ type: 1, name: 1 })
@@ -457,7 +671,8 @@ router.get(
         .populate('franchiseId', 'name')
         .populate('commercialId', 'fullName username role')
         .populate('zoneId', 'name color')
-        .populate('createdBy', 'fullName username'),
+        .populate('createdBy', 'fullName username')
+        .lean(),
       NetworkPoint.aggregate<{ _id: string; count: number }>([
         { $match: filter },
         { $group: { _id: '$type', count: { $sum: 1 } } },
@@ -472,6 +687,18 @@ router.get(
         'gps.lng': mongoose.trusted({ $ne: null }),
       }),
     ]);
+    const statsMap = await getAllocationStatsForPoints(rawPoints.map((point) => point._id));
+    const points = rawPoints.map((point) => {
+      const allocationStats = statsMap.get(point._id.toString()) ?? EMPTY_ALLOCATION_STATS;
+      return {
+        ...point,
+        allocationStats: {
+          ...allocationStats,
+          daysSinceAllocation: daysSince(allocationStats.lastAllocationAt),
+          recommendation: trustRecommendation(point, allocationStats, 30),
+        },
+      };
+    });
 
     const byType = countsByType.reduce<Record<string, number>>((acc, row) => {
       acc[row._id] = row.count;
@@ -496,6 +723,118 @@ router.get(
         total,
         totalPages: Math.max(1, Math.ceil(total / pageSize)),
       },
+    });
+  }),
+);
+
+const analyticsQuery = z.object({
+  type: pointType.optional(),
+  status: pointStatus.optional(),
+  commercialId: objectId.optional(),
+  zoneId: objectId.optional(),
+  city: z.string().trim().max(100).optional(),
+  active: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((value) => (value === undefined ? undefined : value === 'true')),
+  dormantDays: z.coerce.number().int().min(7).max(365).default(30),
+  limit: z.coerce.number().int().min(3).max(25).default(8),
+});
+
+router.get(
+  '/analytics',
+  requireAuth,
+  requirePermission('map.view'),
+  validate(analyticsQuery, 'query'),
+  asyncHandler(async (req, res) => {
+    const input = req.query as unknown as z.infer<typeof analyticsQuery>;
+    const filter = mergeFilter(buildPointFilter({ ...input, page: 1, pageSize: 1 }), await accessFilter(req.user));
+    const points = await NetworkPoint.find(filter)
+      .select('name type status city governorate responsible phone franchiseId commercialId zoneId documents active createdAt')
+      .populate('franchiseId', 'name')
+      .populate('commercialId', 'fullName username role')
+      .populate('zoneId', 'name color')
+      .lean();
+    const statsMap = await getAllocationStatsForPoints(points.map((point) => point._id));
+
+    const decorated = points.map((point) => {
+      const allocationStats = statsMap.get(point._id.toString()) ?? EMPTY_ALLOCATION_STATS;
+      const days = daysSince(allocationStats.lastAllocationAt);
+      return {
+        point,
+        allocationStats: {
+          ...allocationStats,
+          daysSinceAllocation: days,
+          recommendation: trustRecommendation(point, allocationStats, input.dormantDays),
+        },
+        privilegeScore: Math.round(
+          allocationStats.monthlySims * 10 +
+          allocationStats.monthlyRecharge +
+          allocationStats.totalSims * 1.5 +
+          allocationStats.totalRecharge * 0.1,
+        ),
+      };
+    });
+
+    const totals = decorated.reduce(
+      (acc, row) => {
+        acc.points += 1;
+        acc.active += row.point.status === 'actif' ? 1 : 0;
+        acc.totalSims += row.allocationStats.totalSims;
+        acc.totalRecharge += row.allocationStats.totalRecharge;
+        acc.monthlySims += row.allocationStats.monthlySims;
+        acc.monthlyRecharge += row.allocationStats.monthlyRecharge;
+        if (row.allocationStats.allocationCount === 0 || (row.allocationStats.daysSinceAllocation ?? 0) >= input.dormantDays) {
+          acc.dormant += 1;
+        }
+        if (['review', 'dormant', 'revoke_candidate', 'revoked'].includes(row.allocationStats.recommendation)) {
+          acc.toReview += 1;
+        }
+        return acc;
+      },
+      {
+        points: 0,
+        active: 0,
+        totalSims: 0,
+        totalRecharge: 0,
+        monthlySims: 0,
+        monthlyRecharge: 0,
+        dormant: 0,
+        toReview: 0,
+      },
+    );
+
+    const byRecommendation = decorated.reduce<Record<string, number>>((acc, row) => {
+      const key = row.allocationStats.recommendation;
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    const bestPoints = [...decorated]
+      .filter((row) => row.privilegeScore > 0)
+      .sort((left, right) => right.privilegeScore - left.privilegeScore)
+      .slice(0, input.limit);
+
+    const dormantPoints = [...decorated]
+      .filter((row) => row.allocationStats.allocationCount === 0 || (row.allocationStats.daysSinceAllocation ?? 0) >= input.dormantDays)
+      .sort((left, right) => (right.allocationStats.daysSinceAllocation ?? 9999) - (left.allocationStats.daysSinceAllocation ?? 9999))
+      .slice(0, input.limit);
+
+    const reviewPoints = [...decorated]
+      .filter((row) => ['review', 'dormant', 'revoke_candidate', 'revoked'].includes(row.allocationStats.recommendation))
+      .sort((left, right) => {
+        const priority = { revoked: 4, revoke_candidate: 3, dormant: 2, review: 1, watch: 0, worthy: 0 } as Record<string, number>;
+        return (priority[right.allocationStats.recommendation] ?? 0) - (priority[left.allocationStats.recommendation] ?? 0);
+      })
+      .slice(0, input.limit);
+
+    res.json({
+      totals,
+      byRecommendation,
+      bestPoints,
+      dormantPoints,
+      reviewPoints,
+      dormantDays: input.dormantDays,
     });
   }),
 );
@@ -601,7 +940,7 @@ router.get(
 router.post(
   '/zones',
   requireAuth,
-  requireRole('admin', 'manager', 'commercial_director'),
+  requireRole('ceo', 'admin', 'superadmin', 'manager', 'commercial_director'),
   requirePermission('map.zones.manage'),
   validate(zonePayload),
   asyncHandler(async (req, res) => {
@@ -635,7 +974,7 @@ router.post(
 router.patch(
   '/zones/:id',
   requireAuth,
-  requireRole('admin', 'manager', 'commercial_director'),
+  requireRole('ceo', 'admin', 'superadmin', 'manager', 'commercial_director'),
   requirePermission('map.zones.manage'),
   validate(z.object({ id: objectId }), 'params'),
   validate(zonePayload.partial()),
@@ -674,7 +1013,7 @@ router.patch(
 router.delete(
   '/zones/:id',
   requireAuth,
-  requireRole('admin', 'manager', 'commercial_director'),
+  requireRole('ceo', 'admin', 'superadmin', 'manager', 'commercial_director'),
   requirePermission('map.zones.manage'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {
@@ -820,7 +1159,7 @@ router.get(
 router.post(
   '/:id/allocations',
   requireAuth,
-  requireRole('admin', 'manager', 'commercial_director', 'franchise', 'commercial'),
+  requireRole('ceo', 'admin', 'superadmin', 'manager', 'commercial_director', 'franchise'),
   requirePermission('map.manage'),
   validate(z.object({ id: objectId }), 'params'),
   validate(allocationPayload),
@@ -938,7 +1277,7 @@ const documentPayload = z.object({
 router.post(
   '/:id/documents',
   requireAuth,
-  requireRole('admin', 'manager', 'commercial_director', 'franchise', 'commercial'),
+  requireRole('ceo', 'admin', 'superadmin', 'manager', 'commercial_director', 'franchise', 'commercial'),
   requirePermission('map.manage'),
   validate(z.object({ id: objectId }), 'params'),
   networkPointDocumentUpload.fields([
@@ -1073,7 +1412,7 @@ const updatePayload = payloadBase.partial();
 router.post(
   '/',
   requireAuth,
-  requireRole('admin', 'manager', 'commercial_director', 'franchise', 'commercial'),
+  requireRole('ceo', 'admin', 'superadmin', 'manager', 'commercial_director', 'franchise', 'commercial'),
   requirePermission('map.manage'),
   validate(createPayload),
   asyncHandler(async (req, res) => {
@@ -1142,7 +1481,7 @@ router.post(
 router.patch(
   '/:id',
   requireAuth,
-  requireRole('admin', 'manager', 'commercial_director', 'franchise', 'commercial'),
+  requireRole('ceo', 'admin', 'superadmin', 'manager', 'commercial_director', 'franchise', 'commercial'),
   requirePermission('map.manage'),
   validate(z.object({ id: objectId }), 'params'),
   validate(updatePayload),
@@ -1217,7 +1556,7 @@ router.patch(
 router.delete(
   '/:id',
   requireAuth,
-  requireRole('admin', 'manager', 'commercial_director', 'franchise', 'commercial'),
+  requireRole('ceo', 'admin', 'superadmin', 'manager', 'commercial_director'),
   requirePermission('map.manage'),
   validate(z.object({ id: objectId }), 'params'),
   asyncHandler(async (req, res) => {

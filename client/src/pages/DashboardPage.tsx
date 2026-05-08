@@ -250,8 +250,9 @@ function formatHours(minutes: number) {
   return rest === 0 ? `${hours}h` : `${hours}h ${String(rest).padStart(2, '0')}`;
 }
 
-const pointageTypeLabel: Record<'entree' | 'sortie' | 'pause_debut' | 'pause_fin', string> = {
+const pointageTypeLabel: Record<'entree' | 'sortie' | 'pause_debut' | 'pause_fin' | 'verif', string> = {
   entree: 'Entree',
+  verif: 'Verification 3h',
   sortie: 'Sortie',
   pause_debut: 'Pause debut',
   pause_fin: 'Pause fin',

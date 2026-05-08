@@ -10,7 +10,7 @@ import { money } from '../lib/money';
 import { useAuth } from '../auth/AuthContext';
 import { PageHeader } from '../components/PageHeader';
 import { useDebouncedValue } from '../lib/hooks';
-import type { Client, Franchise, Installment, Sale, StockItem } from '../lib/types';
+import type { Client, Franchise, Installment, Product, Sale, StockItem } from '../lib/types';
 import { ScannerModal } from '../components/ScannerModal';
 import { SearchableSelect, type SearchableSelectOption } from '../components/SearchableSelect';
 import clsx from 'clsx';
@@ -22,6 +22,9 @@ interface CartLine {
   unitPrice: number;
   available: number;
   reference?: string;
+  productType?: Product['productType'];
+  priceMode?: Product['priceMode'];
+  stockManaged: boolean;
 }
 
 type PaymentMethod = Sale['paymentMethod'];
@@ -59,6 +62,29 @@ function userCanOverridePrices(user: ReturnType<typeof useAuth>['user']) {
   if (user.customPermissions?.revokes.includes('sales.price.override')) return false;
   if (user.customPermissions?.grants.includes('sales.price.override')) return true;
   return ['admin', 'superadmin', 'manager', 'franchise'].includes(user.role);
+}
+
+function productTypeLabel(product: Product) {
+  if (product.productType === 'asel_recharge') return 'Recharge';
+  if (product.productType === 'asel_forfait') return 'Forfait';
+  return 'Stock';
+}
+
+function productPriceLabel(product: Product) {
+  if (product.priceMode === 'variable') return 'Montant libre';
+  return money(product.sellPrice);
+}
+
+function stockSellPrice(item: StockItem) {
+  return item.sellPrice ?? item.product.sellPrice;
+}
+
+function parseMoneyInput(value: string | null) {
+  if (value == null) return null;
+  const normalized = value.trim().replace(',', '.');
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed > 0 ? roundCurrency(parsed) : null;
 }
 
 function buildInstallmentPreview(totalAmount: number, upfrontAmount: number, lotCount: number, startDate: string, intervalDays: number) {
@@ -121,6 +147,37 @@ export function POSPage() {
       ).data.items,
   });
 
+  const nonStockProducts = useQuery({
+    enabled: !!effectiveFid,
+    queryKey: ['non-stock-products-pos', effectiveFid, debouncedSearch],
+    queryFn: async () =>
+      (
+        await api.get<{ products: Product[] }>('/products', {
+          params: {
+            active: true,
+            stockManaged: false,
+            q: debouncedSearch || undefined,
+            pageSize: 100,
+          },
+        })
+      ).data.products,
+  });
+
+  const catalogItems = useMemo<StockItem[]>(() => {
+    const stockItems = stock.data ?? [];
+    const stockedProductIds = new Set(stockItems.map((item) => item.productId));
+    const serviceItems = (nonStockProducts.data ?? [])
+      .filter((product) => !stockedProductIds.has(product._id))
+      .map((product) => ({
+        _id: `service-${product._id}`,
+        franchiseId: effectiveFid,
+        productId: product._id,
+        quantity: 999999,
+        product,
+      }));
+    return [...serviceItems, ...stockItems];
+  }, [effectiveFid, nonStockProducts.data, stock.data]);
+
   const clients = useQuery({
     enabled: !!effectiveFid,
     queryKey: ['clients-pos', effectiveFid],
@@ -162,14 +219,29 @@ export function POSPage() {
   );
 
   function addToCart(item: StockItem) {
-    if (item.quantity <= 0) return;
+    const stockManaged = item.product.stockManaged !== false;
+    if (stockManaged && item.quantity <= 0) return;
+    const isVariablePrice = item.product.priceMode === 'variable';
+    let unitPrice = stockSellPrice(item);
+    if (isVariablePrice) {
+      const amount = parseMoneyInput(window.prompt(`Montant ${item.product.name} en TND`, ''));
+      if (amount == null) {
+        setError('Montant obligatoire pour une recharge a prix libre.');
+        return;
+      }
+      unitPrice = amount;
+    }
     setCart((current) => {
       const existingIndex = current.findIndex((line) => line.productId === item.productId);
       if (existingIndex >= 0) {
         const existing = current[existingIndex];
-        if (!existing || existing.quantity >= item.quantity) return current;
+        if (!existing || (existing.stockManaged && existing.quantity >= item.quantity)) return current;
         const copy = [...current];
-        copy[existingIndex] = { ...existing, quantity: existing.quantity + 1 };
+        copy[existingIndex] = {
+          ...existing,
+          quantity: existing.quantity + 1,
+          unitPrice: isVariablePrice ? unitPrice : existing.unitPrice,
+        };
         return copy;
       }
 
@@ -179,9 +251,12 @@ export function POSPage() {
           productId: item.productId,
           name: item.product.name,
           quantity: 1,
-          unitPrice: item.product.sellPrice,
+          unitPrice,
           available: item.quantity,
           reference: item.product.reference,
+          productType: item.product.productType,
+          priceMode: item.product.priceMode,
+          stockManaged,
         },
       ];
     });
@@ -191,7 +266,8 @@ export function POSPage() {
     setCart((current) =>
       current.map((line) => {
         if (line.productId === productId) {
-          const newQ = Math.max(1, Math.min(line.quantity + delta, line.available));
+          const maxQuantity = line.stockManaged ? line.available : 999;
+          const newQ = Math.max(1, Math.min(line.quantity + delta, maxQuantity));
           return { ...line, quantity: newQ };
         }
         return line;
@@ -200,11 +276,13 @@ export function POSPage() {
   }
 
   function updateCartUnitPrice(productId: string, price: number) {
-    if (!canOverridePrices) return;
     setCart((current) =>
-      current.map((line) =>
-        line.productId === productId ? { ...line, unitPrice: roundCurrency(Math.max(0, price)) } : line,
-      ),
+      current.map((line) => {
+        const canEditPrice = canOverridePrices || line.priceMode === 'variable';
+        return line.productId === productId && canEditPrice
+          ? { ...line, unitPrice: roundCurrency(Math.max(0, price)) }
+          : line;
+      }),
     );
   }
 
@@ -228,6 +306,7 @@ export function POSPage() {
         : [],
     [firstDueDate, intervalDays, isInstallment, nbLots, numericAmountReceived, total],
   );
+  const hasInvalidVariableAmount = cart.some((line) => line.priceMode === 'variable' && line.unitPrice <= 0);
 
   const checkout = useMutation({
     mutationFn: async () =>
@@ -282,7 +361,7 @@ export function POSPage() {
     },
   });
 
-  const canCheckout = !!effectiveFid && cart.length > 0 && (!isInstallment || !!clientId);
+  const canCheckout = !!effectiveFid && cart.length > 0 && !hasInvalidVariableAmount && (!isInstallment || !!clientId);
 
   return (
     <div className="min-h-full">
@@ -374,21 +453,22 @@ export function POSPage() {
             )}
 
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar sm:p-5">
-              {stock.isLoading ? (
+              {stock.isLoading || nonStockProducts.isLoading ? (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {[1, 2, 3, 4, 5, 6].map((i) => (
                     <div key={i} className="h-32 rounded-2xl bg-surface-100/50 animate-pulse border border-surface-200/50"></div>
                   ))}
                 </div>
-              ) : (stock.data?.length ?? 0) === 0 ? (
+              ) : catalogItems.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center text-surface-400 opacity-60">
                   <Package className="h-16 w-16 mb-4 text-surface-300" strokeWidth={1} />
                   <p>Aucun produit trouvé pour "{search}".</p>
                 </div>
               ) : (() => {
-                const filteredStock = (stock.data ?? []).filter(item => {
-                  if (filterMode === 'available') return item.quantity > 0;
-                  if (filterMode === 'low') return item.quantity <= item.product.lowStockThreshold;
+                const filteredStock = catalogItems.filter(item => {
+                  const stockManaged = item.product.stockManaged !== false;
+                  if (filterMode === 'available') return !stockManaged || item.quantity > 0;
+                  if (filterMode === 'low') return stockManaged && item.quantity <= item.product.lowStockThreshold;
                   return true;
                 });
                 const totalPages = Math.max(1, Math.ceil(filteredStock.length / ITEMS_PER_PAGE));
@@ -416,7 +496,7 @@ export function POSPage() {
                             transition={{ duration: 0.2 }}
                             key={item._id}
                             type="button"
-                            disabled={item.quantity <= 0}
+                            disabled={item.product.stockManaged !== false && item.quantity <= 0}
                             onClick={() => addToCart(item)}
                             className="group relative flex flex-col text-left overflow-hidden rounded-2xl border border-surface-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-1 hover:border-brand-400 hover:shadow-glass-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-sm"
                           >
@@ -429,13 +509,22 @@ export function POSPage() {
                                   {item.product.reference || 'Réf. non renseignée'}
                                 </p>
                               </div>
-                              <span className={clsx("badge whitespace-nowrap", item.quantity <= item.product.lowStockThreshold ? 'badge-warning' : 'badge-success')}>
-                                Stock: {item.quantity}
+                              <span
+                                className={clsx(
+                                  "badge whitespace-nowrap",
+                                  item.product.stockManaged === false
+                                    ? 'badge-success'
+                                    : item.quantity <= item.product.lowStockThreshold
+                                      ? 'badge-warning'
+                                      : 'badge-success',
+                                )}
+                              >
+                                {item.product.stockManaged === false ? productTypeLabel(item.product) : `Stock: ${item.quantity}`}
                               </span>
                             </div>
                             <div className="mt-auto flex w-full items-center justify-between">
                               <span className="text-xl font-bold tracking-tight text-surface-900">
-                                {money(item.product.sellPrice)}
+                                {item.product.priceMode === 'variable' ? productPriceLabel(item.product) : money(stockSellPrice(item))}
                               </span>
                               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-50 text-brand-600 opacity-0 transition-all group-hover:opacity-100">
                                 <Plus className="h-5 w-5" />
@@ -513,9 +602,9 @@ export function POSPage() {
                       <div className="flex justify-between items-start mb-2">
                         <div className="min-w-0 flex-1">
                           <div className="truncate font-semibold text-surface-900">{line.name}</div>
-                          {isInstallment && canOverridePrices ? (
+                          {line.priceMode === 'variable' || (isInstallment && canOverridePrices) ? (
                             <label className="mt-1 block text-xs text-surface-500">
-                              Prix echeance
+                              {line.priceMode === 'variable' ? 'Montant recharge' : 'Prix echeance'}
                               <input
                                 type="number"
                                 min={0}
@@ -526,7 +615,10 @@ export function POSPage() {
                               />
                             </label>
                           ) : (
-                            <div className="text-xs text-surface-500">{money(line.unitPrice)} unitaire</div>
+                            <div className="text-xs text-surface-500">
+                              {money(line.unitPrice)} unitaire
+                              {line.productType && line.productType !== 'standard' ? ` | ${line.productType === 'asel_recharge' ? 'recharge' : 'forfait'}` : ''}
+                            </div>
                           )}
                         </div>
                         <button
@@ -552,7 +644,7 @@ export function POSPage() {
                             type="button"
                             className="flex h-7 w-7 items-center justify-center rounded-md bg-white text-surface-600 shadow-sm hover:text-brand-600 disabled:opacity-50"
                             onClick={() => updateCartQuantity(line.productId, 1)}
-                            disabled={line.quantity >= line.available}
+                            disabled={line.stockManaged && line.quantity >= line.available}
                           >
                             <Plus className="h-3 w-3" />
                           </button>
@@ -769,6 +861,11 @@ export function POSPage() {
               {isInstallment && !clientId && (
                 <p className="mt-3 text-center text-xs font-medium text-amber-600 flex items-center justify-center gap-1">
                   <AlertCircle className="w-3.5 h-3.5" /> Un client est requis pour l'échéance
+                </p>
+              )}
+              {hasInvalidVariableAmount && (
+                <p className="mt-3 text-center text-xs font-medium text-amber-600 flex items-center justify-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5" /> Renseignez le montant de la recharge.
                 </p>
               )}
             </div>

@@ -6,6 +6,8 @@ describe('permissions', () => {
   it('uses role baseline permissions', () => {
     expect(isPermissionGranted('seller', 'sales.create')).toBe(true);
     expect(isPermissionGranted('seller', 'demands.create')).toBe(true);
+    expect(isPermissionGranted('seller', 'installments.view')).toBe(true);
+    expect(isPermissionGranted('vendeur', 'installments.manage')).toBe(true);
     expect(isPermissionGranted('vendeur', 'demands.create')).toBe(true);
     expect(isPermissionGranted('viewer', 'demands.create')).toBe(false);
     expect(isPermissionGranted('seller', 'users.manage')).toBe(false);
@@ -58,6 +60,11 @@ describe('permissions', () => {
         endpoint: 'POST /api/cashflows',
         permission: 'cashflows.manage',
         allowed: ['ceo', 'admin', 'superadmin', 'manager', 'cash_central_maintainer', 'franchise'],
+      },
+      {
+        endpoint: 'POST /api/installments/:id/pay',
+        permission: 'installments.manage',
+        allowed: ['ceo', 'admin', 'superadmin', 'manager', 'cash_central_maintainer', 'franchise', 'seller', 'vendeur'],
       },
       {
         endpoint: 'POST /api/stock/adjust',

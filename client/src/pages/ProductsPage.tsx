@@ -30,6 +30,12 @@ const schema = z.object({
   sellPriceHt: z.coerce.number().min(0).default(0),
   sellTaxRate: z.coerce.number().min(0).max(100).default(19),
   sellPriceTtc: z.coerce.number().min(0).default(0),
+  productType: z.enum(['standard', 'asel_recharge', 'asel_forfait']).default('standard'),
+  priceMode: z.enum(['fixed', 'variable']).default('fixed'),
+  stockManaged: z.boolean().default(true),
+  commissionRate: z.coerce.number().min(0).max(100).default(0),
+  companyShareRate: z.coerce.number().min(0).max(100).default(100),
+  franchiseManagerShareRate: z.coerce.number().min(0).max(100).default(0),
   lowStockThreshold: z.coerce.number().int().min(0).default(3),
   active: z.boolean().optional(),
 });
@@ -67,9 +73,22 @@ function productSellTtc(product: PriceLike): number {
   return product.sellPriceTtc ?? product.sellPrice;
 }
 
+function productTypeLabel(product: Pick<Product, 'productType'>) {
+  if (product.productType === 'asel_recharge') return 'ASEL recharge';
+  if (product.productType === 'asel_forfait') return 'ASEL forfait';
+  return 'Standard';
+}
+
+function productPriceLabel(product: Pick<Product, 'priceMode' | 'purchasePrice' | 'sellPrice'> & Partial<
+  Pick<Product, 'purchasePriceTtc' | 'sellPriceTtc'>
+>) {
+  if (product.priceMode === 'variable') return 'Montant libre';
+  return money(productSellTtc(product));
+}
+
 export function ProductsPage() {
   const { user } = useAuth();
-  const canEdit = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'superadmin';
+  const canEdit = ['ceo', 'admin', 'superadmin', 'manager', 'stock_central_maintainer'].includes(user?.role ?? '');
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 250);
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -263,6 +282,10 @@ export function ProductsPage() {
                 <div className="mt-1 text-xs text-slate-500">
                   {[product.reference, product.brand, categoriesById.get(product.categoryId)].filter(Boolean).join(' | ') || 'Sans reference'}
                 </div>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  <span className="badge-muted">{productTypeLabel(product)}</span>
+                  {product.stockManaged === false && <span className="badge-success">Sans stock</span>}
+                </div>
                 <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="rounded-xl bg-slate-50 px-2 py-2">
                     <div className="font-bold text-slate-900">{product.stockTotal ?? 0}</div>
@@ -273,7 +296,7 @@ export function ProductsPage() {
                     <div className="text-slate-500">Ventes</div>
                   </div>
                   <div className="rounded-xl bg-slate-50 px-2 py-2">
-                    <div className="font-bold text-slate-900">{money(productSellTtc(product))}</div>
+                    <div className="font-bold text-slate-900">{productPriceLabel(product)}</div>
                     <div className="text-slate-500">Prix</div>
                   </div>
                 </div>
@@ -302,7 +325,8 @@ export function ProductsPage() {
               <th className="th text-right">Stock</th>
               <th className="th text-right">Ventes 30j</th>
               <th className="th text-right">Marge</th>
-              <th className="th text-right">Prix vente</th>
+              <th className="th text-right">Prix vente defaut</th>
+              <th className="th">Type</th>
               <th className="th">Statut</th>
               <th className="th-action">Actions</th>
             </tr>
@@ -341,7 +365,13 @@ export function ProductsPage() {
                     {product.marginPercent != null ? `${product.marginPercent.toFixed(1)}%` : '-'}
                   </span>
                 </td>
-                <td className="td text-right font-medium">{money(productSellTtc(product))}</td>
+                <td className="td text-right font-medium">{productPriceLabel(product)}</td>
+                <td className="td">
+                  <div className="flex flex-wrap gap-1">
+                    <span className="badge-muted">{productTypeLabel(product)}</span>
+                    {product.stockManaged === false && <span className="badge-success">Sans stock</span>}
+                  </div>
+                </td>
                 <td className="td-action">
                   {product.active ? <span className="badge-success">Actif</span> : <span className="badge-muted">Inactif</span>}
                 </td>
@@ -368,7 +398,7 @@ export function ProductsPage() {
             ))}
             {!products.isLoading && (products.data?.products.length ?? 0) === 0 && (
               <tr>
-                <td className="td text-slate-400" colSpan={8}>
+                <td className="td text-slate-400" colSpan={9}>
                   Aucun produit.
                 </td>
               </tr>
@@ -482,6 +512,18 @@ function ProductOverviewModal({
               <div className="mt-3 space-y-2 text-sm text-slate-600">
                 <div><span className="text-slate-400">Reference:</span> {overview.data.product.reference || '-'}</div>
                 <div><span className="text-slate-400">Code-barres:</span> {overview.data.product.barcode || '-'}</div>
+                <div><span className="text-slate-400">Type:</span> {productTypeLabel(overview.data.product)}</div>
+                <div>
+                  <span className="text-slate-400">Prix caisse:</span>{' '}
+                  {overview.data.product.priceMode === 'variable' ? 'Montant libre' : 'Prix fixe'}
+                  {' | '}
+                  {overview.data.product.stockManaged === false ? 'sans stock physique' : 'stock physique'}
+                </div>
+                <div>
+                  <span className="text-slate-400">Commission:</span>{' '}
+                  {overview.data.product.commissionRate ?? 0}% franchise | Repartition CA:{' '}
+                  {overview.data.product.companyShareRate ?? 100}% ASEL / {overview.data.product.franchiseManagerShareRate ?? 0}% franchise
+                </div>
                 <div>
                   <span className="text-slate-400">Categorie:</span>{' '}
                   {typeof category === 'object' && category ? category.name : '-'}
@@ -499,7 +541,7 @@ function ProductOverviewModal({
                   {money(productPurchaseTtc(overview.data.product))}
                 </div>
                 <div>
-                  <span className="text-slate-400">Vente HT / TVA / TTC:</span>{' '}
+                  <span className="text-slate-400">Vente defaut HT / TVA / TTC:</span>{' '}
                   {money(overview.data.product.sellPriceHt ?? priceHtFromTtc(productSellTtc(overview.data.product), overview.data.product.sellTaxRate ?? 19))}
                   {' / '}
                   {overview.data.product.sellTaxRate ?? 19}%
@@ -738,6 +780,7 @@ function ProductFormModal({
     handleSubmit,
     getValues,
     setValue,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -758,6 +801,12 @@ function ProductFormModal({
           sellPriceHt: initial.sellPriceHt ?? priceHtFromTtc(productSellTtc(initial), initial.sellTaxRate ?? 19),
           sellTaxRate: initial.sellTaxRate ?? 19,
           sellPriceTtc: productSellTtc(initial),
+          productType: initial.productType ?? 'standard',
+          priceMode: initial.priceMode ?? 'fixed',
+          stockManaged: initial.stockManaged ?? true,
+          commissionRate: initial.commissionRate ?? 0,
+          companyShareRate: initial.companyShareRate ?? (initial.productType?.startsWith('asel_') ? 90 : 100),
+          franchiseManagerShareRate: initial.franchiseManagerShareRate ?? (initial.productType?.startsWith('asel_') ? 10 : 0),
           lowStockThreshold: initial.lowStockThreshold,
           active: initial.active,
         }
@@ -777,10 +826,42 @@ function ProductFormModal({
           sellPriceHt: 0,
           sellTaxRate: 19,
           sellPriceTtc: 0,
+          productType: 'standard',
+          priceMode: 'fixed',
+          stockManaged: true,
+          commissionRate: 0,
+          companyShareRate: 100,
+          franchiseManagerShareRate: 0,
           lowStockThreshold: 3,
           active: true,
         },
   });
+  const selectedProductType = watch('productType');
+  const selectedStockManaged = watch('stockManaged');
+
+  const applyProductTypeDefaults = (type: FormValues['productType']) => {
+    if (type === 'asel_recharge') {
+      setValue('priceMode', 'variable', { shouldDirty: true, shouldValidate: true });
+      setValue('stockManaged', false, { shouldDirty: true, shouldValidate: true });
+      setValue('commissionRate', 10, { shouldDirty: true, shouldValidate: true });
+      setValue('companyShareRate', 90, { shouldDirty: true, shouldValidate: true });
+      setValue('franchiseManagerShareRate', 10, { shouldDirty: true, shouldValidate: true });
+      return;
+    }
+    if (type === 'asel_forfait') {
+      setValue('priceMode', 'fixed', { shouldDirty: true, shouldValidate: true });
+      setValue('stockManaged', false, { shouldDirty: true, shouldValidate: true });
+      setValue('commissionRate', 10, { shouldDirty: true, shouldValidate: true });
+      setValue('companyShareRate', 90, { shouldDirty: true, shouldValidate: true });
+      setValue('franchiseManagerShareRate', 10, { shouldDirty: true, shouldValidate: true });
+      return;
+    }
+    setValue('priceMode', 'fixed', { shouldDirty: true, shouldValidate: true });
+    setValue('stockManaged', true, { shouldDirty: true, shouldValidate: true });
+    setValue('commissionRate', 0, { shouldDirty: true, shouldValidate: true });
+    setValue('companyShareRate', 100, { shouldDirty: true, shouldValidate: true });
+    setValue('franchiseManagerShareRate', 0, { shouldDirty: true, shouldValidate: true });
+  };
 
   const syncPrice = (prefix: 'purchase' | 'sell', source: 'ht' | 'tax' | 'ttc', rawValue: string) => {
     const htField = `${prefix}PriceHt` as const;
@@ -892,6 +973,54 @@ function ProductFormModal({
           </select>
         </div>
 
+        <section className="form-section sm:col-span-2">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-900">Regles ASEL</h3>
+            {selectedProductType !== 'standard' && <span className="badge-success">90% ASEL / 10% franchise</span>}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="label">Type produit</label>
+              <select
+                className="input"
+                {...register('productType', {
+                  onChange: (event: ChangeEvent<HTMLSelectElement>) =>
+                    applyProductTypeDefaults(event.target.value as FormValues['productType']),
+                })}
+              >
+                <option value="standard">Standard</option>
+                <option value="asel_recharge">ASEL recharge (montant libre)</option>
+                <option value="asel_forfait">ASEL forfait (preset)</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Mode prix</label>
+              <select className="input" {...register('priceMode')} disabled={selectedProductType === 'asel_recharge'}>
+                <option value="fixed">Prix fixe</option>
+                <option value="variable">Montant libre en caisse</option>
+              </select>
+            </div>
+            <label className="mt-6 inline-flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" {...register('stockManaged')} disabled={selectedProductType !== 'standard'} />
+              Gestion stock physique
+            </label>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="label">Commission franchise (%)</label>
+              <input type="number" min={0} max={100} step="0.01" className="input" {...register('commissionRate')} />
+            </div>
+            <div>
+              <label className="label">Part ASEL (%)</label>
+              <input type="number" min={0} max={100} step="0.01" className="input" {...register('companyShareRate')} />
+            </div>
+            <div>
+              <label className="label">Part franchise (%)</label>
+              <input type="number" min={0} max={100} step="0.01" className="input" {...register('franchiseManagerShareRate')} />
+            </div>
+          </div>
+        </section>
+
         <div>
           <label className="label">Marque</label>
           <input className="input" {...register('brand')} />
@@ -924,7 +1053,7 @@ function ProductFormModal({
 
         <div>
           <label className="label">Seuil alerte</label>
-          <input type="number" min={0} className="input" {...register('lowStockThreshold')} />
+          <input type="number" min={0} className="input" {...register('lowStockThreshold')} disabled={!selectedStockManaged} />
         </div>
 
         <input type="hidden" {...register('purchasePrice')} />
@@ -1073,7 +1202,7 @@ function ArchiveProductModal({
     <Modal
       open
       size="sm"
-      title="Desactiver le produit"
+      title="Supprimer ou desactiver le produit"
       onClose={onClose}
       footer={
         <div className="flex justify-end gap-2">
@@ -1081,15 +1210,15 @@ function ArchiveProductModal({
             Annuler
           </button>
           <button className="btn-danger" onClick={() => archive.mutate()} disabled={archive.isPending}>
-            {archive.isPending ? 'Traitement...' : 'Desactiver'}
+            {archive.isPending ? 'Traitement...' : 'Continuer'}
           </button>
         </div>
       }
     >
       <div className="space-y-3 text-sm text-slate-600">
         <p>
-          Le produit <span className="font-semibold text-slate-900">{product.name}</span> sera retire des listes actives
-          sans supprimer son historique.
+          Le produit <span className="font-semibold text-slate-900">{product.name}</span> sera supprime si aucun stock,
+          vente ou mouvement ne le reference. Sinon il sera simplement retire des listes actives pour garder l'historique.
         </p>
         {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">{error}</div>}
       </div>

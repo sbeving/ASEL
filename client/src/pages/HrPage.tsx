@@ -13,7 +13,7 @@ interface HrEmployee {
   franchise?: { _id: string; name: string } | null;
   workedMinutes: number;
   activeShift: boolean;
-  lastType: 'entree' | 'sortie' | 'pause_debut' | 'pause_fin' | null;
+  lastType: 'entree' | 'sortie' | 'pause_debut' | 'pause_fin' | 'verif' | null;
 }
 
 interface HrLeaveRequest {
@@ -43,6 +43,7 @@ interface HrSummaryPayload {
 
 const lastTypeLabel: Record<NonNullable<HrEmployee['lastType']>, string> = {
   entree: 'Entree',
+  verif: 'Verification 3h',
   sortie: 'Sortie',
   pause_debut: 'Pause debut',
   pause_fin: 'Pause fin',

@@ -47,17 +47,29 @@ function saleItemsSummary(sale: Sale) {
 }
 
 function saleSellerId(sale: Sale) {
-  if (typeof sale.userId === 'object' && sale.userId) return sale.userId.id || sale.userId._id;
-  return sale.userId;
+  if (typeof sale.userId === 'object' && sale.userId) return sale.userId.id || sale.userId._id || '';
+  return String(sale.userId || '');
+}
+
+function idOf(value: unknown) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') {
+    const row = value as { id?: unknown; _id?: unknown };
+    return String(row.id || row._id || '');
+  }
+  return String(value);
 }
 
 function canCancelSale(sale: Sale, user: ReturnType<typeof useAuth>['user']) {
   if (!user || sale.cancelledAt) return false;
-  const saleFranchiseId = typeof sale.franchiseId === 'object' && sale.franchiseId ? sale.franchiseId._id : String(sale.franchiseId || '');
+  const saleFranchiseId = idOf(sale.franchiseId);
   if (['ceo', 'admin', 'superadmin', 'manager'].includes(user.role)) return true;
   if (user.role === 'franchise') return Boolean(user.franchiseId && user.franchiseId === saleFranchiseId);
   if (user.role === 'seller' || user.role === 'vendeur') {
-    return Boolean(user.franchiseId && user.franchiseId === saleFranchiseId && saleSellerId(sale) === (user.id || user._id));
+    const saleCreatedAt = new Date(sale.createdAt).getTime();
+    const within24Hours = Number.isFinite(saleCreatedAt) && Date.now() - saleCreatedAt <= 24 * 60 * 60 * 1000;
+    return Boolean(within24Hours && user.franchiseId && user.franchiseId === saleFranchiseId && saleSellerId(sale) === idOf(user));
   }
   return false;
 }

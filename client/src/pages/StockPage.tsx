@@ -10,8 +10,14 @@ import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import { TablePagination } from '../components/TablePagination';
 import { SearchableSelect, type SearchableSelectOption } from '../components/SearchableSelect';
+import { ScannerModal } from '../components/ScannerModal';
 import { useDebouncedValue } from '../lib/hooks';
 import type { Franchise, PageMeta, Product, StockItem } from '../lib/types';
+import { ScanLine } from 'lucide-react';
+
+function stockSellPrice(item: StockItem) {
+  return item.sellPrice ?? item.product.sellPrice;
+}
 
 export function StockPage() {
   const { user } = useAuth();
@@ -35,6 +41,8 @@ export function StockPage() {
   const [lowOnly, setLowOnly] = useState(false);
   const [entryOpen, setEntryOpen] = useState(false);
   const [editingStockItem, setEditingStockItem] = useState<StockItem | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
   const pageSize = 25;
 
   const effectiveFranchiseId = isGlobal ? selectedFranchiseId : user?.franchiseId ?? '';
@@ -68,6 +76,7 @@ export function StockPage() {
     user?.role === 'superadmin' ||
     user?.role === 'manager' ||
     user?.role === 'stock_central_maintainer';
+  const canEditSellingPrice = canAdminStock || user?.role === 'franchise';
 
   const deleteStockLine = useMutation({
     mutationFn: async (id: string) => {
@@ -81,7 +90,7 @@ export function StockPage() {
     return {
       totalUnits: items.reduce((sum, item) => sum + item.quantity, 0),
       lowCount: items.filter((item) => item.quantity <= item.product.lowStockThreshold).length,
-      stockValue: items.reduce((sum, item) => sum + item.quantity * item.product.sellPrice, 0),
+      stockValue: items.reduce((sum, item) => sum + item.quantity * stockSellPrice(item), 0),
     };
   }, [stock.data?.items]);
 
@@ -116,16 +125,33 @@ export function StockPage() {
           </select>
         )}
 
-        <input
-          type="search"
-          placeholder="Rechercher un produit..."
-          className="input"
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            setPage(1);
-          }}
-        />
+        <div>
+          <div className="flex gap-2">
+            <input
+              type="search"
+              placeholder="Rechercher nom, reference ou code-barres..."
+              className="input"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
+            />
+            <button
+              type="button"
+              className="btn-secondary min-h-[44px] min-w-[44px] !px-3"
+              title="Scanner un code-barres"
+              aria-label="Scanner un code-barres"
+              onClick={() => {
+                setScannerError(null);
+                setScannerOpen(true);
+              }}
+            >
+              <ScanLine className="h-5 w-5" />
+            </button>
+          </div>
+          {scannerError && <div className="mt-2 text-xs text-amber-700">{scannerError}</div>}
+        </div>
 
         <label className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600">
           <input
@@ -192,22 +218,24 @@ export function StockPage() {
                     <div className="text-slate-500">Seuil</div>
                   </div>
                   <div className="rounded-xl bg-white px-2 py-2">
-                    <div className="text-sm font-bold text-slate-900">{money(item.product.sellPrice)}</div>
+                    <div className="text-sm font-bold text-slate-900">{money(stockSellPrice(item))}</div>
                     <div className="text-slate-500">Prix</div>
                   </div>
                 </div>
-                {canAdminStock && (
+                {canEditSellingPrice && (
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button className="btn-secondary" onClick={() => setEditingStockItem(item)}>Corriger</button>
-                    <button
-                      className="btn-danger"
-                      disabled={deleteStockLine.isPending}
-                      onClick={() => {
-                        if (window.confirm('Supprimer cette ligne de stock ?')) deleteStockLine.mutate(item._id);
-                      }}
-                    >
-                      Supprimer
-                    </button>
+                    <button className="btn-secondary" onClick={() => setEditingStockItem(item)}>Modifier</button>
+                    {canAdminStock && (
+                      <button
+                        className="btn-danger"
+                        disabled={deleteStockLine.isPending}
+                        onClick={() => {
+                          if (window.confirm('Supprimer cette ligne de stock ?')) deleteStockLine.mutate(item._id);
+                        }}
+                      >
+                        Supprimer
+                      </button>
+                    )}
                   </div>
                 )}
               </article>
@@ -225,7 +253,7 @@ export function StockPage() {
                 <th className="th">Produit</th>
                 <th className="th">Categorie</th>
                 <th className="th">Reference</th>
-                <th className="th text-right">Prix vente</th>
+                <th className="th text-right">Prix vente franchise</th>
                 <th className="th text-right">Qty</th>
                 <th className="th text-right">Seuil</th>
                 <th className="th-action">Action</th>
@@ -239,26 +267,28 @@ export function StockPage() {
                     <td className="td font-medium">{item.product.name}</td>
                     <td className="td text-slate-500">{item.category?.name ?? '-'}</td>
                     <td className="td text-slate-500">{item.product.reference ?? '-'}</td>
-                    <td className="td text-right">{money(item.product.sellPrice)}</td>
+                    <td className="td text-right">{money(stockSellPrice(item))}</td>
                     <td className="td text-right font-semibold">{item.quantity}</td>
                     <td className="td text-right text-slate-500">{item.product.lowStockThreshold}</td>
                     <td className="td-action">
                       <div className="flex justify-end gap-2">
                         {lowStock && <span className="badge-danger">stock faible</span>}
-                        {canAdminStock && (
+                        {canEditSellingPrice && (
                           <>
                             <button className="btn-secondary !min-h-[34px] !px-3 !py-1" onClick={() => setEditingStockItem(item)}>
-                              Corriger
+                              Modifier
                             </button>
-                            <button
-                              className="btn-danger !min-h-[34px] !px-3 !py-1"
-                              disabled={deleteStockLine.isPending}
-                              onClick={() => {
-                                if (window.confirm('Supprimer cette ligne de stock ?')) deleteStockLine.mutate(item._id);
-                              }}
-                            >
-                              Supprimer
-                            </button>
+                            {canAdminStock && (
+                              <button
+                                className="btn-danger !min-h-[34px] !px-3 !py-1"
+                                disabled={deleteStockLine.isPending}
+                                onClick={() => {
+                                  if (window.confirm('Supprimer cette ligne de stock ?')) deleteStockLine.mutate(item._id);
+                                }}
+                              >
+                                Supprimer
+                              </button>
+                            )}
                           </>
                         )}
                       </div>
@@ -281,6 +311,20 @@ export function StockPage() {
 
       <TablePagination meta={stock.data?.meta} onPageChange={setPage} />
 
+      {scannerOpen && (
+        <ScannerModal
+          onClose={() => setScannerOpen(false)}
+          onError={setScannerError}
+          onScan={(code) => {
+            const nextCode = code.trim();
+            setSearch(nextCode);
+            setPage(1);
+            setScannerError(null);
+            setScannerOpen(false);
+          }}
+        />
+      )}
+
       {entryOpen && effectiveFranchiseId && (
         <StockEntryModal
           franchiseId={effectiveFranchiseId}
@@ -295,6 +339,7 @@ export function StockPage() {
       {editingStockItem && (
         <StockCorrectionModal
           item={editingStockItem}
+          canEditQuantity={canAdminStock}
           onClose={() => setEditingStockItem(null)}
           onSaved={() => {
             setEditingStockItem(null);
@@ -332,6 +377,7 @@ const entrySchema = z.object({
   productId: z.string().min(1, 'Produit requis'),
   quantity: z.coerce.number().int().positive('Quantite > 0'),
   unitPrice: z.coerce.number().min(0).optional(),
+  sellPrice: z.coerce.number().min(0).optional(),
   note: z.string().max(500).optional(),
 });
 
@@ -339,22 +385,27 @@ type EntryValues = z.infer<typeof entrySchema>;
 
 function StockCorrectionModal({
   item,
+  canEditQuantity,
   onClose,
   onSaved,
 }: {
   item: StockItem;
+  canEditQuantity: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [quantity, setQuantity] = useState(item.quantity);
+  const [sellPrice, setSellPrice] = useState(stockSellPrice(item));
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const save = useMutation({
     mutationFn: async () => {
       if (quantity < 0) throw new Error('Quantite invalide');
+      if (sellPrice < 0) throw new Error('Prix de vente invalide');
       await api.patch(`/stock/${item._id}`, {
-        quantity,
+        quantity: canEditQuantity ? quantity : undefined,
+        sellPrice,
         note: note || undefined,
       });
     },
@@ -365,7 +416,7 @@ function StockCorrectionModal({
   return (
     <Modal
       open
-      title="Correction stock admin"
+      title="Stock et prix franchise"
       onClose={onClose}
       footer={
         <div className="flex justify-end gap-2">
@@ -380,16 +431,31 @@ function StockCorrectionModal({
         <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
           <div className="font-bold text-slate-900">{item.product.name}</div>
           <div className="text-slate-500">Quantite actuelle: {item.quantity}</div>
+          <div className="text-slate-500">Prix vente franchise: {money(stockSellPrice(item))}</div>
         </div>
+        {canEditQuantity && (
+          <div>
+            <label className="label">Nouvelle quantite</label>
+            <input
+              type="number"
+              min={0}
+              className="input"
+              value={quantity}
+              onChange={(event) => setQuantity(Math.max(0, Number(event.target.value) || 0))}
+            />
+          </div>
+        )}
         <div>
-          <label className="label">Nouvelle quantite</label>
+          <label className="label">Prix de vente pour cette franchise</label>
           <input
             type="number"
             min={0}
+            step="0.01"
             className="input"
-            value={quantity}
-            onChange={(event) => setQuantity(Math.max(0, Number(event.target.value) || 0))}
+            value={sellPrice}
+            onChange={(event) => setSellPrice(Math.max(0, Number(event.target.value) || 0))}
           />
+          <p className="mt-1 text-xs text-slate-500">Le prix d'achat reste celui de la fiche produit.</p>
         </div>
         <div>
           <label className="label">Motif correction</label>
@@ -415,7 +481,8 @@ function StockEntryModal({
 
   const products = useQuery({
     queryKey: ['products', 'stock-entry'],
-    queryFn: async () => (await api.get<{ products: Product[] }>('/products', { params: { active: 'true', limit: 500 } })).data.products,
+    queryFn: async () =>
+      (await api.get<{ products: Product[] }>('/products', { params: { active: 'true', stockManaged: true, limit: 500 } })).data.products,
   });
 
   const {
@@ -429,13 +496,19 @@ function StockEntryModal({
       productId: '',
       quantity: 1,
       unitPrice: 0,
+      sellPrice: 0,
       note: '',
     },
   });
 
   useEffect(() => {
     setValue('productId', productId, { shouldValidate: true });
-  }, [productId, setValue]);
+    const product = (products.data ?? []).find((candidate) => candidate._id === productId);
+    if (product) {
+      setValue('unitPrice', product.purchasePrice ?? 0, { shouldDirty: true });
+      setValue('sellPrice', product.sellPrice ?? 0, { shouldDirty: true });
+    }
+  }, [productId, products.data, setValue]);
 
   const productOptions: SearchableSelectOption[] = useMemo(
     () =>
@@ -489,15 +562,19 @@ function StockEntryModal({
           {errors.productId && <p className="mt-1 text-xs text-rose-600">{errors.productId.message}</p>}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-3 sm:grid-cols-3">
           <div>
             <label className="label">Quantite</label>
             <input type="number" min={1} className="input" {...register('quantity')} />
             {errors.quantity && <p className="mt-1 text-xs text-rose-600">{errors.quantity.message}</p>}
           </div>
           <div>
-            <label className="label">Prix unitaire (optionnel)</label>
+            <label className="label">Prix achat</label>
             <input type="number" min={0} step="0.01" className="input" {...register('unitPrice')} />
+          </div>
+          <div>
+            <label className="label">Prix vente franchise</label>
+            <input type="number" min={0} step="0.01" className="input" {...register('sellPrice')} />
           </div>
         </div>
 

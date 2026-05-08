@@ -215,6 +215,7 @@ async function seed() {
     { name: 'Phones', description: 'Smartphones and feature phones' },
     { name: 'Wearables', description: 'Smartwatches and accessories' },
     { name: 'Services Accessories', description: 'SIM and service accessories' },
+    { name: 'ASEL Services', description: 'Recharge and forfait ASEL sold without physical stock' },
     { name: 'Car Accessories', description: 'Phone holders and car kits' },
     { name: 'Speakers', description: 'Bluetooth and wired speakers' },
     { name: 'Cases', description: 'Phone cases and protections' },
@@ -363,6 +364,60 @@ async function seed() {
       purchasePrice: 2,
       sellPrice: 8,
       lowStockThreshold: 10,
+      active: true,
+    },
+    {
+      name: 'ASEL Recharge',
+      categoryId: must(categoryByName.get('ASEL Services'), 'Category ASEL Services missing')._id,
+      supplierId: must(supplierByName.get('Actelo'), 'Supplier Actelo missing')._id,
+      brand: 'ASEL',
+      reference: 'ASEL-RECHARGE',
+      barcode: '619300119000',
+      purchasePrice: 0,
+      sellPrice: 0,
+      productType: 'asel_recharge',
+      priceMode: 'variable',
+      stockManaged: false,
+      commissionRate: 10,
+      companyShareRate: 90,
+      franchiseManagerShareRate: 10,
+      lowStockThreshold: 0,
+      active: true,
+    },
+    {
+      name: 'ASEL Forfait 10 TND',
+      categoryId: must(categoryByName.get('ASEL Services'), 'Category ASEL Services missing')._id,
+      supplierId: must(supplierByName.get('Actelo'), 'Supplier Actelo missing')._id,
+      brand: 'ASEL',
+      reference: 'ASEL-FORFAIT-10',
+      barcode: '619300119010',
+      purchasePrice: 9,
+      sellPrice: 10,
+      productType: 'asel_forfait',
+      priceMode: 'fixed',
+      stockManaged: false,
+      commissionRate: 10,
+      companyShareRate: 90,
+      franchiseManagerShareRate: 10,
+      lowStockThreshold: 0,
+      active: true,
+    },
+    {
+      name: 'ASEL Forfait 25 TND',
+      categoryId: must(categoryByName.get('ASEL Services'), 'Category ASEL Services missing')._id,
+      supplierId: must(supplierByName.get('Actelo'), 'Supplier Actelo missing')._id,
+      brand: 'ASEL',
+      reference: 'ASEL-FORFAIT-25',
+      barcode: '619300119025',
+      purchasePrice: 22.5,
+      sellPrice: 25,
+      productType: 'asel_forfait',
+      priceMode: 'fixed',
+      stockManaged: false,
+      commissionRate: 10,
+      companyShareRate: 90,
+      franchiseManagerShareRate: 10,
+      lowStockThreshold: 0,
       active: true,
     },
     {
@@ -1010,12 +1065,13 @@ async function seed() {
     },
   ]);
 
-  const stockSeed: Array<{ franchiseId: ObjectIdLike; productId: ObjectIdLike; quantity: number }> = [];
+  const stockSeed: Array<{ franchiseId: ObjectIdLike; productId: ObjectIdLike; quantity: number; sellPrice: number }> = [];
   for (const product of products) {
-    stockSeed.push({ franchiseId: central._id, productId: product._id, quantity: 45 });
-    stockSeed.push({ franchiseId: mourouj._id, productId: product._id, quantity: 10 });
-    stockSeed.push({ franchiseId: soukra._id, productId: product._id, quantity: 8 });
-    stockSeed.push({ franchiseId: intileka._id, productId: product._id, quantity: 5 });
+    if (product.stockManaged === false) continue;
+    stockSeed.push({ franchiseId: central._id, productId: product._id, quantity: 45, sellPrice: product.sellPrice });
+    stockSeed.push({ franchiseId: mourouj._id, productId: product._id, quantity: 10, sellPrice: product.sellPrice });
+    stockSeed.push({ franchiseId: soukra._id, productId: product._id, quantity: 8, sellPrice: product.sellPrice });
+    stockSeed.push({ franchiseId: intileka._id, productId: product._id, quantity: 5, sellPrice: product.sellPrice });
   }
   await Stock.insertMany(stockSeed);
 

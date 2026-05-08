@@ -1,17 +1,19 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import L from 'leaflet';
-import { Circle, CircleMarker, MapContainer, Marker, Polygon, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
+import { Circle, CircleMarker, MapContainer, Marker, Polygon, Polyline, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { api, apiError } from '../lib/api';
 import { dateTime } from '../lib/money';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import { TablePagination } from '../components/TablePagination';
+import { MapTileToggle, MapTiles, type MapTileMode } from '../components/MapTiles';
 import { useAuth } from '../auth/AuthContext';
 import type { CommercialZone, Franchise, PageMeta, Role, User } from '../lib/types';
 
-type TimeLogType = 'entree' | 'sortie' | 'pause_debut' | 'pause_fin';
+type TimeLogType = 'entree' | 'sortie' | 'pause_debut' | 'pause_fin' | 'verif';
 type ViewScope = 'self' | 'team';
 
 interface TimeLogRow {
@@ -84,6 +86,7 @@ interface LeaveRequestRow {
 
 const labels: Record<TimeLogType, string> = {
   entree: 'Entree',
+  verif: 'Verification 3h',
   sortie: 'Sortie',
   pause_debut: 'Pause debut',
   pause_fin: 'Pause fin',
@@ -91,12 +94,24 @@ const labels: Record<TimeLogType, string> = {
 
 const badgeByType: Record<TimeLogType, string> = {
   entree: 'badge-success',
+  verif: 'badge-info',
   sortie: 'badge-danger',
   pause_debut: 'badge-warning',
   pause_fin: 'badge-info',
 };
 
 const workerRoles: Role[] = ['hr_admin', 'franchise', 'seller', 'vendeur', 'commercial', 'siege_employee'];
+const siegeVisibleRoles: Role[] = [
+  'ceo',
+  'admin',
+  'superadmin',
+  'manager',
+  'commercial_director',
+  'stock_central_maintainer',
+  'cash_central_maintainer',
+  'hr_admin',
+  'siege_employee',
+];
 const roleLabel: Partial<Record<Role, string>> = {
   hr_admin: 'HR admin',
   franchise: 'Responsable franchise',
@@ -143,6 +158,10 @@ function gpsAccuracyTone(accuracy?: number | null) {
   if (accuracy <= 30) return 'text-emerald-700';
   if (accuracy <= 100) return 'text-amber-700';
   return 'text-rose-700';
+}
+
+function canSeeSiegeZone(role?: Role | null) {
+  return Boolean(role && siegeVisibleRoles.includes(role));
 }
 
 function siteLabel(log: TimeLogRow) {
@@ -229,6 +248,7 @@ function trackCarIcon(track: CommercialTrack, point?: CommercialTrackPoint) {
 export function TimeLogsPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const canViewTeam =
     user?.role === 'ceo' ||
     user?.role === 'admin' ||
@@ -267,6 +287,7 @@ export function TimeLogsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [live, setLive] = useState(true);
   const [radiusMeters, setRadiusMeters] = useState(300);
+  const [mapTileMode, setMapTileMode] = useState<MapTileMode>('street');
   const [selectedMapPointId, setSelectedMapPointId] = useState('');
   const [selectedTrackUserId, setSelectedTrackUserId] = useState('');
   const [trackIndex, setTrackIndex] = useState(0);
@@ -276,6 +297,8 @@ export function TimeLogsPage() {
   const [leaveToDate, setLeaveToDate] = useState(todayDate());
   const [leaveReason, setLeaveReason] = useState('');
   const [leaveError, setLeaveError] = useState<string | null>(null);
+  const canViewSiegeZone = canSeeSiegeZone(user?.role);
+  const showTeamControls = canViewTeam && scope === 'team';
 
   const franchises = useQuery({
     enabled: isGlobal,
@@ -296,6 +319,7 @@ export function TimeLogsPage() {
   });
 
   const siegeZone = useQuery({
+    enabled: canViewSiegeZone,
     queryKey: ['timelogs', 'siege-zone'],
     queryFn: async () => (await api.get<{ zone: SiegeZone }>('/timelogs/siege-zone')).data.zone,
   });
@@ -318,11 +342,11 @@ export function TimeLogsPage() {
             month: fromDate || toDate ? undefined : month || undefined,
             from: fromDate || undefined,
             to: toDate || undefined,
-            franchiseId: isGlobal ? franchiseId || undefined : undefined,
-            role: roleFilter || undefined,
-            workingZone: workingZone || undefined,
-            commercialZoneId: commercialZoneId || undefined,
-            userId: workerId || undefined,
+            franchiseId: isGlobal && showTeamControls ? franchiseId || undefined : undefined,
+            role: showTeamControls ? roleFilter || undefined : undefined,
+            workingZone: showTeamControls ? workingZone || undefined : undefined,
+            commercialZoneId: showTeamControls ? commercialZoneId || undefined : undefined,
+            userId: showTeamControls ? workerId || undefined : undefined,
             page,
             pageSize: 50,
           },
@@ -347,11 +371,11 @@ export function TimeLogsPage() {
             month: fromDate || toDate ? undefined : month || undefined,
             from: fromDate || undefined,
             to: toDate || undefined,
-            franchiseId: isGlobal ? franchiseId || undefined : undefined,
-            role: roleFilter || undefined,
-            workingZone: workingZone || undefined,
-            commercialZoneId: commercialZoneId || undefined,
-            userId: workerId || undefined,
+            franchiseId: isGlobal && showTeamControls ? franchiseId || undefined : undefined,
+            role: showTeamControls ? roleFilter || undefined : undefined,
+            workingZone: showTeamControls ? workingZone || undefined : undefined,
+            commercialZoneId: showTeamControls ? commercialZoneId || undefined : undefined,
+            userId: showTeamControls ? workerId || undefined : undefined,
             radiusMeters,
             limit: 1200,
             trackLimit: 3000,
@@ -391,14 +415,15 @@ export function TimeLogsPage() {
     () => tracks.find((track) => track.user?._id === selectedTrackUserId) ?? tracks[0] ?? null,
     [selectedTrackUserId, tracks],
   );
-  const activeTrackPoint = activeTrack?.points[Math.min(trackIndex, Math.max(0, activeTrack.points.length - 1))] ?? null;
+  const visibleTrack = showTeamControls ? activeTrack : null;
+  const activeTrackPoint = visibleTrack?.points[Math.min(trackIndex, Math.max(0, visibleTrack.points.length - 1))] ?? null;
 
   useEffect(() => {
     setTrackIndex(0);
   }, [activeTrack?.user?._id, month, fromDate, toDate]);
 
   const summary = useMemo(() => {
-    const fallback = { entree: 0, sortie: 0, pause_debut: 0, pause_fin: 0 };
+    const fallback = { entree: 0, verif: 0, sortie: 0, pause_debut: 0, pause_fin: 0 };
     return {
       total: logs.data?.summary.total ?? 0,
       activeUsers: logs.data?.summary.activeUsers ?? 0,
@@ -436,6 +461,32 @@ export function TimeLogsPage() {
       );
     });
   };
+
+  useEffect(() => {
+    if (searchParams.get('verify') !== '1') return;
+    const lat = Number(searchParams.get('lat'));
+    const lng = Number(searchParams.get('lng'));
+    const accuracyRaw = searchParams.get('accuracy');
+    const parsedAccuracy = accuracyRaw === null ? null : Number(accuracyRaw);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      setGps({
+        lat: Number(lat.toFixed(6)),
+        lng: Number(lng.toFixed(6)),
+        accuracy: typeof parsedAccuracy === 'number' && Number.isFinite(parsedAccuracy) ? Math.round(parsedAccuracy) : null,
+        capturedAt: new Date().toISOString(),
+      });
+      setGpsConfirmed(false);
+      setGeoError(null);
+    }
+    setScope('self');
+    setErr(null);
+    const next = new URLSearchParams(searchParams);
+    next.delete('verify');
+    next.delete('lat');
+    next.delete('lng');
+    next.delete('accuracy');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const addLog = useMutation({
     mutationFn: async (type: TimeLogType) => {
@@ -485,11 +536,11 @@ export function TimeLogsPage() {
           month: fromDate || toDate ? undefined : month || undefined,
           from: fromDate || undefined,
           to: toDate || undefined,
-          franchiseId: isGlobal ? franchiseId || undefined : undefined,
-          role: roleFilter || undefined,
-          workingZone: workingZone || undefined,
-          commercialZoneId: commercialZoneId || undefined,
-          userId: workerId || undefined,
+          franchiseId: isGlobal && showTeamControls ? franchiseId || undefined : undefined,
+          role: showTeamControls ? roleFilter || undefined : undefined,
+          workingZone: showTeamControls ? workingZone || undefined : undefined,
+          commercialZoneId: showTeamControls ? commercialZoneId || undefined : undefined,
+          userId: showTeamControls ? workerId || undefined : undefined,
         },
         responseType: 'blob',
       });
@@ -529,9 +580,10 @@ export function TimeLogsPage() {
         }
       />
 
-      <section className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <section className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
         <MetricCard label="Total pointages" value={String(summary.total)} />
         <MetricCard label="Entrees" value={String(summary.byType.entree)} />
+        <MetricCard label="Verifs 3h" value={String(summary.byType.verif)} />
         <MetricCard label="Sorties" value={String(summary.byType.sortie)} />
         <MetricCard label="Pauses" value={String(summary.byType.pause_debut)} />
         <MetricCard
@@ -545,7 +597,7 @@ export function TimeLogsPage() {
         />
       </section>
 
-      {siegeZone.data && (
+      {canViewSiegeZone && siegeZone.data && (
         <section className="card mb-5 border-slate-200 bg-slate-50 p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -563,7 +615,7 @@ export function TimeLogsPage() {
       )}
 
       <section className="card mb-5 p-4">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-8">
+        <div className={`grid gap-3 sm:grid-cols-2 ${showTeamControls ? 'xl:grid-cols-8' : 'xl:grid-cols-5'}`}>
           <select
             className="input"
             value={scope}
@@ -587,7 +639,7 @@ export function TimeLogsPage() {
           />
           <input type="date" className="input" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
           <input type="date" className="input" value={toDate} onChange={(event) => setToDate(event.target.value)} />
-          {isGlobal && scope === 'team' ? (
+          {isGlobal && showTeamControls ? (
             <select
               className="input"
               value={franchiseId}
@@ -604,44 +656,48 @@ export function TimeLogsPage() {
               ))}
             </select>
           ) : (
-            <input className="input" disabled value={scope === 'team' ? 'Site equipe' : 'Filtre equipe indisponible'} />
+            showTeamControls && <input className="input" disabled value="Site equipe" />
           )}
-          <select className="input" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as '' | Role)}>
-            <option value="">Tous roles</option>
-            {workerRoles.map((role) => (
-              <option key={role} value={role}>{roleLabel[role] ?? role}</option>
-            ))}
-          </select>
-          <select
-            className="input"
-            value={workingZone}
-            onChange={(event) => {
-              const value = event.target.value as '' | 'siege' | 'franchise' | 'commercial_zone';
-              setWorkingZone(value);
-              if (value !== 'commercial_zone') setCommercialZoneId('');
-            }}
-          >
-            <option value="">Toutes zones travail</option>
-            {(Object.keys(workingZoneLabel) as Array<keyof typeof workingZoneLabel>).map((zone) => (
-              <option key={zone} value={zone}>{workingZoneLabel[zone]}</option>
-            ))}
-          </select>
-          <select className="input" value={commercialZoneId} onChange={(event) => setCommercialZoneId(event.target.value)}>
-            <option value="">Toutes zones commerciales</option>
-            {(commercialZones.data ?? []).map((zone) => (
-              <option key={zone._id} value={zone._id}>{zone.name}</option>
-            ))}
-          </select>
-          <select className="input" value={workerId} onChange={(event) => setWorkerId(event.target.value)} disabled={!canViewTeam || scope !== 'team'}>
-            <option value="">Tous workers</option>
-            {(workers.data ?? [])
-              .filter((worker) => workerRoles.includes(worker.role))
-              .map((worker) => (
-                <option key={worker.id || worker._id} value={worker.id || worker._id}>
-                  {worker.fullName} - {roleLabel[worker.role] ?? worker.role}
-                </option>
-              ))}
-          </select>
+          {showTeamControls && (
+            <>
+              <select className="input" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as '' | Role)}>
+                <option value="">Tous roles</option>
+                {workerRoles.map((role) => (
+                  <option key={role} value={role}>{roleLabel[role] ?? role}</option>
+                ))}
+              </select>
+              <select
+                className="input"
+                value={workingZone}
+                onChange={(event) => {
+                  const value = event.target.value as '' | 'siege' | 'franchise' | 'commercial_zone';
+                  setWorkingZone(value);
+                  if (value !== 'commercial_zone') setCommercialZoneId('');
+                }}
+              >
+                <option value="">Toutes zones travail</option>
+                {(Object.keys(workingZoneLabel) as Array<keyof typeof workingZoneLabel>).map((zone) => (
+                  <option key={zone} value={zone}>{workingZoneLabel[zone]}</option>
+                ))}
+              </select>
+              <select className="input" value={commercialZoneId} onChange={(event) => setCommercialZoneId(event.target.value)}>
+                <option value="">Toutes zones commerciales</option>
+                {(commercialZones.data ?? []).map((zone) => (
+                  <option key={zone._id} value={zone._id}>{zone.name}</option>
+                ))}
+              </select>
+              <select className="input" value={workerId} onChange={(event) => setWorkerId(event.target.value)}>
+                <option value="">Tous workers</option>
+                {(workers.data ?? [])
+                  .filter((worker) => workerRoles.includes(worker.role))
+                  .map((worker) => (
+                    <option key={worker.id || worker._id} value={worker.id || worker._id}>
+                      {worker.fullName} - {roleLabel[worker.role] ?? worker.role}
+                    </option>
+                  ))}
+              </select>
+            </>
+          )}
           <input
             type="number"
             min={50}
@@ -762,9 +818,9 @@ export function TimeLogsPage() {
         </div>
       </section>
 
-      <section className="mb-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <section className={`mb-5 grid gap-4 ${showTeamControls ? 'xl:grid-cols-[minmax(0,1fr)_340px]' : ''}`}>
         <div className="card overflow-hidden p-0">
-          <div className="h-[420px]">
+          <div className="relative h-[420px]">
             {mapData.isLoading ? (
               <div className="flex h-full items-center justify-center bg-slate-50">
                 <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-brand-600" />
@@ -774,14 +830,11 @@ export function TimeLogsPage() {
                 <MapViewport
                   points={[
                     ...displayPoints.map((point) => ({ gps: point.displayGps ?? point.gps })),
-                    ...(activeTrack?.points ?? []).map((point) => ({ gps: point.gps })),
+                    ...(visibleTrack?.points ?? []).map((point) => ({ gps: point.gps })),
                   ]}
                   selected={selectedDisplayPoint}
                 />
-                <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
+                <MapTiles mode={mapTileMode} />
                 {(mapData.data?.zones ?? []).map((zone) => (
                   <Circle
                     key={zone._id}
@@ -807,25 +860,25 @@ export function TimeLogsPage() {
                     }}
                   />
                 ))}
-                {activeTrack && activeTrack.points.length > 1 && (
+                {visibleTrack && visibleTrack.points.length > 1 && (
                   <>
                     <Polyline
-                      positions={activeTrack.points.map((point) => [point.gps.lat, point.gps.lng])}
+                      positions={visibleTrack.points.map((point) => [point.gps.lat, point.gps.lng])}
                       pathOptions={{ color: '#94A3B8', weight: 3, opacity: 0.45 }}
                     />
                     <Polyline
-                      positions={activeTrack.points.slice(0, Math.max(1, trackIndex + 1)).map((point) => [point.gps.lat, point.gps.lng])}
+                      positions={visibleTrack.points.slice(0, Math.max(1, trackIndex + 1)).map((point) => [point.gps.lat, point.gps.lng])}
                       pathOptions={{ color: '#2563EB', weight: 4, opacity: 0.9 }}
                     />
                   </>
                 )}
-                {activeTrack && activeTrackPoint && (
-                  <Marker position={[activeTrackPoint.gps.lat, activeTrackPoint.gps.lng]} icon={trackCarIcon(activeTrack, activeTrackPoint)}>
+                {visibleTrack && activeTrackPoint && (
+                  <Marker position={[activeTrackPoint.gps.lat, activeTrackPoint.gps.lng]} icon={trackCarIcon(visibleTrack, activeTrackPoint)}>
                     <Popup>
                       <div className="space-y-1 text-sm">
-                        <div className="font-semibold text-slate-900">{activeTrack.user?.fullName || 'Commercial'}</div>
+                        <div className="font-semibold text-slate-900">{visibleTrack.user?.fullName || 'Commercial'}</div>
                         <div className="text-xs text-slate-500">{dateTime(activeTrackPoint.timestamp)}</div>
-                        <div className="text-xs">{activeTrack.zone?.name || 'Zone commerciale non reconnue'}</div>
+                        <div className="text-xs">{visibleTrack.zone?.name || 'Zone commerciale non reconnue'}</div>
                         <div className={activeTrackPoint.inZone === false ? 'text-xs font-semibold text-rose-700' : 'text-xs font-semibold text-emerald-700'}>
                           {activeTrackPoint.inZone === false ? 'Hors zone' : activeTrackPoint.inZone === true ? 'Dans zone' : 'Zone inconnue'}
                         </div>
@@ -843,15 +896,21 @@ export function TimeLogsPage() {
                 ))}
               </MapContainer>
             )}
+            <MapTileToggle
+              value={mapTileMode}
+              onChange={setMapTileMode}
+              className="absolute right-3 top-3"
+            />
           </div>
         </div>
 
+        {showTeamControls && (
         <aside className="card p-3">
           <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
             <div className="mb-2 text-sm font-semibold text-slate-900">Circuit commerciaux</div>
             <select
               className="input !min-h-[40px] !py-2"
-              value={activeTrack?.user?._id ?? ''}
+              value={visibleTrack?.user?._id ?? ''}
               onChange={(event) => {
                 setSelectedTrackUserId(event.target.value);
                 setTrackIndex(0);
@@ -864,13 +923,13 @@ export function TimeLogsPage() {
                 </option>
               ))}
             </select>
-            {activeTrack && activeTrack.points.length > 0 && (
+            {visibleTrack && visibleTrack.points.length > 0 && (
               <div className="mt-3 space-y-2">
                 <input
                   type="range"
                   min={0}
-                  max={Math.max(0, activeTrack.points.length - 1)}
-                  value={Math.min(trackIndex, Math.max(0, activeTrack.points.length - 1))}
+                  max={Math.max(0, visibleTrack.points.length - 1)}
+                  value={Math.min(trackIndex, Math.max(0, visibleTrack.points.length - 1))}
                   onChange={(event) => setTrackIndex(Number(event.target.value))}
                   className="w-full accent-brand-600"
                   aria-label="Playback circuit commercial"
@@ -882,7 +941,7 @@ export function TimeLogsPage() {
                   </div>
                   <div className="text-right">
                     <div className="text-slate-400">Point</div>
-                    <div className="font-semibold text-slate-700">{Math.min(trackIndex + 1, activeTrack.points.length)} / {activeTrack.points.length}</div>
+                    <div className="font-semibold text-slate-700">{Math.min(trackIndex + 1, visibleTrack.points.length)} / {visibleTrack.points.length}</div>
                   </div>
                 </div>
               </div>
@@ -912,6 +971,7 @@ export function TimeLogsPage() {
             )}
           </div>
         </aside>
+        )}
       </section>
 
       <section className="card overflow-x-auto">
@@ -1002,6 +1062,7 @@ function SiegeZoneModal({
   const [lat, setLat] = useState(zone.gps.lat);
   const [lng, setLng] = useState(zone.gps.lng);
   const [radiusMeters, setRadiusMeters] = useState(zone.radiusMeters);
+  const [tileMode, setTileMode] = useState<MapTileMode>('satellite');
   const [error, setError] = useState<string | null>(null);
 
   const save = useMutation({
@@ -1074,7 +1135,7 @@ function SiegeZoneModal({
             onChange={(event) => setRadiusMeters(Math.max(20, Math.min(5000, Number(event.target.value) || 20)))}
           />
         </div>
-        <div className="h-[260px] overflow-hidden rounded-lg border border-slate-200">
+        <div className="relative h-[260px] overflow-hidden rounded-lg border border-slate-200">
           <MapContainer
             key={`${lat}-${lng}-${radiusMeters}`}
             center={[lat, lng]}
@@ -1082,10 +1143,7 @@ function SiegeZoneModal({
             scrollWheelZoom
             className="h-full w-full"
           >
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
+            <MapTiles mode={tileMode} />
             <Circle
               center={[lat, lng]}
               radius={radiusMeters}
@@ -1097,6 +1155,7 @@ function SiegeZoneModal({
               pathOptions={{ color: '#ffffff', weight: 2, fillColor: '#0F172A', fillOpacity: 1 }}
             />
           </MapContainer>
+          <MapTileToggle value={tileMode} onChange={setTileMode} className="absolute right-3 top-3" />
         </div>
         {error && <div className="text-sm text-rose-600">{error}</div>}
       </div>
@@ -1106,35 +1165,36 @@ function SiegeZoneModal({
 
 function GpsPreviewMap({ gps }: { gps: { lat: number; lng: number; accuracy: number | null } }) {
   const radius = Math.max(12, Math.min(500, gps.accuracy ?? 25));
+  const [tileMode, setTileMode] = useState<MapTileMode>('satellite');
 
   return (
-    <MapContainer
-      key={`${gps.lat}-${gps.lng}-${gps.accuracy ?? 'x'}`}
-      center={[gps.lat, gps.lng]}
-      zoom={17}
-      scrollWheelZoom={false}
-      dragging={false}
-      className="h-full w-full"
-    >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      <Circle
+    <div className="relative h-full w-full">
+      <MapContainer
+        key={`${gps.lat}-${gps.lng}-${gps.accuracy ?? 'x'}`}
         center={[gps.lat, gps.lng]}
-        radius={radius}
-        pathOptions={{
-          color: gps.accuracy != null && gps.accuracy > 100 ? '#DC2626' : gps.accuracy != null && gps.accuracy > 30 ? '#F59E0B' : '#10B981',
-          weight: 1.5,
-          fillOpacity: 0.12,
-        }}
-      />
-      <CircleMarker
-        center={[gps.lat, gps.lng]}
-        radius={7}
-        pathOptions={{ color: '#ffffff', weight: 2, fillColor: '#0F172A', fillOpacity: 1 }}
-      />
-    </MapContainer>
+        zoom={17}
+        scrollWheelZoom={false}
+        dragging={false}
+        className="h-full w-full"
+      >
+        <MapTiles mode={tileMode} />
+        <Circle
+          center={[gps.lat, gps.lng]}
+          radius={radius}
+          pathOptions={{
+            color: gps.accuracy != null && gps.accuracy > 100 ? '#DC2626' : gps.accuracy != null && gps.accuracy > 30 ? '#F59E0B' : '#10B981',
+            weight: 1.5,
+            fillOpacity: 0.12,
+          }}
+        />
+        <CircleMarker
+          center={[gps.lat, gps.lng]}
+          radius={7}
+          pathOptions={{ color: '#ffffff', weight: 2, fillColor: '#0F172A', fillOpacity: 1 }}
+        />
+      </MapContainer>
+      <MapTileToggle value={tileMode} onChange={setTileMode} className="absolute right-3 top-3" />
+    </div>
   );
 }
 

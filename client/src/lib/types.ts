@@ -149,6 +149,12 @@ export interface Product {
   sellPriceHt?: number;
   sellTaxRate?: number;
   sellPriceTtc?: number;
+  productType?: 'standard' | 'asel_recharge' | 'asel_forfait';
+  priceMode?: 'fixed' | 'variable';
+  stockManaged?: boolean;
+  commissionRate?: number;
+  companyShareRate?: number;
+  franchiseManagerShareRate?: number;
   lowStockThreshold: number;
   active: boolean;
   stockTotal?: number;
@@ -165,6 +171,7 @@ export interface StockItem {
   franchiseId: string;
   productId: string;
   quantity: number;
+  sellPrice?: number | null;
   product: Product;
   category?: Category;
   franchise?: { _id: string; name: string };
@@ -187,6 +194,13 @@ export interface SaleItem {
   quantity: number;
   unitPrice: number;
   total: number;
+  productType?: 'standard' | 'asel_recharge' | 'asel_forfait';
+  stockManaged?: boolean;
+  commissionRate?: number;
+  commissionBase?: number;
+  commissionAmount?: number;
+  companyShareAmount?: number;
+  franchiseManagerShareAmount?: number;
 }
 
 export interface Sale {
@@ -200,6 +214,9 @@ export interface Sale {
   subtotal: number;
   discount: number;
   total: number;
+  commissionTotal?: number;
+  companyShareTotal?: number;
+  franchiseManagerShareTotal?: number;
   paymentMethod: 'cash' | 'card' | 'transfer' | 'installment' | 'other';
   paymentStatus: 'paid' | 'partial' | 'pending';
   amountReceived?: number | null;
@@ -288,7 +305,7 @@ export interface DashboardPayload {
       byRole?: Array<{ role: Role; count: number }>;
       latestPunches?: Array<{
         _id: string;
-        type: 'entree' | 'sortie' | 'pause_debut' | 'pause_fin';
+        type: 'entree' | 'sortie' | 'pause_debut' | 'pause_fin' | 'verif';
         timestamp: string;
         employeeName: string;
         role: Role | string;
@@ -332,7 +349,7 @@ export interface DashboardPayload {
       activeShift: boolean;
       pendingLeaveRequests: number;
       siteName?: string;
-      lastType?: 'entree' | 'sortie' | 'pause_debut' | 'pause_fin' | null;
+      lastType?: 'entree' | 'sortie' | 'pause_debut' | 'pause_fin' | 'verif' | null;
       lastTimestamp?: string | null;
     };
     pilotage?: {
@@ -484,8 +501,13 @@ export interface Installment {
   originalAmount?: number | null;
   paidAmount?: number;
   dueDate: string;
+  dueDateHistory?: Array<{ from: string; to: string; reason?: string; userId?: User | string; createdAt: string }>;
+  dueDateUpdatedBy?: User | string | null;
+  dueDateUpdatedAt?: string | null;
   status: 'pending' | 'paid' | 'late';
   paidAt?: string | null;
+  paidAtUpdatedBy?: User | string | null;
+  paidAtUpdatedAt?: string | null;
   paymentMethod?: string | null;
   note?: string;
   splitFromInstallmentId?: string | null;
@@ -601,6 +623,16 @@ export interface NetworkPoint {
   contractDate?: string | null;
   activationDate?: string | null;
   commissionPct?: number;
+  allocationStats?: {
+    totalSims: number;
+    totalRecharge: number;
+    monthlySims: number;
+    monthlyRecharge: number;
+    allocationCount: number;
+    lastAllocationAt?: string | null;
+    daysSinceAllocation?: number | null;
+    recommendation?: 'worthy' | 'watch' | 'review' | 'dormant' | 'revoke_candidate' | 'revoked';
+  };
   active: boolean;
   createdAt?: string;
 }

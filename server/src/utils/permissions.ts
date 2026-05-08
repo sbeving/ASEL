@@ -178,6 +178,8 @@ const sellerPermissions: readonly Permission[] = [
   'services.record',
   'returns.view',
   'returns.create',
+  'installments.view',
+  'installments.manage',
   'timelogs.view.self',
   'timelogs.create',
   'leave_requests.view.self',

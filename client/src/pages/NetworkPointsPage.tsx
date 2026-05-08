@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Eraser, Eye, FileSignature, PackagePlus, ScanLine } from 'lucide-react';
-import { CircleMarker, MapContainer, Polygon, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet';
+import { AlertTriangle, Award, Eraser, Eye, FileSignature, PackagePlus, ScanLine } from 'lucide-react';
+import { CircleMarker, MapContainer, Polygon, Popup, useMap, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { api, apiError, uploadUrl } from '../lib/api';
 import { useAuth } from '../auth/AuthContext';
@@ -13,6 +13,7 @@ import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import { ScannerModal } from '../components/ScannerModal';
 import { TablePagination } from '../components/TablePagination';
+import { MapTileToggle, MapTiles, type MapTileMode } from '../components/MapTiles';
 import { useDebouncedValue } from '../lib/hooks';
 import { dateTime, money } from '../lib/money';
 import type { CommercialZone, Franchise, NetworkPoint, NetworkPointAllocation, PageMeta, Product, User } from '../lib/types';
@@ -87,6 +88,50 @@ type NetworkPointOverview = {
   totals: AllocationSummary;
 };
 
+type PointRecommendation = NonNullable<NonNullable<NetworkPoint['allocationStats']>['recommendation']>;
+
+type NetworkPointAnalyticsRow = {
+  point: NetworkPoint;
+  allocationStats: NonNullable<NetworkPoint['allocationStats']>;
+  privilegeScore: number;
+};
+
+type NetworkPointAnalytics = {
+  totals: {
+    points: number;
+    active: number;
+    totalSims: number;
+    totalRecharge: number;
+    monthlySims: number;
+    monthlyRecharge: number;
+    dormant: number;
+    toReview: number;
+  };
+  byRecommendation: Record<string, number>;
+  bestPoints: NetworkPointAnalyticsRow[];
+  dormantPoints: NetworkPointAnalyticsRow[];
+  reviewPoints: NetworkPointAnalyticsRow[];
+  dormantDays: number;
+};
+
+const recommendationLabel: Record<PointRecommendation, string> = {
+  worthy: 'A renforcer',
+  watch: 'A surveiller',
+  review: 'A qualifier',
+  dormant: 'Dormant',
+  revoke_candidate: 'Retrait possible',
+  revoked: 'Retire',
+};
+
+const recommendationBadge: Record<PointRecommendation, string> = {
+  worthy: 'badge-success',
+  watch: 'badge-info',
+  review: 'badge-warning',
+  dormant: 'badge-warning',
+  revoke_candidate: 'badge-danger',
+  revoked: 'badge-muted',
+};
+
 const pointSchema = z.object({
   name: z.string().trim().min(1, 'Nom requis').max(200),
   type: z.enum(['franchise', 'activation', 'recharge', 'activation_recharge']),
@@ -139,11 +184,14 @@ type PointFormValues = z.infer<typeof pointSchema>;
 
 export function NetworkPointsPage() {
   const qc = useQueryClient();
+  const { user } = useAuth();
   const [q, setQ] = useState('');
   const debouncedQ = useDebouncedValue(q, 250);
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [cityFilter, setCityFilter] = useState('');
+  const [dormantDays, setDormantDays] = useState(30);
+  const [mapTileMode, setMapTileMode] = useState<MapTileMode>('street');
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<NetworkPoint | null>(null);
   const [creating, setCreating] = useState(false);
@@ -151,6 +199,16 @@ export function NetworkPointsPage() {
   const [allocating, setAllocating] = useState<NetworkPoint | null>(null);
   const [viewing, setViewing] = useState<NetworkPoint | null>(null);
   const [documenting, setDocumenting] = useState<NetworkPoint | null>(null);
+  const highAccess =
+    user?.role === 'ceo' ||
+    user?.role === 'admin' ||
+    user?.role === 'superadmin' ||
+    user?.role === 'manager' ||
+    user?.role === 'commercial_director';
+  const canCreatePoints = highAccess || user?.role === 'franchise' || user?.role === 'commercial';
+  const canEditPoints = canCreatePoints;
+  const canManageDotations = highAccess || user?.role === 'franchise';
+  const canArchivePoints = highAccess;
 
   const list = useQuery({
     queryKey: ['network-points', debouncedQ, typeFilter, statusFilter, cityFilter, page],
@@ -189,6 +247,22 @@ export function NetworkPointsPage() {
     refetchInterval: 15_000,
   });
 
+  const analytics = useQuery({
+    queryKey: ['network-points-analytics', typeFilter, statusFilter, cityFilter, dormantDays],
+    queryFn: async () =>
+      (
+        await api.get<NetworkPointAnalytics>('/network-points/analytics', {
+          params: {
+            type: typeFilter || undefined,
+            status: statusFilter || undefined,
+            city: cityFilter || undefined,
+            dormantDays,
+          },
+        })
+      ).data,
+    refetchInterval: 30_000,
+  });
+
   const pointsWithGps = useMemo(
     () =>
       (mapData.data?.points ?? [])
@@ -208,9 +282,11 @@ export function NetworkPointsPage() {
         title="Reseau & Carte"
         subtitle="Parite points_reseau: filtres, carte, CRUD points commerciaux"
         actions={
-          <button className="btn-primary" onClick={() => setCreating(true)}>
-            + Nouveau point
-          </button>
+          canCreatePoints ? (
+            <button className="btn-primary" onClick={() => setCreating(true)}>
+              + Nouveau point
+            </button>
+          ) : null
         }
       />
 
@@ -224,10 +300,7 @@ export function NetworkPointsPage() {
           {!mapData.isLoading && (
           <MapContainer center={[36.8, 10.1]} zoom={7} scrollWheelZoom className="h-full w-full">
             <FitBounds points={pointsWithGps} />
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
+            <MapTiles mode={mapTileMode} />
             {(mapData.data?.zones ?? []).map((zone) => (
               <Polygon
                 key={zone._id}
@@ -265,15 +338,53 @@ export function NetworkPointsPage() {
             ))}
           </MapContainer>
           )}
+          <MapTileToggle value={mapTileMode} onChange={setMapTileMode} className="absolute right-3 top-3" />
           <NetworkMapLegend items={networkMapLegendItems} />
         </div>
       </section>
 
       <section className="mb-5 grid gap-3 md:grid-cols-4">
-        <MetricCard label="Points actifs" value={String(list.data?.summary.total ?? 0)} />
-        <MetricCard label="Points geolocalises" value={String(list.data?.summary.mapped ?? 0)} />
-        <MetricCard label="Franchises" value={String(list.data?.summary.byType.franchise ?? 0)} />
-        <MetricCard label="Activation+Recharge" value={String(list.data?.summary.byType.activation_recharge ?? 0)} />
+        <MetricCard label="Points reseau" value={String(analytics.data?.totals.points ?? list.data?.summary.total ?? 0)} />
+        <MetricCard label="SIM ce mois" value={String(analytics.data?.totals.monthlySims ?? 0)} />
+        <MetricCard label="Recharge ce mois" value={money(analytics.data?.totals.monthlyRecharge ?? 0)} />
+        <MetricCard label="A revoir" value={String(analytics.data?.totals.toReview ?? 0)} tone={(analytics.data?.totals.toReview ?? 0) > 0 ? 'danger' : 'default'} />
+      </section>
+
+      <section className="mb-5 grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+        <div className="card p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <Award className="h-4 w-4 text-emerald-600" />
+                Meilleurs points
+              </div>
+              <div className="text-xs text-slate-500">Plus forte dotation SIM/recharge recente</div>
+            </div>
+            <span className="badge-success">{analytics.data?.totals.totalSims ?? 0} SIM total</span>
+          </div>
+          <AnalyticsRows rows={analytics.data?.bestPoints ?? []} empty="Aucune dotation analysee." />
+        </div>
+        <div className="card p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                Dormants / privileges a revoir
+              </div>
+              <div className="text-xs text-slate-500">Points sans dotation recente ou statut a risque</div>
+            </div>
+            <select
+              className="input h-9 w-32 !py-1 text-xs"
+              value={dormantDays}
+              onChange={(event) => setDormantDays(Number(event.target.value) || 30)}
+            >
+              <option value={30}>30 jours</option>
+              <option value={60}>60 jours</option>
+              <option value={90}>90 jours</option>
+            </select>
+          </div>
+          <AnalyticsRows rows={analytics.data?.reviewPoints ?? []} empty="Aucun point a risque sur ce filtre." />
+        </div>
       </section>
 
       <section className="card mb-5 p-4">
@@ -340,75 +451,102 @@ export function NetworkPointsPage() {
               <th className="th">Statut</th>
               <th className="th">Ville</th>
               <th className="th">Contact</th>
+              <th className="th text-right">SIM mois</th>
+              <th className="th text-right">Recharge mois</th>
+              <th className="th">Derniere dotation</th>
+              <th className="th">Decision</th>
               <th className="th">Coordonnees</th>
               <th className="th-action">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {(list.data?.points ?? []).map((point) => (
-              <tr key={point._id}>
-                <td className="td-action">
-                  <div className="font-medium text-slate-900">{point.name}</div>
-                  <div className="text-xs text-slate-500">{point.responsible || point.address || '—'}</div>
-                </td>
-                <td className="td">
-                  <span className="badge-info" style={{ backgroundColor: `${typeColor[point.type]}22`, color: typeColor[point.type] }}>
-                    {typeLabel[point.type]}
-                  </span>
-                </td>
-                <td className="td">
-                  <span className={statusBadge[point.status]}>{statusLabel[point.status]}</span>
-                  <div className="mt-1 text-xs font-medium text-slate-500">
-                    {leadStatusLabel[point.leadStatus ?? 'lead']}
-                    {point.contractGiven ? ' • Contrat donne' : ''}
-                  </div>
-                </td>
-                <td className="td text-slate-600">{[point.city, point.governorate].filter(Boolean).join(', ') || '—'}</td>
-                <td className="td text-slate-600">
-                  <div>{point.phone || point.email || '—'}</div>
-                  <ContactActions
-                    phone={point.phone}
-                    phone2={point.phone2}
-                    message={`Bonjour ${point.responsible || point.name}, ici ASEL Mobile Tunisie.`}
-                    compact
-                    className="mt-2"
-                  />
-                </td>
-                <td className="td text-slate-600">
-                  {point.gps?.lat != null && point.gps?.lng != null ? `${point.gps.lat}, ${point.gps.lng}` : '—'}
-                </td>
-                <td className="td">
-                  <div className="flex justify-end gap-2">
-                    <button className="btn-secondary !px-3 !py-1.5" onClick={() => setViewing(point)}>
-                      <Eye className="h-4 w-4" />
-                      <span className="hidden lg:inline">Voir</span>
-                    </button>
-                    <button className="btn-secondary !px-3 !py-1.5" onClick={() => setDocumenting(point)}>
-                      <FileSignature className="h-4 w-4" />
-                      <span className="hidden lg:inline">Fiche</span>
-                    </button>
-                    <button className="btn-secondary !px-3 !py-1.5" onClick={() => setAllocating(point)}>
-                      <PackagePlus className="h-4 w-4" />
-                      <span className="hidden lg:inline">Dotation</span>
-                    </button>
-                    <button className="btn-secondary !px-3 !py-1.5" onClick={() => setEditing(point)}>
-                      Modifier
-                    </button>
-                    <button className="btn-danger !px-3 !py-1.5" onClick={() => setDeleting(point)}>
-                      Desactiver
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {(list.data?.points ?? []).map((point) => {
+              const stats = point.allocationStats;
+              const recommendation = stats?.recommendation ?? 'watch';
+              return (
+                <tr key={point._id}>
+                  <td className="td-action">
+                    <div className="font-medium text-slate-900">{point.name}</div>
+                    <div className="text-xs text-slate-500">{point.responsible || point.address || '—'}</div>
+                  </td>
+                  <td className="td">
+                    <span className="badge-info" style={{ backgroundColor: `${typeColor[point.type]}22`, color: typeColor[point.type] }}>
+                      {typeLabel[point.type]}
+                    </span>
+                  </td>
+                  <td className="td">
+                    <span className={statusBadge[point.status]}>{statusLabel[point.status]}</span>
+                    <div className="mt-1 text-xs font-medium text-slate-500">
+                      {leadStatusLabel[point.leadStatus ?? 'lead']}
+                      {point.contractGiven ? ' • Contrat donne' : ''}
+                    </div>
+                  </td>
+                  <td className="td text-slate-600">{[point.city, point.governorate].filter(Boolean).join(', ') || '—'}</td>
+                  <td className="td text-slate-600">
+                    <div>{point.phone || point.email || '—'}</div>
+                    <ContactActions
+                      phone={point.phone}
+                      phone2={point.phone2}
+                      message={`Bonjour ${point.responsible || point.name}, ici ASEL Mobile Tunisie.`}
+                      compact
+                      className="mt-2"
+                    />
+                  </td>
+                  <td className="td text-right font-semibold text-slate-900">{stats?.monthlySims ?? 0}</td>
+                  <td className="td text-right font-semibold text-slate-900">{money(stats?.monthlyRecharge ?? 0)}</td>
+                  <td className="td text-slate-600">
+                    {stats?.lastAllocationAt ? dateTime(stats.lastAllocationAt) : 'Jamais'}
+                    {stats?.daysSinceAllocation != null && (
+                      <div className="text-xs text-slate-400">{stats.daysSinceAllocation} j</div>
+                    )}
+                  </td>
+                  <td className="td">
+                    <span className={recommendationBadge[recommendation]}>{recommendationLabel[recommendation]}</span>
+                  </td>
+                  <td className="td text-slate-600">
+                    {point.gps?.lat != null && point.gps?.lng != null ? `${point.gps.lat}, ${point.gps.lng}` : '—'}
+                  </td>
+                  <td className="td">
+                    <div className="flex justify-end gap-2">
+                      <button className="btn-secondary !px-3 !py-1.5" onClick={() => setViewing(point)}>
+                        <Eye className="h-4 w-4" />
+                        <span className="hidden lg:inline">Voir</span>
+                      </button>
+                      {canEditPoints && (
+                        <button className="btn-secondary !px-3 !py-1.5" onClick={() => setDocumenting(point)}>
+                          <FileSignature className="h-4 w-4" />
+                          <span className="hidden lg:inline">Fiche</span>
+                        </button>
+                      )}
+                      {canManageDotations && (
+                        <button className="btn-secondary !px-3 !py-1.5" onClick={() => setAllocating(point)}>
+                          <PackagePlus className="h-4 w-4" />
+                          <span className="hidden lg:inline">Dotation</span>
+                        </button>
+                      )}
+                      {canEditPoints && (
+                        <button className="btn-secondary !px-3 !py-1.5" onClick={() => setEditing(point)}>
+                          Modifier
+                        </button>
+                      )}
+                      {canArchivePoints && (
+                        <button className="btn-danger !px-3 !py-1.5" onClick={() => setDeleting(point)}>
+                          Desactiver
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
             {list.isLoading && (
               <tr>
-                <td className="td text-slate-400" colSpan={7}>Chargement des points reseau...</td>
+                <td className="td text-slate-400" colSpan={11}>Chargement des points reseau...</td>
               </tr>
             )}
             {!list.isLoading && (list.data?.points.length ?? 0) === 0 && (
               <tr>
-                <td className="td text-slate-400" colSpan={7}>Aucun point reseau pour ce filtre.</td>
+                <td className="td text-slate-400" colSpan={11}>Aucun point reseau pour ce filtre.</td>
               </tr>
             )}
           </tbody>
@@ -594,8 +732,7 @@ function AllocationModal({
     if (!code) return;
     const next = [...new Set([...barcodes, code])];
     setBarcodesText(next.join('\n'));
-    setScannerError(null);
-    setScannerOpen(false);
+    setScannerError(next.length === barcodes.length ? 'Code deja scanne, scanner toujours ouvert.' : null);
   };
 
   return (
@@ -1080,14 +1217,12 @@ function PointLocationPicker({
   value: { lat: number; lng: number } | null;
   onChange: (value: { lat: number; lng: number }) => void;
 }) {
+  const [tileMode, setTileMode] = useState<MapTileMode>('satellite');
   const center: [number, number] = value ? [value.lat, value.lng] : [36.8065, 10.1815];
   return (
-    <div className="h-72 overflow-hidden rounded-lg border border-slate-200">
+    <div className="relative h-72 overflow-hidden rounded-lg border border-slate-200">
       <MapContainer center={center} zoom={value ? 14 : 7} scrollWheelZoom className="h-full w-full">
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+        <MapTiles mode={tileMode} />
         <PointPickerClicker onChange={onChange} />
         <PointPickerSync value={value} />
         {value && (
@@ -1098,6 +1233,7 @@ function PointLocationPicker({
           />
         )}
       </MapContainer>
+      <MapTileToggle value={tileMode} onChange={setTileMode} className="absolute right-3 top-3" />
     </div>
   );
 }
@@ -1550,11 +1686,66 @@ function ArchivePointModal({
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
+function AnalyticsRows({ rows, empty }: { rows: NetworkPointAnalyticsRow[]; empty: string }) {
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+        {empty}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {rows.map((row) => {
+        const recommendation = row.allocationStats.recommendation ?? 'watch';
+        return (
+          <div key={row.point._id} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-slate-900">{row.point.name}</div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  {[row.point.city, typeof row.point.commercialId === 'object' ? row.point.commercialId?.fullName : '']
+                    .filter(Boolean)
+                    .join(' | ') || typeLabel[row.point.type]}
+                </div>
+              </div>
+              <span className={recommendationBadge[recommendation]}>{recommendationLabel[recommendation]}</span>
+            </div>
+            <div className="mt-2 grid grid-cols-4 gap-2 text-center text-xs">
+              <div className="rounded-md bg-slate-50 px-2 py-1">
+                <div className="font-bold text-slate-900">{row.allocationStats.monthlySims}</div>
+                <div className="text-slate-500">SIM mois</div>
+              </div>
+              <div className="rounded-md bg-slate-50 px-2 py-1">
+                <div className="font-bold text-slate-900">{money(row.allocationStats.monthlyRecharge)}</div>
+                <div className="text-slate-500">Recharge</div>
+              </div>
+              <div className="rounded-md bg-slate-50 px-2 py-1">
+                <div className="font-bold text-slate-900">{row.allocationStats.totalSims}</div>
+                <div className="text-slate-500">SIM total</div>
+              </div>
+              <div className="rounded-md bg-slate-50 px-2 py-1">
+                <div className="font-bold text-slate-900">
+                  {row.allocationStats.daysSinceAllocation == null ? '-' : `${row.allocationStats.daysSinceAllocation}j`}
+                </div>
+                <div className="text-slate-500">Inactif</div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MetricCard({ label, value, tone = 'default' }: { label: string; value: string; tone?: 'default' | 'danger' }) {
   return (
     <div className="card p-4">
       <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div>
+      <div className={tone === 'danger' ? 'mt-1 text-2xl font-semibold text-rose-700' : 'mt-1 text-2xl font-semibold text-slate-900'}>
+        {value}
+      </div>
     </div>
   );
 }

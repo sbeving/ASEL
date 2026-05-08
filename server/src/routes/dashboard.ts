@@ -19,6 +19,7 @@ import { Reception } from '../models/Reception.js';
 import { LocationPing } from '../models/LocationPing.js';
 import { isGlobalRole } from '../utils/roles.js';
 import { WORKER_ROLES } from '../utils/pointage.js';
+import { computeWorkedMinutes } from '../utils/workSession.js';
 import { env } from '../config/env.js';
 import { badRequest } from '../utils/AppError.js';
 
@@ -46,41 +47,6 @@ function startOfWeek(date = new Date()) {
   value.setDate(value.getDate() + diff);
   value.setHours(0, 0, 0, 0);
   return value;
-}
-
-function computeWorkedMinutes(logs: Array<{ type: string; timestamp: Date }>) {
-  const sorted = [...logs].sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
-  let shiftStart: number | null = null;
-  let breakStart: number | null = null;
-  let pausedMs = 0;
-  let totalMs = 0;
-
-  for (const log of sorted) {
-    const at = new Date(log.timestamp).getTime();
-    if (!Number.isFinite(at)) continue;
-    if (log.type === 'entree') {
-      shiftStart = at;
-      breakStart = null;
-      pausedMs = 0;
-    } else if (log.type === 'pause_debut' && shiftStart !== null && breakStart === null) {
-      breakStart = at;
-    } else if (log.type === 'pause_fin' && breakStart !== null) {
-      pausedMs += Math.max(0, at - breakStart);
-      breakStart = null;
-    } else if (log.type === 'sortie' && shiftStart !== null) {
-      totalMs += Math.max(0, at - shiftStart - pausedMs - (breakStart !== null ? Math.max(0, at - breakStart) : 0));
-      shiftStart = null;
-      breakStart = null;
-      pausedMs = 0;
-    }
-  }
-
-  const activeShift = shiftStart !== null && Date.now() - shiftStart <= 18 * 60 * 60 * 1000;
-  if (activeShift && shiftStart !== null) {
-    totalMs += Math.max(0, Date.now() - shiftStart - pausedMs - (breakStart !== null ? Math.max(0, Date.now() - breakStart) : 0));
-  }
-
-  return { workedMinutes: Math.round(totalMs / 60000), activeShift };
 }
 
 async function buildPilotageStats(ranges: { periodStart: Date; periodEnd: Date }, selectedFranchiseId?: mongoose.Types.ObjectId | null) {
@@ -553,7 +519,7 @@ async function buildRoleStats(
       rows.push({ type: log.type, timestamp: log.timestamp });
       logsByUser.set(id, rows);
     }
-    const computed = [...logsByUser.values()].map(computeWorkedMinutes);
+    const computed = [...logsByUser.values()].map((rows) => computeWorkedMinutes(rows));
     return {
       hr: {
         employeeCount: workers.length,
