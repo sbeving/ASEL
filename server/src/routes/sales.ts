@@ -1,35 +1,54 @@
-import { Router } from 'express';
-import { z } from 'zod';
-import mongoose, { isValidObjectId } from 'mongoose';
-import { franchiseScopeFilter, requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
-import { validate } from '../middleware/validate.js';
-import { asyncHandler } from '../middleware/asyncHandler.js';
-import { withMongoTransaction } from '../db/transaction.js';
-import { Sale } from '../models/Sale.js';
-import { Product } from '../models/Product.js';
-import { Client } from '../models/Client.js';
-import { Installment } from '../models/Installment.js';
-import { Stock } from '../models/Stock.js';
-import { applyStockDelta } from '../services/stock.service.js';
-import { audit } from '../services/audit.service.js';
-import { refreshClosingSystemTotalsForDates } from '../services/closing.service.js';
-import { nextSequenceValue } from '../services/sequence.service.js';
-import { badRequest, forbidden, notFound } from '../utils/AppError.js';
-import { buildInstallmentSchedule, roundCurrency } from '../utils/installments.js';
-import { isGlobalRole } from '../utils/roles.js';
-import { isPermissionGranted } from '../utils/permissions.js';
+import { Router } from "express";
+import { z } from "zod";
+import mongoose, { isValidObjectId } from "mongoose";
+import {
+  franchiseScopeFilter,
+  requireAuth,
+  requirePermission,
+  requireRole,
+} from "../middleware/auth.js";
+import { validate } from "../middleware/validate.js";
+import { asyncHandler } from "../middleware/asyncHandler.js";
+import { withMongoTransaction } from "../db/transaction.js";
+import { Sale } from "../models/Sale.js";
+import { Product } from "../models/Product.js";
+import { Client } from "../models/Client.js";
+import { Installment } from "../models/Installment.js";
+import { Stock } from "../models/Stock.js";
+import { applyStockDelta } from "../services/stock.service.js";
+import { audit } from "../services/audit.service.js";
+import {
+  approvedCreditOverrideCovers,
+  evaluateInstallmentCreditGuard,
+  getClientOverview,
+  resolveCreditPolicy,
+} from "../services/clientInsights.service.js";
+import { ClientCreditOverrideRequest } from "../models/ClientCreditOverrideRequest.js";
+import { refreshClosingSystemTotalsForDates } from "../services/closing.service.js";
+import { nextSequenceValue } from "../services/sequence.service.js";
+import { badRequest, forbidden, notFound } from "../utils/AppError.js";
+import {
+  buildInstallmentSchedule,
+  roundCurrency,
+} from "../utils/installments.js";
+import { isGlobalRole } from "../utils/roles.js";
+import { isPermissionGranted } from "../utils/permissions.js";
 
 const router = Router();
-const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
+const objectId = z.string().refine(isValidObjectId, { message: "Invalid id" });
 
-function resolveFranchiseId(user: Express.Request['user'], requested?: string): string {
+function resolveFranchiseId(
+  user: Express.Request["user"],
+  requested?: string,
+): string {
   if (!user) throw forbidden();
   if (isGlobalRole(user.role)) {
-    if (!requested) throw badRequest('franchiseId is required');
+    if (!requested) throw badRequest("franchiseId is required");
     return requested;
   }
-  if (!user.franchiseId) throw forbidden('No franchise assigned');
-  if (requested && requested !== user.franchiseId) throw forbidden('Cross-franchise access denied');
+  if (!user.franchiseId) throw forbidden("No franchise assigned");
+  if (requested && requested !== user.franchiseId)
+    throw forbidden("Cross-franchise access denied");
   return user.franchiseId;
 }
 
@@ -42,12 +61,15 @@ const saleSchema = z.object({
         productId: objectId,
         quantity: z.number().int().positive(),
         unitPrice: z.number().min(0),
+        discount: z.number().min(0).default(0),
       }),
     )
     .min(1),
-  saleType: z.enum(['ticket', 'facture', 'devis']).default('ticket'),
+  saleType: z.enum(["ticket", "facture", "devis"]).default("ticket"),
   discount: z.number().min(0).default(0),
-  paymentMethod: z.enum(['cash', 'card', 'transfer', 'installment', 'other']).default('cash'),
+  paymentMethod: z
+    .enum(["cash", "card", "transfer", "installment", "other"])
+    .default("cash"),
   amountReceived: z.number().min(0).optional(),
   installmentPlan: z
     .object({
@@ -57,42 +79,124 @@ const saleSchema = z.object({
       note: z.string().trim().max(1000).optional(),
     })
     .optional(),
+  creditOverrideReason: z.string().trim().max(1000).optional(),
+  discountApprovalReason: z.string().trim().max(1000).optional(),
   note: z.string().max(500).optional(),
 });
 
-function formatInvoiceNumber(date: Date, saleType: 'ticket' | 'facture' | 'devis', sequence: number) {
+const STANDARD_DISCOUNT_THRESHOLD_RATE = 5;
+
+interface SaleDiscountLineInput {
+  lineSubtotal: number;
+  discount: number;
+}
+
+export function evaluateSaleDiscountPolicy({
+  lines,
+  globalDiscount,
+  canOverride,
+  approvalReason,
+  thresholdRate = STANDARD_DISCOUNT_THRESHOLD_RATE,
+}: {
+  lines: SaleDiscountLineInput[];
+  globalDiscount: number;
+  canOverride: boolean;
+  approvalReason?: string;
+  thresholdRate?: number;
+}) {
+  const subtotal = roundCurrency(
+    lines.reduce((sum, line) => sum + line.lineSubtotal, 0),
+  );
+  const lineDiscountTotal = roundCurrency(
+    lines.reduce((sum, line) => sum + line.discount, 0),
+  );
+  if (lineDiscountTotal > subtotal) {
+    throw badRequest("Line discounts cannot exceed subtotal");
+  }
+  if (
+    globalDiscount > Math.max(0, roundCurrency(subtotal - lineDiscountTotal))
+  ) {
+    throw badRequest("Discount cannot exceed subtotal");
+  }
+
+  const violations = lines
+    .map((line, index) => {
+      const maxLineDiscount = roundCurrency(
+        line.lineSubtotal * (thresholdRate / 100),
+      );
+      return line.discount > maxLineDiscount
+        ? `line ${index + 1}: ${line.discount}`
+        : null;
+    })
+    .filter(Boolean);
+  const maxGlobalDiscount = roundCurrency(subtotal * (thresholdRate / 100));
+  if (globalDiscount > maxGlobalDiscount) {
+    violations.push(`global: ${globalDiscount}`);
+  }
+
+  const requiresApproval = violations.length > 0;
+  if (requiresApproval && !canOverride) {
+    throw forbidden("Discount exceeds cashier threshold");
+  }
+  if (requiresApproval && !approvalReason?.trim()) {
+    throw badRequest("Discount approval reason is required");
+  }
+
+  return {
+    subtotal,
+    lineDiscountTotal,
+    totalDiscount: roundCurrency(lineDiscountTotal + globalDiscount),
+    requiresApproval,
+    violations,
+  };
+}
+
+function formatInvoiceNumber(
+  date: Date,
+  saleType: "ticket" | "facture" | "devis",
+  sequence: number,
+) {
   const prefixMap = {
-    ticket: 'TK',
-    facture: 'FA',
-    devis: 'DV',
+    ticket: "TK",
+    facture: "FA",
+    devis: "DV",
   } as const;
 
   const stamp = [
     date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0'),
-  ].join('');
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("");
 
-  return `${prefixMap[saleType]}-${stamp}-${String(sequence).padStart(4, '0')}`;
+  return `${prefixMap[saleType]}-${stamp}-${String(sequence).padStart(4, "0")}`;
 }
 
-function invoiceSequenceKey(date: Date, saleType: 'ticket' | 'facture' | 'devis') {
+function invoiceSequenceKey(
+  date: Date,
+  saleType: "ticket" | "facture" | "devis",
+) {
   const stamp = [
     date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0'),
-  ].join('');
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("");
   return `sale:${saleType}:${stamp}`;
 }
 
 function canCancelSale(req: Express.Request, sale: any) {
   const user = req.user!;
   const saleFranchiseId = sale.franchiseId?.toString();
-  if (['ceo', 'admin', 'superadmin', 'manager'].includes(user.role)) return true;
-  if (user.role === 'franchise') return Boolean(user.franchiseId && user.franchiseId === saleFranchiseId);
-  if (user.role === 'seller' || user.role === 'vendeur') {
-    const createdAt = sale.createdAt instanceof Date ? sale.createdAt : new Date(sale.createdAt);
-    const within24Hours = Date.now() - createdAt.getTime() <= 24 * 60 * 60 * 1000;
+  if (["ceo", "admin", "superadmin", "manager"].includes(user.role))
+    return true;
+  if (user.role === "franchise")
+    return Boolean(user.franchiseId && user.franchiseId === saleFranchiseId);
+  if (user.role === "seller" || user.role === "vendeur") {
+    const createdAt =
+      sale.createdAt instanceof Date
+        ? sale.createdAt
+        : new Date(sale.createdAt);
+    const within24Hours =
+      Date.now() - createdAt.getTime() <= 24 * 60 * 60 * 1000;
     return Boolean(
       within24Hours &&
       user.franchiseId &&
@@ -105,17 +209,26 @@ function canCancelSale(req: Express.Request, sale: any) {
 
 function saleAggregateFilter(filter: Record<string, unknown>) {
   const aggregateFilter: Record<string, unknown> = { ...filter };
-  for (const key of ['franchiseId', 'clientId', 'userId'] as const) {
-    if (typeof aggregateFilter[key] === 'string' && isValidObjectId(aggregateFilter[key])) {
+  for (const key of ["franchiseId", "clientId", "userId"] as const) {
+    if (
+      typeof aggregateFilter[key] === "string" &&
+      isValidObjectId(aggregateFilter[key])
+    ) {
       aggregateFilter[key] = new mongoose.Types.ObjectId(aggregateFilter[key]);
     }
   }
   return aggregateFilter;
 }
 
-function productTypeOf(product: any): 'standard' | 'asel_recharge' | 'asel_forfait' {
-  if (product?.productType === 'asel_recharge' || product?.productType === 'asel_forfait') return product.productType;
-  return 'standard';
+function productTypeOf(
+  product: any,
+): "standard" | "asel_recharge" | "asel_forfait" {
+  if (
+    product?.productType === "asel_recharge" ||
+    product?.productType === "asel_forfait"
+  )
+    return product.productType;
+  return "standard";
 }
 
 function rateValue(value: unknown, fallback: number) {
@@ -125,33 +238,45 @@ function rateValue(value: unknown, fallback: number) {
 }
 
 function isVariablePriceProduct(product: any) {
-  return product?.priceMode === 'variable' || product?.productType === 'asel_recharge';
+  return (
+    product?.priceMode === "variable" ||
+    product?.productType === "asel_recharge"
+  );
 }
 
 router.post(
-  '/',
+  "/",
   requireAuth,
-  requireRole('admin', 'manager', 'franchise', 'seller', 'vendeur'),
-  requirePermission('sales.create'),
+  requireRole("admin", "manager", "franchise", "seller", "vendeur"),
+  requirePermission("sales.create"),
   validate(saleSchema),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof saleSchema>;
     const fid = resolveFranchiseId(req.user, input.franchiseId);
-    const isInstallmentSale = input.paymentMethod === 'installment';
+    const isInstallmentSale = input.paymentMethod === "installment";
 
     const productIds = [...new Set(input.items.map((item) => item.productId))];
-    const products = await Product.find({ _id: mongoose.trusted({ $in: productIds }) }).select(
-      '_id active sellPrice productType priceMode stockManaged commissionRate companyShareRate franchiseManagerShareRate',
+    const products = await Product.find({
+      _id: mongoose.trusted({ $in: productIds }),
+    }).select(
+      "_id active sellPrice productType priceMode stockManaged commissionRate companyShareRate franchiseManagerShareRate",
     );
-    if (products.length !== productIds.length) throw badRequest('One or more products not found');
-    if (products.some((product) => !product.active)) throw badRequest('Cannot sell inactive products');
-    const productById = new Map(products.map((product) => [product._id.toString(), product]));
+    if (products.length !== productIds.length)
+      throw badRequest("One or more products not found");
+    if (products.some((product) => !product.active))
+      throw badRequest("Cannot sell inactive products");
+    const productById = new Map(
+      products.map((product) => [product._id.toString(), product]),
+    );
     const stockPrices = await Stock.find({
       franchiseId: fid,
       productId: mongoose.trusted({ $in: productIds }),
-    }).select('productId sellPrice');
+    }).select("productId sellPrice");
     const stockPriceByProductId = new Map(
-      stockPrices.map((stock) => [stock.productId.toString(), stock.sellPrice ?? null]),
+      stockPrices.map((stock) => [
+        stock.productId.toString(),
+        stock.sellPrice ?? null,
+      ]),
     );
     const effectiveSellPrice = (productId: string) => {
       const product = productById.get(productId);
@@ -160,92 +285,228 @@ router.post(
     };
     const canOverridePrices = isPermissionGranted(
       req.user!.role,
-      'sales.price.override',
+      "sales.price.override",
       req.user!.customPermissions,
     );
     if (!canOverridePrices) {
       const hasPriceOverride = input.items.some((item) => {
         const product = productById.get(item.productId);
         if (!product || isVariablePriceProduct(product)) return false;
-        return Math.abs(roundCurrency(item.unitPrice) - roundCurrency(effectiveSellPrice(item.productId))) > 0.001;
+        return (
+          Math.abs(
+            roundCurrency(item.unitPrice) -
+              roundCurrency(effectiveSellPrice(item.productId)),
+          ) > 0.001
+        );
       });
-      if (hasPriceOverride) throw forbidden('You are not allowed to modify item prices');
+      if (hasPriceOverride)
+        throw forbidden("You are not allowed to modify item prices");
     }
     const hasInvalidVariableAmount = input.items.some((item) => {
       const product = productById.get(item.productId);
-      return product && isVariablePriceProduct(product) && roundCurrency(item.unitPrice) <= 0;
+      return (
+        product &&
+        isVariablePriceProduct(product) &&
+        roundCurrency(item.unitPrice) <= 0
+      );
     });
-    if (hasInvalidVariableAmount) throw badRequest('Variable price products require an amount greater than zero');
+    if (hasInvalidVariableAmount)
+      throw badRequest(
+        "Variable price products require an amount greater than zero",
+      );
 
     const client = input.clientId
-      ? await Client.findById(input.clientId).select('_id franchiseId fullName')
+      ? await Client.findById(input.clientId).select("_id franchiseId fullName")
       : null;
-    if (input.clientId && !client) throw badRequest('clientId does not exist');
+    if (input.clientId && !client) throw badRequest("clientId does not exist");
     if (client?.franchiseId && client.franchiseId.toString() !== fid) {
-      throw badRequest('Client does not belong to the selected franchise');
+      throw badRequest("Client does not belong to the selected franchise");
     }
     if (isInstallmentSale && !client) {
-      throw badRequest('clientId is required for installment sales');
+      throw badRequest("clientId is required for installment sales");
     }
     if (isInstallmentSale && !input.installmentPlan) {
-      throw badRequest('installmentPlan is required when paymentMethod is installment');
+      throw badRequest(
+        "installmentPlan is required when paymentMethod is installment",
+      );
     }
 
     const baseItems = input.items.map((item) => {
       const product = productById.get(item.productId);
-      if (!product) throw badRequest('One or more products not found');
+      if (!product) throw badRequest("One or more products not found");
+      const lineSubtotal = roundCurrency(item.quantity * item.unitPrice);
+      const lineDiscount = roundCurrency(item.discount ?? 0);
+      if (lineDiscount > lineSubtotal)
+        throw badRequest("Line discount cannot exceed line subtotal");
       return {
         productId: new mongoose.Types.ObjectId(item.productId),
         quantity: item.quantity,
         unitPrice: roundCurrency(item.unitPrice),
-        total: roundCurrency(item.quantity * item.unitPrice),
+        lineSubtotal,
+        discount: lineDiscount,
+        total: roundCurrency(lineSubtotal - lineDiscount),
         product,
       };
     });
-    const subtotal = baseItems.reduce((sum, item) => sum + item.total, 0);
-    const discount = input.discount ?? 0;
-    if (discount > subtotal) throw badRequest('Discount cannot exceed subtotal');
-    const total = Math.max(0, roundCurrency(subtotal - discount));
+    const discount = roundCurrency(input.discount ?? 0);
+    const discountPolicy = evaluateSaleDiscountPolicy({
+      lines: baseItems.map((item) => ({
+        lineSubtotal: item.lineSubtotal,
+        discount: item.discount,
+      })),
+      globalDiscount: discount,
+      canOverride: canOverridePrices,
+      approvalReason: input.discountApprovalReason,
+    });
+    const subtotal = discountPolicy.subtotal;
+    const total = Math.max(
+      0,
+      roundCurrency(subtotal - discountPolicy.lineDiscountTotal - discount),
+    );
+    const globalDiscountBase = Math.max(
+      0,
+      roundCurrency(subtotal - discountPolicy.lineDiscountTotal),
+    );
     const computedItems = baseItems.map((item) => {
       const productType = productTypeOf(item.product);
-      const isAselProduct = productType === 'asel_recharge' || productType === 'asel_forfait';
-      const discountShare = subtotal > 0 ? roundCurrency((item.total / subtotal) * discount) : 0;
-      const commissionBase = Math.max(0, roundCurrency(item.total - discountShare));
-      const commissionRate = rateValue(item.product.commissionRate, isAselProduct ? 10 : 0);
-      const companyShareRate = rateValue(item.product.companyShareRate, isAselProduct ? 90 : 100);
-      const franchiseManagerShareRate = rateValue(item.product.franchiseManagerShareRate, isAselProduct ? 10 : 0);
+      const isAselProduct =
+        productType === "asel_recharge" || productType === "asel_forfait";
+      const discountShare =
+        globalDiscountBase > 0
+          ? roundCurrency((item.total / globalDiscountBase) * discount)
+          : 0;
+      const commissionBase = Math.max(
+        0,
+        roundCurrency(item.total - discountShare),
+      );
+      const commissionRate = rateValue(
+        item.product.commissionRate,
+        isAselProduct ? 10 : 0,
+      );
+      const companyShareRate = rateValue(
+        item.product.companyShareRate,
+        isAselProduct ? 90 : 100,
+      );
+      const franchiseManagerShareRate = rateValue(
+        item.product.franchiseManagerShareRate,
+        isAselProduct ? 10 : 0,
+      );
       return {
         productId: item.productId,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
+        lineSubtotal: item.lineSubtotal,
+        discount: item.discount,
         total: item.total,
         productType,
         stockManaged: item.product.stockManaged !== false,
         commissionRate,
         commissionBase,
-        commissionAmount: roundCurrency(commissionBase * (commissionRate / 100)),
-        companyShareAmount: roundCurrency(commissionBase * (companyShareRate / 100)),
-        franchiseManagerShareAmount: roundCurrency(commissionBase * (franchiseManagerShareRate / 100)),
+        commissionAmount: roundCurrency(
+          commissionBase * (commissionRate / 100),
+        ),
+        companyShareAmount: roundCurrency(
+          commissionBase * (companyShareRate / 100),
+        ),
+        franchiseManagerShareAmount: roundCurrency(
+          commissionBase * (franchiseManagerShareRate / 100),
+        ),
       };
     });
-    const commissionTotal = roundCurrency(computedItems.reduce((sum, item) => sum + item.commissionAmount, 0));
-    const companyShareTotal = roundCurrency(computedItems.reduce((sum, item) => sum + item.companyShareAmount, 0));
+    const commissionTotal = roundCurrency(
+      computedItems.reduce((sum, item) => sum + item.commissionAmount, 0),
+    );
+    const companyShareTotal = roundCurrency(
+      computedItems.reduce((sum, item) => sum + item.companyShareAmount, 0),
+    );
     const franchiseManagerShareTotal = roundCurrency(
-      computedItems.reduce((sum, item) => sum + item.franchiseManagerShareAmount, 0),
+      computedItems.reduce(
+        (sum, item) => sum + item.franchiseManagerShareAmount,
+        0,
+      ),
     );
 
-    const amountReceived = roundCurrency(input.amountReceived ?? (isInstallmentSale ? 0 : total));
+    const amountReceived = roundCurrency(
+      input.amountReceived ?? (isInstallmentSale ? 0 : total),
+    );
     if (!isInstallmentSale && amountReceived < total) {
-      throw badRequest('Amount received cannot be less than total');
+      throw badRequest("Amount received cannot be less than total");
     }
     if (isInstallmentSale && amountReceived >= total) {
-      throw badRequest('Installment upfront amount must be lower than total');
+      throw badRequest("Installment upfront amount must be lower than total");
+    }
+
+    let creditGuardDecision: ReturnType<
+      typeof evaluateInstallmentCreditGuard
+    > | null = null;
+    let approvedCreditOverride: {
+      _id: mongoose.Types.ObjectId;
+      approvedCreditLimit?: number | null;
+      approvedMonthlyPayment?: number | null;
+      expiresAt?: Date | null;
+    } | null = null;
+    if (isInstallmentSale && client) {
+      const overview = await getClientOverview(client._id.toString(), fid);
+      if (!overview || overview === "forbidden")
+        throw forbidden("Client credit profile unavailable");
+      const creditPolicy = await resolveCreditPolicy(fid);
+      creditGuardDecision = evaluateInstallmentCreditGuard({
+        creditScore: overview.creditScore,
+        balanceDue: overview.installmentSummary.balanceDue,
+        lateInstallments: overview.installmentSummary.lateInstallments,
+        newCreditAmount: roundCurrency(total - amountReceived),
+        installmentCount: input.installmentPlan!.nbLots,
+        policy: creditPolicy,
+      });
+      if (creditGuardDecision.requiresOverride) {
+        const candidateOverrides = await ClientCreditOverrideRequest.find({
+          clientId: client._id,
+          franchiseId: fid,
+          status: "approved",
+          $or: [
+            { expiresAt: null },
+            { expiresAt: mongoose.trusted({ $gte: new Date() }) },
+          ],
+        })
+          .sort({ approvedCreditLimit: -1, createdAt: -1 })
+          .limit(10)
+          .lean();
+        approvedCreditOverride =
+          candidateOverrides.find(
+            (override) =>
+              approvedCreditOverrideCovers(override, creditGuardDecision!)
+                .allowed,
+          ) ?? null;
+        const canOverrideCredit = isPermissionGranted(
+          req.user!.role,
+          "sales.credit.override",
+          req.user!.customPermissions,
+        );
+        if (!canOverrideCredit && !approvedCreditOverride) {
+          throw forbidden(
+            `Credit client bloque: ${creditGuardDecision.reasons.join(" | ")}`,
+          );
+        }
+        if (
+          canOverrideCredit &&
+          !approvedCreditOverride &&
+          !input.creditOverrideReason?.trim()
+        ) {
+          throw badRequest(
+            "Credit override reason is required for this installment sale",
+          );
+        }
+      }
     }
 
     const paymentStatus = isInstallmentSale
-      ? amountReceived > 0 ? 'partial' : 'pending'
-      : 'paid';
-    const changeDue = isInstallmentSale ? 0 : roundCurrency(amountReceived - total);
+      ? amountReceived > 0
+        ? "partial"
+        : "pending"
+      : "paid";
+    const changeDue = isInstallmentSale
+      ? 0
+      : roundCurrency(amountReceived - total);
     const franchiseObjectId = new mongoose.Types.ObjectId(fid);
     const userObjectId = new mongoose.Types.ObjectId(req.user!.sub);
 
@@ -259,11 +520,14 @@ router.post(
         })
       : [];
 
-    let invoiceNumber = '';
+    let invoiceNumber = "";
     let createdSaleId: mongoose.Types.ObjectId | null = null;
     const transactionResult = await withMongoTransaction(async (session) => {
       const now = new Date();
-      const dailySequence = await nextSequenceValue(invoiceSequenceKey(now, input.saleType), session);
+      const dailySequence = await nextSequenceValue(
+        invoiceSequenceKey(now, input.saleType),
+        session,
+      );
       invoiceNumber = formatInvoiceNumber(now, input.saleType, dailySequence);
 
       const [createdSale] = await Sale.create(
@@ -276,7 +540,9 @@ router.post(
             userId: userObjectId,
             items: computedItems,
             subtotal,
+            lineDiscountTotal: discountPolicy.lineDiscountTotal,
             discount,
+            discountApprovalReason: input.discountApprovalReason ?? "",
             total,
             commissionTotal,
             companyShareTotal,
@@ -300,7 +566,7 @@ router.post(
         ],
         { session },
       );
-      if (!createdSale) throw badRequest('Sale could not be created');
+      if (!createdSale) throw badRequest("Sale could not be created");
       createdSaleId = createdSale._id;
 
       for (const item of computedItems) {
@@ -309,7 +575,7 @@ router.post(
           franchiseId: fid,
           productId: item.productId,
           delta: -item.quantity,
-          type: 'sale',
+          type: "sale",
           userId: req.user!.sub,
           unitPrice: item.unitPrice,
           refId: createdSale._id,
@@ -317,32 +583,34 @@ router.post(
         });
       }
 
-      const createdInstallments = installmentSchedule.length > 0
-        ? await Installment.insertMany(
-            installmentSchedule.map((item) => ({
-              saleId: createdSale._id,
-              franchiseId: franchiseObjectId,
-              clientId: client!._id,
-              amount: item.amount,
-              dueDate: item.dueDate,
-              note: input.installmentPlan?.note
-                ? `${input.installmentPlan.note} (Lot ${item.installmentNumber}/${item.totalInstallments})`
-                : `Lot ${item.installmentNumber}/${item.totalInstallments}`,
-              userId: userObjectId,
-            })),
-            { session },
-          )
-        : [];
+      const createdInstallments =
+        installmentSchedule.length > 0
+          ? await Installment.insertMany(
+              installmentSchedule.map((item) => ({
+                saleId: createdSale._id,
+                franchiseId: franchiseObjectId,
+                clientId: client!._id,
+                amount: item.amount,
+                dueDate: item.dueDate,
+                note: input.installmentPlan?.note
+                  ? `${input.installmentPlan.note} (Lot ${item.installmentNumber}/${item.totalInstallments})`
+                  : `Lot ${item.installmentNumber}/${item.totalInstallments}`,
+                userId: userObjectId,
+              })),
+              { session },
+            )
+          : [];
 
       return { sale: createdSale, installments: createdInstallments };
     });
 
-    if (!createdSaleId || !transactionResult?.sale) throw badRequest('Sale could not be created');
+    if (!createdSaleId || !transactionResult?.sale)
+      throw badRequest("Sale could not be created");
     const { sale, installments } = transactionResult;
 
     await audit(req, {
-      action: 'sale.create',
-      entity: 'Sale',
+      action: "sale.create",
+      entity: "Sale",
       entityId: sale._id.toString(),
       franchiseId: fid,
       details: {
@@ -351,16 +619,35 @@ router.post(
         saleType: input.saleType,
         paymentMethod: input.paymentMethod,
         invoiceNumber,
+        lineDiscountTotal: discountPolicy.lineDiscountTotal,
+        globalDiscount: discount,
+        discountApproval: discountPolicy.requiresApproval
+          ? {
+              reason: input.discountApprovalReason ?? "",
+              violations: discountPolicy.violations,
+            }
+          : null,
         installmentCount: installments.length,
         commissionTotal,
         franchiseManagerShareTotal,
         companyShareTotal,
+        creditGuard: creditGuardDecision
+          ? {
+              ...creditGuardDecision,
+              overrideReason: input.creditOverrideReason ?? null,
+              approvedOverrideId:
+                approvedCreditOverride?._id.toString() ?? null,
+            }
+          : null,
       },
     });
 
     await refreshClosingSystemTotalsForDates(
       fid,
-      [sale.createdAt, ...installments.map((installment) => installment.dueDate)],
+      [
+        sale.createdAt,
+        ...installments.map((installment) => installment.dueDate),
+      ],
       `Cloture reouverte suite creation vente ${invoiceNumber}.`,
     );
 
@@ -372,9 +659,11 @@ const listQuery = z.object({
   franchiseId: objectId.optional(),
   clientId: objectId.optional(),
   userId: objectId.optional(),
-  saleType: z.enum(['ticket', 'facture', 'devis']).optional(),
-  paymentMethod: z.enum(['cash', 'card', 'transfer', 'installment', 'other']).optional(),
-  paymentStatus: z.enum(['paid', 'partial', 'pending']).optional(),
+  saleType: z.enum(["ticket", "facture", "devis"]).optional(),
+  paymentMethod: z
+    .enum(["cash", "card", "transfer", "installment", "other"])
+    .optional(),
+  paymentStatus: z.enum(["paid", "partial", "pending"]).optional(),
   q: z.string().trim().max(120).optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
@@ -384,10 +673,10 @@ const listQuery = z.object({
 });
 
 router.get(
-  '/',
+  "/",
   requireAuth,
-  requirePermission('sales.view'),
-  validate(listQuery, 'query'),
+  requirePermission("sales.view"),
+  validate(listQuery, "query"),
   asyncHandler(async (req, res) => {
     const {
       franchiseId,
@@ -408,12 +697,14 @@ router.get(
     const skip = (page - 1) * effectivePageSize;
     const filter: Record<string, unknown> = { ...scope };
     if (franchiseId) {
-      if (scope.franchiseId && scope.franchiseId !== franchiseId) throw forbidden();
+      if (scope.franchiseId && scope.franchiseId !== franchiseId)
+        throw forbidden();
       filter.franchiseId = franchiseId;
     }
     if (clientId) filter.clientId = clientId;
     if (userId) {
-      if (!isGlobalRole(req.user!.role) && userId !== req.user!.sub) throw forbidden();
+      if (!isGlobalRole(req.user!.role) && userId !== req.user!.sub)
+        throw forbidden();
       filter.userId = userId;
     }
     if (saleType) filter.saleType = saleType;
@@ -427,13 +718,24 @@ router.get(
     }
 
     if (q) {
-      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const rx = new RegExp(escaped, 'i');
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const rx = new RegExp(escaped, "i");
       const [clientMatches, productMatches] = await Promise.all([
-        Client.find({ $or: [{ fullName: rx }, { phone: rx }] }).select('_id').limit(80).lean(),
+        Client.find({ $or: [{ fullName: rx }, { phone: rx }] })
+          .select("_id")
+          .limit(80)
+          .lean(),
         Product.find({
-          $or: [{ name: rx }, { reference: rx }, { barcode: rx }, { brand: rx }],
-        }).select('_id').limit(80).lean(),
+          $or: [
+            { name: rx },
+            { reference: rx },
+            { barcode: rx },
+            { brand: rx },
+          ],
+        })
+          .select("_id")
+          .limit(80)
+          .lean(),
       ]);
 
       const clientIds = clientMatches.map((entry) => entry._id);
@@ -441,15 +743,19 @@ router.get(
       filter.$or = [
         { invoiceNumber: rx },
         { note: rx },
-        ...(clientIds.length > 0 ? [{ clientId: mongoose.trusted({ $in: clientIds }) }] : []),
-        ...(productIds.length > 0 ? [{ 'items.productId': mongoose.trusted({ $in: productIds }) }] : []),
+        ...(clientIds.length > 0
+          ? [{ clientId: mongoose.trusted({ $in: clientIds }) }]
+          : []),
+        ...(productIds.length > 0
+          ? [{ "items.productId": mongoose.trusted({ $in: productIds }) }]
+          : []),
       ];
     }
 
     const remainingExpression = {
-      $subtract: ['$total', { $ifNull: ['$amountReceived', 0] }],
+      $subtract: ["$total", { $ifNull: ["$amountReceived", 0] }],
     };
-    const activeCondition = { $eq: ['$cancelledAt', null] };
+    const activeCondition = { $eq: ["$cancelledAt", null] };
     const [total, summaryAgg, sales] = await Promise.all([
       Sale.countDocuments(filter),
       Sale.aggregate([
@@ -459,8 +765,16 @@ router.get(
             _id: null,
             activeCount: { $sum: { $cond: [activeCondition, 1, 0] } },
             cancelledCount: { $sum: { $cond: [activeCondition, 0, 1] } },
-            grossTotal: { $sum: { $cond: [activeCondition, '$total', 0] } },
-            amountReceived: { $sum: { $cond: [activeCondition, { $ifNull: ['$amountReceived', 0] }, 0] } },
+            grossTotal: { $sum: { $cond: [activeCondition, "$total", 0] } },
+            amountReceived: {
+              $sum: {
+                $cond: [
+                  activeCondition,
+                  { $ifNull: ["$amountReceived", 0] },
+                  0,
+                ],
+              },
+            },
             remainingTotal: {
               $sum: {
                 $cond: [
@@ -479,19 +793,57 @@ router.get(
             cashSalesTotal: {
               $sum: {
                 $cond: [
-                  { $and: [activeCondition, { $eq: ['$paymentMethod', 'cash'] }] },
-                  { $ifNull: ['$amountReceived', '$total'] },
+                  {
+                    $and: [
+                      activeCondition,
+                      { $eq: ["$paymentMethod", "cash"] },
+                    ],
+                  },
+                  { $ifNull: ["$amountReceived", "$total"] },
                   0,
                 ],
               },
             },
             installmentSales: {
-              $sum: { $cond: [{ $and: [activeCondition, { $eq: ['$paymentMethod', 'installment'] }] }, 1, 0] },
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      activeCondition,
+                      { $eq: ["$paymentMethod", "installment"] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
             },
-            commissionTotal: { $sum: { $cond: [activeCondition, { $ifNull: ['$commissionTotal', 0] }, 0] } },
-            companyShareTotal: { $sum: { $cond: [activeCondition, { $ifNull: ['$companyShareTotal', 0] }, 0] } },
+            commissionTotal: {
+              $sum: {
+                $cond: [
+                  activeCondition,
+                  { $ifNull: ["$commissionTotal", 0] },
+                  0,
+                ],
+              },
+            },
+            companyShareTotal: {
+              $sum: {
+                $cond: [
+                  activeCondition,
+                  { $ifNull: ["$companyShareTotal", 0] },
+                  0,
+                ],
+              },
+            },
             franchiseManagerShareTotal: {
-              $sum: { $cond: [activeCondition, { $ifNull: ['$franchiseManagerShareTotal', 0] }, 0] },
+              $sum: {
+                $cond: [
+                  activeCondition,
+                  { $ifNull: ["$franchiseManagerShareTotal", 0] },
+                  0,
+                ],
+              },
             },
           },
         },
@@ -500,11 +852,11 @@ router.get(
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(effectivePageSize)
-        .populate('franchiseId', 'name taxId')
-        .populate('clientId', 'fullName phone clientType')
-        .populate('userId', 'username fullName')
-        .populate('cancelledBy', 'username fullName')
-        .populate('items.productId', 'name reference'),
+        .populate("franchiseId", "name taxId")
+        .populate("clientId", "fullName phone clientType")
+        .populate("userId", "username fullName")
+        .populate("cancelledBy", "username fullName")
+        .populate("items.productId", "name reference"),
     ]);
 
     const summary = summaryAgg[0] ?? {
@@ -545,20 +897,21 @@ router.get(
 );
 
 router.get(
-  '/:id',
+  "/:id",
   requireAuth,
-  requirePermission('sales.view'),
-  validate(z.object({ id: objectId }), 'params'),
+  requirePermission("sales.view"),
+  validate(z.object({ id: objectId }), "params"),
   asyncHandler(async (req, res) => {
     const sale = await Sale.findById(req.params.id)
-      .populate('franchiseId', 'name taxId address phone manager')
-      .populate('clientId', 'fullName phone clientType')
-      .populate('userId', 'username fullName')
-      .populate('cancelledBy', 'username fullName')
-      .populate('items.productId', 'name reference');
-    if (!sale) throw notFound('Sale not found');
+      .populate("franchiseId", "name taxId address phone manager")
+      .populate("clientId", "fullName phone clientType")
+      .populate("userId", "username fullName")
+      .populate("cancelledBy", "username fullName")
+      .populate("items.productId", "name reference");
+    if (!sale) throw notFound("Sale not found");
     const scope = franchiseScopeFilter(req.user);
-    if (scope.franchiseId && sale.franchiseId?.toString() !== scope.franchiseId) throw forbidden();
+    if (scope.franchiseId && sale.franchiseId?.toString() !== scope.franchiseId)
+      throw forbidden();
     res.json({ sale });
   }),
 );
@@ -568,43 +921,58 @@ const cancelSchema = z.object({
 });
 
 router.post(
-  '/:id/cancel',
+  "/:id/cancel",
   requireAuth,
-  requireRole('admin', 'manager', 'franchise', 'seller', 'vendeur'),
-  requirePermission('sales.view'),
-  validate(z.object({ id: objectId }), 'params'),
+  requireRole("admin", "manager", "franchise", "seller", "vendeur"),
+  requirePermission("sales.view"),
+  validate(z.object({ id: objectId }), "params"),
   validate(cancelSchema),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof cancelSchema>;
     const sale = await Sale.findById(req.params.id);
-    if (!sale) throw notFound('Sale not found');
+    if (!sale) throw notFound("Sale not found");
     const scope = franchiseScopeFilter(req.user);
-    if (scope.franchiseId && sale.franchiseId?.toString() !== scope.franchiseId) throw forbidden();
-    if (sale.cancelledAt) throw badRequest('Sale already cancelled');
+    if (scope.franchiseId && sale.franchiseId?.toString() !== scope.franchiseId)
+      throw forbidden();
+    if (sale.cancelledAt) throw badRequest("Sale already cancelled");
     if (!canCancelSale(req, sale)) {
-      throw forbidden('Only the seller who created the sale within 24h or a franchise superior can cancel it');
+      throw forbidden(
+        "Only the seller who created the sale within 24h or a franchise superior can cancel it",
+      );
     }
 
     let paidInstallments = 0;
     let deletedPendingInstallments = 0;
-    let affectedInstallments: Array<{ status: string; dueDate?: Date | null; paidAt?: Date | null }> = [];
+    let affectedInstallments: Array<{
+      status: string;
+      dueDate?: Date | null;
+      paidAt?: Date | null;
+    }> = [];
     const restoredQuantity = sale.items.reduce(
-      (sum, item) => ((item as any).stockManaged === false ? sum : sum + item.quantity),
+      (sum, item) =>
+        (item as any).stockManaged === false ? sum : sum + item.quantity,
       0,
     );
 
     await withMongoTransaction(async (session) => {
       affectedInstallments = await Installment.find({ saleId: sale._id })
-        .select('status dueDate paidAt')
+        .select("status dueDate paidAt")
         .session(session ?? null)
         .lean();
-      paidInstallments = affectedInstallments.filter((installment) => installment.status === 'paid').length;
-      if ((req.user!.role === 'seller' || req.user!.role === 'vendeur') && paidInstallments > 0) {
-        throw forbidden('A sale with paid installments must be cancelled by a franchise superior');
+      paidInstallments = affectedInstallments.filter(
+        (installment) => installment.status === "paid",
+      ).length;
+      if (
+        (req.user!.role === "seller" || req.user!.role === "vendeur") &&
+        paidInstallments > 0
+      ) {
+        throw forbidden(
+          "A sale with paid installments must be cancelled by a franchise superior",
+        );
       }
       sale.cancelledAt = new Date();
       sale.cancelledBy = req.user!.sub as any;
-      sale.cancelReason = input.reason || 'Annulation vente';
+      sale.cancelReason = input.reason || "Annulation vente";
       await sale.save({ session });
 
       for (const item of sale.items) {
@@ -613,7 +981,7 @@ router.post(
           franchiseId: sale.franchiseId,
           productId: item.productId,
           delta: item.quantity,
-          type: 'sale_cancel',
+          type: "sale_cancel",
           userId: req.user!.sub,
           unitPrice: item.unitPrice,
           note: `Annulation vente ${sale.invoiceNumber || sale._id.toString()}`,
@@ -624,7 +992,7 @@ router.post(
 
       const result = await Installment.deleteMany({
         saleId: sale._id,
-        status: mongoose.trusted({ $in: ['pending', 'late'] }),
+        status: mongoose.trusted({ $in: ["pending", "late"] }),
       }).session(session ?? null);
       deletedPendingInstallments = result.deletedCount ?? 0;
     });
@@ -640,8 +1008,8 @@ router.post(
     );
 
     await audit(req, {
-      action: 'sale.cancel',
-      entity: 'Sale',
+      action: "sale.cancel",
+      entity: "Sale",
       entityId: sale._id.toString(),
       franchiseId: sale.franchiseId.toString(),
       details: {
@@ -652,17 +1020,19 @@ router.post(
         restoredQuantity,
         paidInstallments,
         deletedPendingInstallments,
-        refreshedClosingIds: refreshedClosings.map((closing: any) => closing._id?.toString?.()).filter(Boolean),
+        refreshedClosingIds: refreshedClosings
+          .map((closing: any) => closing._id?.toString?.())
+          .filter(Boolean),
         revenueRemovedFromCA: sale.total,
       },
     });
 
     const populated = await Sale.findById(sale._id)
-      .populate('franchiseId', 'name taxId address phone manager')
-      .populate('clientId', 'fullName phone clientType')
-      .populate('userId', 'username fullName')
-      .populate('cancelledBy', 'username fullName')
-      .populate('items.productId', 'name reference');
+      .populate("franchiseId", "name taxId address phone manager")
+      .populate("clientId", "fullName phone clientType")
+      .populate("userId", "username fullName")
+      .populate("cancelledBy", "username fullName")
+      .populate("items.productId", "name reference");
 
     res.json({ sale: populated });
   }),

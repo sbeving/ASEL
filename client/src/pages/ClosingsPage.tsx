@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { FileText } from 'lucide-react';
 import { api, apiError } from '../lib/api';
 import { PageHeader } from '../components/PageHeader';
 import { dateOnly, money } from '../lib/money';
 import { useAuth } from '../auth/AuthContext';
 import type { Closing, Franchise } from '../lib/types';
+import { downloadHtmlReport, safeReportFilename } from '../lib/report';
 
 const CASH_DENOMINATIONS = [
   { label: '50 TND', value: 50 },
@@ -29,6 +31,146 @@ function emptyDenominations() {
   ) as Record<string, number>;
 }
 
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function closingFranchiseName(closing: Closing) {
+  return typeof closing.franchiseId === 'object' && closing.franchiseId
+    ? closing.franchiseId.name
+    : '-';
+}
+
+function closingExpectedTotal(closing: Closing) {
+  return (
+    closing.expectedDrawerTotal ??
+    closing.systemCashTotal ??
+    closing.systemSalesTotal
+  );
+}
+
+function generateClosingsReport({
+  closings,
+  franchiseLabel,
+  generatedBy,
+}: {
+  closings: Closing[];
+  franchiseLabel: string;
+  generatedBy?: string;
+}) {
+  const totalDeclared = closings.reduce(
+    (sum, closing) => sum + closing.declaredSalesTotal,
+    0,
+  );
+  const totalExpected = closings.reduce(
+    (sum, closing) => sum + closingExpectedTotal(closing),
+    0,
+  );
+  const totalVariance = totalDeclared - totalExpected;
+  const validatedCount = closings.filter((closing) => closing.validated).length;
+  const rows = closings
+    .map((closing) => {
+      const expected = closingExpectedTotal(closing);
+      const movementNet =
+        (closing.treasuryCashInTotal ?? 0) -
+        (closing.treasuryCashOutTotal ?? 0);
+      const variance = closing.declaredSalesTotal - expected;
+      const denominations = (closing.cashDenominations ?? [])
+        .map(
+          (item) =>
+            `${escapeHtml(item.label)}: ${escapeHtml(item.quantity)} (${escapeHtml(money(item.total))})`,
+        )
+        .join('<br />');
+      return `
+        <tr>
+          <td>${escapeHtml(dateOnly(closing.closingDate))}</td>
+          <td>${escapeHtml(closingFranchiseName(closing))}</td>
+          <td>${escapeHtml(closing.validated ? 'Validee' : 'En attente')}</td>
+          <td class="amount">${escapeHtml(money(closing.declaredSalesTotal))}</td>
+          <td class="amount">${escapeHtml(money(expected))}</td>
+          <td class="amount">${escapeHtml(money(closing.cashSalesTotal ?? 0))}</td>
+          <td class="amount">${escapeHtml(money(movementNet))}</td>
+          <td class="amount">${escapeHtml(money(closing.returnRefundTotal ?? 0))}</td>
+          <td class="amount ${variance < 0 ? 'bad' : variance > 0 ? 'good' : ''}">${escapeHtml(money(variance))}</td>
+          <td>${denominations || '-'}</td>
+          <td>${escapeHtml(closing.varianceReason || '-')}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  return downloadHtmlReport(
+    `<!doctype html>
+      <html lang="fr">
+        <head>
+          <meta charset="utf-8" />
+          <title>Rapport clotures ASEL</title>
+          <style>
+            * { box-sizing: border-box; }
+            body { margin: 0; padding: 28px; color: #0f172a; font-family: Inter, Arial, sans-serif; background: #f8fafc; }
+            header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
+            h1 { margin: 0 0 6px; font-size: 25px; letter-spacing: 0; }
+            .muted { color: #64748b; font-size: 12px; }
+            .metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
+            .metric { border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; padding: 12px; }
+            .metric span { display: block; color: #64748b; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+            .metric strong { display: block; margin-top: 5px; font-size: 18px; }
+            table { width: 100%; border-collapse: collapse; background: #fff; font-size: 11px; }
+            th, td { border-bottom: 1px solid #e2e8f0; padding: 8px; text-align: left; vertical-align: top; }
+            th { background: #f1f5f9; color: #475569; font-size: 10px; text-transform: uppercase; }
+            .amount { text-align: right; font-weight: 800; white-space: nowrap; }
+            .good { color: #047857; }
+            .bad { color: #be123c; }
+            @media print {
+              body { background: #fff; padding: 0; }
+              .metrics { break-inside: avoid; }
+            }
+          </style>
+        </head>
+        <body>
+          <header>
+            <div>
+              <h1>Rapport clotures ASEL</h1>
+              <div class="muted">Franchise: ${escapeHtml(franchiseLabel)} | Genere le ${escapeHtml(new Date().toLocaleString('fr-TN'))}</div>
+            </div>
+            <div class="muted">${escapeHtml(generatedBy || 'ASEL')}</div>
+          </header>
+          <section class="metrics">
+            <div class="metric"><span>Clotures</span><strong>${closings.length}</strong></div>
+            <div class="metric"><span>Validees</span><strong>${validatedCount}</strong></div>
+            <div class="metric"><span>Declare</span><strong>${escapeHtml(money(totalDeclared))}</strong></div>
+            <div class="metric"><span>Attendu</span><strong>${escapeHtml(money(totalExpected))}</strong></div>
+            <div class="metric"><span>Ecart net</span><strong>${escapeHtml(money(totalVariance))}</strong></div>
+          </section>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Franchise</th>
+                <th>Etat</th>
+                <th>Declare</th>
+                <th>Attendu</th>
+                <th>Ventes esp.</th>
+                <th>Mouvements</th>
+                <th>Retours</th>
+                <th>Ecart</th>
+                <th>Comptage</th>
+                <th>Raison ecart</th>
+              </tr>
+            </thead>
+            <tbody>${rows || '<tr><td colspan="11">Aucune cloture</td></tr>'}</tbody>
+          </table>
+        </body>
+      </html>`,
+    safeReportFilename('rapport-clotures-asel'),
+  );
+}
+
 export function ClosingsPage() {
   const { user } = useAuth();
   const isGlobal =
@@ -38,6 +180,10 @@ export function ClosingsPage() {
     user?.role === 'manager' ||
     user?.role === 'cash_central_maintainer';
   const canValidate = isGlobal;
+  const canOverrideValidatedClosing =
+    user?.role === 'superadmin' ||
+    user?.role === 'ceo' ||
+    user?.role === 'admin';
 
   const qc = useQueryClient();
   const [franchiseId, setFranchiseId] = useState(
@@ -74,6 +220,15 @@ export function ClosingsPage() {
         })
       ).data.closings,
   });
+
+  const selectedFranchiseName = useMemo(() => {
+    if (!franchiseId)
+      return isGlobal ? 'Toutes franchises' : 'Franchise courante';
+    return (
+      franchises.data?.find((franchise) => franchise._id === franchiseId)
+        ?.name ?? 'Franchise courante'
+    );
+  }, [franchiseId, franchises.data, isGlobal]);
 
   const summary = useQuery({
     enabled: !!effectiveFranchiseId,
@@ -226,7 +381,7 @@ export function ClosingsPage() {
       />
 
       <section className="card p-4 mb-5">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           {isGlobal ? (
             <select
               className="input"
@@ -252,6 +407,21 @@ export function ClosingsPage() {
           <div className="text-sm text-slate-500 self-center">
             {closings.data?.length ?? 0} clôture(s)
           </div>
+          <button
+            type="button"
+            className="btn-secondary md:justify-self-end"
+            disabled={closings.isLoading}
+            onClick={() =>
+              generateClosingsReport({
+                closings: closings.data ?? [],
+                franchiseLabel: selectedFranchiseName,
+                generatedBy: user?.fullName || user?.username,
+              })
+            }
+          >
+            <FileText className="h-4 w-4" />
+            Exporter rapport
+          </button>
         </div>
       </section>
 
@@ -483,6 +653,7 @@ export function ClosingsPage() {
                 const movementNet =
                   (c.treasuryCashInTotal ?? 0) - (c.treasuryCashOutTotal ?? 0);
                 const variance = c.declaredSalesTotal - expectedDrawerTotal;
+                const isLocked = c.validated && !canOverrideValidatedClosing;
                 return (
                   <tr key={c._id}>
                     <td className="td">{dateOnly(c.closingDate)}</td>
@@ -529,7 +700,14 @@ export function ClosingsPage() {
                           )}
                           <button
                             className="btn btn-secondary"
+                            disabled={isLocked}
+                            title={
+                              isLocked
+                                ? 'Cloture validee: modification reservee admin/CEO'
+                                : undefined
+                            }
                             onClick={() => {
+                              if (isLocked) return;
                               setEditingId(c._id);
                               setFranchiseId(
                                 typeof c.franchiseId === 'object'
@@ -560,8 +738,14 @@ export function ClosingsPage() {
                           </button>
                           <button
                             className="btn-danger !min-h-[34px] !px-3 !py-1"
-                            disabled={deleteClosing.isPending}
+                            disabled={deleteClosing.isPending || isLocked}
+                            title={
+                              isLocked
+                                ? 'Cloture validee: suppression reservee admin/CEO'
+                                : undefined
+                            }
                             onClick={() => {
+                              if (isLocked) return;
                               if (window.confirm('Supprimer cette cloture ?'))
                                 deleteClosing.mutate(c._id);
                             }}

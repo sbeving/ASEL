@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canOverrideValidatedClosing,
   closingExpectedDrawerAmount,
   closingInstallmentAdvanceAmount,
   closingRequiresVarianceReason,
@@ -84,5 +85,13 @@ describe('closing service', () => {
     expect(closingRequiresVarianceReason(104.99, 100)).toBe(false);
     expect(closingRequiresVarianceReason(105, 100)).toBe(true);
     expect(closingRequiresVarianceReason(95, 100)).toBe(true);
+  });
+
+  it('limits validated closing overrides to top-level roles', () => {
+    expect(canOverrideValidatedClosing('superadmin')).toBe(true);
+    expect(canOverrideValidatedClosing('ceo')).toBe(true);
+    expect(canOverrideValidatedClosing('admin')).toBe(true);
+    expect(canOverrideValidatedClosing('manager')).toBe(false);
+    expect(canOverrideValidatedClosing('franchise')).toBe(false);
   });
 });

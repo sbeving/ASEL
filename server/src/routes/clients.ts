@@ -1,53 +1,122 @@
-import { Router } from 'express';
-import { z } from 'zod';
-import { isValidObjectId } from 'mongoose';
-import { requireAuth, requirePermission, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
-import { validate } from '../middleware/validate.js';
-import { asyncHandler } from '../middleware/asyncHandler.js';
-import { Client } from '../models/Client.js';
-import { Franchise } from '../models/Franchise.js';
-import { audit } from '../services/audit.service.js';
-import { attachClientListMetrics, getClientOverview } from '../services/clientInsights.service.js';
-import { badRequest, forbidden, notFound } from '../utils/AppError.js';
-import { isGlobalRole } from '../utils/roles.js';
+import { Router } from "express";
+import { z } from "zod";
+import { isValidObjectId } from "mongoose";
+import {
+  requireAuth,
+  requirePermission,
+  requireRole,
+  franchiseScopeFilter,
+} from "../middleware/auth.js";
+import { validate } from "../middleware/validate.js";
+import { asyncHandler } from "../middleware/asyncHandler.js";
+import { Client } from "../models/Client.js";
+import { Franchise } from "../models/Franchise.js";
+import { ClientCreditOverrideRequest } from "../models/ClientCreditOverrideRequest.js";
+import { clientDocumentUpload, toUploadPath } from "../middleware/upload.js";
+import { audit } from "../services/audit.service.js";
+import {
+  attachClientListMetrics,
+  getClientOverview,
+  recordClientCreditScoreSnapshot,
+} from "../services/clientInsights.service.js";
+import { badRequest, forbidden, notFound } from "../utils/AppError.js";
+import { isGlobalRole } from "../utils/roles.js";
+import { isPermissionGranted } from "../utils/permissions.js";
 
 const router = Router();
-const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
+const objectId = z.string().refine(isValidObjectId, { message: "Invalid id" });
+
+function canViewCredit(req: Express.Request) {
+  return Boolean(
+    req.user &&
+    isPermissionGranted(
+      req.user.role,
+      "clients.credit.view",
+      req.user.customPermissions,
+    ),
+  );
+}
+
+function stripCreditFields<T extends Record<string, any>>(client: T): T {
+  const sanitized = { ...client };
+  delete sanitized.creditProfile;
+  delete sanitized.creditScore;
+  delete sanitized.creditScoreHistory;
+  delete sanitized.documents;
+  return sanitized;
+}
+
+function stripOverviewCreditFields<T extends Record<string, any>>(
+  overview: T,
+): T {
+  return {
+    ...overview,
+    client: stripCreditFields(overview.client ?? {}),
+    creditScore: null,
+    creditScoreHistory: [],
+    recentCreditOverrides: [],
+    creditRestricted: true,
+  };
+}
+
+async function findScopedClient(req: Express.Request, id: string) {
+  const client = await Client.findById(id);
+  if (!client) throw notFound("Client not found");
+  const scope = franchiseScopeFilter(req.user);
+  if (
+    scope.franchiseId &&
+    client.franchiseId?.toString() !== scope.franchiseId
+  ) {
+    throw forbidden();
+  }
+  return client;
+}
+
+function uploadedFieldFile(req: Express.Request, field: string) {
+  const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+  return files?.[field]?.[0] ?? null;
+}
+
+function clientDocumentPath(file: Express.Multer.File | null) {
+  return file ? toUploadPath("client-docs", file.filename) : null;
+}
 
 const listQuery = z.object({
   q: z.string().trim().max(120).optional(),
   franchiseId: objectId.optional(),
   active: z
-    .enum(['true', 'false'])
+    .enum(["true", "false"])
     .optional()
-    .transform((v) => (v === undefined ? undefined : v === 'true')),
+    .transform((v) => (v === undefined ? undefined : v === "true")),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(500).default(50),
   limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
 router.get(
-  '/',
+  "/",
   requireAuth,
-  requirePermission('clients.view'),
-  validate(listQuery, 'query'),
+  requirePermission("clients.view"),
+  validate(listQuery, "query"),
   asyncHandler(async (req, res) => {
-    const { q, franchiseId, active, page, pageSize, limit } = req.query as unknown as z.infer<typeof listQuery>;
+    const { q, franchiseId, active, page, pageSize, limit } =
+      req.query as unknown as z.infer<typeof listQuery>;
     const effectivePageSize = limit ?? pageSize;
     const skip = (page - 1) * effectivePageSize;
     const scope = franchiseScopeFilter(req.user);
     const filter: Record<string, unknown> = { ...scope };
     if (franchiseId) {
-      if (scope.franchiseId && scope.franchiseId !== franchiseId) throw forbidden();
+      if (scope.franchiseId && scope.franchiseId !== franchiseId)
+        throw forbidden();
       filter.franchiseId = franchiseId;
     }
     if (active !== undefined) filter.active = active;
     if (q) {
-      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       filter.$or = [
-        { fullName: { $regex: escaped, $options: 'i' } },
-        { phone: { $regex: escaped, $options: 'i' } },
-        { email: { $regex: escaped, $options: 'i' } },
+        { fullName: { $regex: escaped, $options: "i" } },
+        { phone: { $regex: escaped, $options: "i" } },
+        { email: { $regex: escaped, $options: "i" } },
       ];
     }
 
@@ -57,12 +126,18 @@ router.get(
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(effectivePageSize)
-        .populate('franchiseId', 'name')
+        .populate("franchiseId", "name")
         .lean(),
     ]);
-    const items = await attachClientListMetrics(clients, req.user?.franchiseId ?? null);
+    const items = await attachClientListMetrics(
+      clients,
+      req.user?.franchiseId ?? null,
+    );
+    const visibleItems = canViewCredit(req)
+      ? items
+      : items.map((client) => stripCreditFields(client as any));
     res.json({
-      clients: items,
+      clients: visibleItems,
       meta: {
         page,
         pageSize: effectivePageSize,
@@ -74,16 +149,181 @@ router.get(
 );
 
 router.get(
-  '/:id/overview',
+  "/:id/overview",
   requireAuth,
-  requirePermission('clients.view'),
-  validate(z.object({ id: objectId }), 'params'),
+  requirePermission("clients.view"),
+  validate(z.object({ id: objectId }), "params"),
   asyncHandler(async (req, res) => {
     const { id } = req.params as { id: string };
     const overview = await getClientOverview(id, req.user?.franchiseId ?? null);
-    if (!overview) throw notFound('Client not found');
-    if (overview === 'forbidden') throw forbidden();
-    res.json(overview);
+    if (!overview) throw notFound("Client not found");
+    if (overview === "forbidden") throw forbidden();
+    res.json(
+      canViewCredit(req) ? overview : stripOverviewCreditFields(overview),
+    );
+  }),
+);
+
+const creditOverridePayload = z.object({
+  requestedCreditLimit: z.number().min(0),
+  requestedMonthlyPayment: z.number().min(0).default(0),
+  requestReason: z.string().trim().min(3).max(1500),
+  expiresAt: z.string().datetime().optional(),
+});
+
+const creditOverrideReviewPayload = z.object({
+  status: z.enum(["approved", "rejected", "cancelled"]),
+  approvedCreditLimit: z.number().min(0).optional(),
+  approvedMonthlyPayment: z.number().min(0).optional(),
+  expiresAt: z.string().datetime().optional(),
+  reviewNote: z.string().trim().max(1500).optional(),
+});
+
+router.post(
+  "/:id/credit-overrides",
+  requireAuth,
+  requirePermission("clients.manage"),
+  validate(z.object({ id: objectId }), "params"),
+  validate(creditOverridePayload),
+  asyncHandler(async (req, res) => {
+    const client = await findScopedClient(req, req.params.id as string);
+    const input = req.body as z.infer<typeof creditOverridePayload>;
+    if (!client.franchiseId)
+      throw badRequest("Client must belong to a franchise");
+
+    const request = await ClientCreditOverrideRequest.create({
+      clientId: client._id,
+      franchiseId: client.franchiseId,
+      requestedBy: req.user!.sub,
+      requestedCreditLimit: input.requestedCreditLimit,
+      requestedMonthlyPayment: input.requestedMonthlyPayment,
+      requestReason: input.requestReason,
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+    });
+
+    await audit(req, {
+      action: "client_credit_override.request",
+      entity: "ClientCreditOverrideRequest",
+      entityId: request._id.toString(),
+      franchiseId: client.franchiseId.toString(),
+      details: {
+        clientId: client._id.toString(),
+        requestedCreditLimit: request.requestedCreditLimit,
+        requestedMonthlyPayment: request.requestedMonthlyPayment,
+      },
+    });
+
+    res.status(201).json({ request });
+  }),
+);
+
+router.patch(
+  "/:id/credit-overrides/:requestId",
+  requireAuth,
+  requirePermission("sales.credit.override"),
+  validate(z.object({ id: objectId, requestId: objectId }), "params"),
+  validate(creditOverrideReviewPayload),
+  asyncHandler(async (req, res) => {
+    const client = await findScopedClient(req, req.params.id as string);
+    const input = req.body as z.infer<typeof creditOverrideReviewPayload>;
+    const request = await ClientCreditOverrideRequest.findOne({
+      _id: req.params.requestId,
+      clientId: client._id,
+    });
+    if (!request) throw notFound("Credit override request not found");
+    if (request.status !== "pending") {
+      throw badRequest("Credit override request already reviewed");
+    }
+
+    request.status = input.status;
+    request.reviewedBy = req.user!.sub as any;
+    request.reviewedAt = new Date();
+    request.reviewNote = input.reviewNote ?? "";
+    if (input.status === "approved") {
+      request.approvedCreditLimit =
+        input.approvedCreditLimit ?? request.requestedCreditLimit;
+      request.approvedMonthlyPayment =
+        input.approvedMonthlyPayment ?? request.requestedMonthlyPayment;
+      request.expiresAt = input.expiresAt
+        ? new Date(input.expiresAt)
+        : (request.expiresAt ??
+          new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+    }
+    await request.save();
+
+    await audit(req, {
+      action: "client_credit_override.review",
+      entity: "ClientCreditOverrideRequest",
+      entityId: request._id.toString(),
+      franchiseId: request.franchiseId.toString(),
+      details: {
+        clientId: client._id.toString(),
+        status: request.status,
+        approvedCreditLimit: request.approvedCreditLimit,
+        approvedMonthlyPayment: request.approvedMonthlyPayment,
+        expiresAt: request.expiresAt,
+      },
+    });
+
+    res.json({ request });
+  }),
+);
+
+router.post(
+  "/:id/documents",
+  requireAuth,
+  requirePermission("clients.manage"),
+  validate(z.object({ id: objectId }), "params"),
+  ...clientDocumentUpload.fields([
+    { name: "cinImage", maxCount: 1 },
+    { name: "payslip", maxCount: 1 },
+    { name: "proofOfAddress", maxCount: 1 },
+    { name: "signedAgreement", maxCount: 1 },
+  ]),
+  asyncHandler(async (req, res) => {
+    if (!canViewCredit(req)) {
+      throw forbidden("Sensitive client documents require credit permission");
+    }
+
+    const client = await findScopedClient(req, req.params.id as string);
+    const updates: Record<string, string> = {};
+    const cinImagePath = clientDocumentPath(uploadedFieldFile(req, "cinImage"));
+    const payslipPath = clientDocumentPath(uploadedFieldFile(req, "payslip"));
+    const proofOfAddressPath = clientDocumentPath(
+      uploadedFieldFile(req, "proofOfAddress"),
+    );
+    const signedAgreementPath = clientDocumentPath(
+      uploadedFieldFile(req, "signedAgreement"),
+    );
+
+    if (cinImagePath) updates.cinImagePath = cinImagePath;
+    if (payslipPath) updates.payslipPath = payslipPath;
+    if (proofOfAddressPath) updates.proofOfAddressPath = proofOfAddressPath;
+    if (signedAgreementPath) updates.signedAgreementPath = signedAgreementPath;
+    if (Object.keys(updates).length === 0) {
+      throw badRequest("At least one client document is required");
+    }
+
+    for (const [key, value] of Object.entries(updates)) {
+      client.set(`documents.${key}`, value);
+    }
+    client.set("documents.updatedAt", new Date());
+    client.set("documents.updatedBy", req.user!.sub);
+    await client.save();
+
+    await audit(req, {
+      action: "client.documents.update",
+      entity: "Client",
+      entityId: client._id.toString(),
+      franchiseId: client.franchiseId?.toString() ?? null,
+      details: { fields: Object.keys(updates) },
+    });
+
+    res.json({
+      client: canViewCredit(req)
+        ? client
+        : stripCreditFields(client.toObject() as any),
+    });
   }),
 );
 
@@ -93,9 +333,11 @@ const payload = z.object({
   fullName: z.string().trim().min(1).max(200),
   phone: z.string().trim().max(40).optional(),
   phone2: z.string().trim().max(40).optional(),
-  email: z.string().trim().email().max(160).optional().or(z.literal('')),
+  email: z.string().trim().email().max(160).optional().or(z.literal("")),
   address: z.string().trim().max(300).optional(),
-  clientType: z.enum(['walkin', 'boutique', 'wholesale', 'passager', 'other']).default('walkin'),
+  clientType: z
+    .enum(["walkin", "boutique", "wholesale", "passager", "other"])
+    .default("walkin"),
   company: z.string().trim().max(160).optional(),
   taxId: z.string().trim().max(80).optional(),
   cin: z.string().trim().max(40).optional(),
@@ -104,13 +346,26 @@ const payload = z.object({
       monthlySalary: z.number().min(0).nullable().optional(),
       additionalIncome: z.number().min(0).nullable().optional(),
       employmentStatus: z
-        .enum(['unknown', 'salaried', 'self_employed', 'business_owner', 'unemployed', 'retired', 'student', 'other'])
-        .default('unknown'),
+        .enum([
+          "unknown",
+          "salaried",
+          "self_employed",
+          "business_owner",
+          "unemployed",
+          "retired",
+          "student",
+          "other",
+        ])
+        .default("unknown"),
       employer: z.string().trim().max(160).optional(),
       jobTitle: z.string().trim().max(120).optional(),
-      housingStatus: z.enum(['unknown', 'owner', 'family', 'rent', 'mortgage', 'other']).default('unknown'),
+      housingStatus: z
+        .enum(["unknown", "owner", "family", "rent", "mortgage", "other"])
+        .default("unknown"),
       monthlyRent: z.number().min(0).nullable().optional(),
-      maritalStatus: z.enum(['unknown', 'single', 'married', 'divorced', 'widowed', 'other']).default('unknown'),
+      maritalStatus: z
+        .enum(["unknown", "single", "married", "divorced", "widowed", "other"])
+        .default("unknown"),
       childrenCount: z.number().int().min(0).max(20).default(0),
       spouseWorks: z.boolean().nullable().optional(),
       distanceKmToFranchise: z.number().min(0).nullable().optional(),
@@ -123,21 +378,25 @@ const payload = z.object({
 });
 
 router.post(
-  '/',
+  "/",
   requireAuth,
-  requireRole('admin', 'manager', 'franchise', 'seller', 'vendeur'),
-  requirePermission('clients.manage'),
+  requireRole("admin", "manager", "franchise", "seller", "vendeur"),
+  requirePermission("clients.manage"),
   validate(payload),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof payload>;
+    if (input.creditProfile && !canViewCredit(req)) {
+      throw forbidden("Sensitive credit fields require credit permission");
+    }
     let franchiseId = input.franchiseId ?? null;
     if (!isGlobalRole(req.user!.role)) {
-      if (!req.user!.franchiseId) throw forbidden('No franchise assigned');
-      if (franchiseId && franchiseId !== req.user!.franchiseId) throw forbidden();
+      if (!req.user!.franchiseId) throw forbidden("No franchise assigned");
+      if (franchiseId && franchiseId !== req.user!.franchiseId)
+        throw forbidden();
       franchiseId = req.user!.franchiseId;
     }
     if (franchiseId && !(await Franchise.exists({ _id: franchiseId }))) {
-      throw badRequest('franchiseId does not exist');
+      throw badRequest("franchiseId does not exist");
     }
 
     const client = await Client.create({
@@ -148,70 +407,109 @@ router.post(
     });
 
     await audit(req, {
-      action: 'client.create',
-      entity: 'Client',
+      action: "client.create",
+      entity: "Client",
       entityId: client._id.toString(),
       franchiseId,
       details: { fullName: client.fullName, clientType: client.clientType },
     });
+    if (canViewCredit(req)) {
+      await recordClientCreditScoreSnapshot(client._id.toString(), {
+        franchiseScopeId: franchiseId,
+        capturedBy: req.user!.sub,
+        source: "create",
+      });
+    }
 
-    res.status(201).json({ client });
+    res.status(201).json({
+      client: canViewCredit(req)
+        ? client
+        : stripCreditFields(client.toObject() as any),
+    });
   }),
 );
 
 router.patch(
-  '/:id',
+  "/:id",
   requireAuth,
-  requireRole('admin', 'manager', 'franchise', 'seller', 'vendeur'),
-  requirePermission('clients.manage'),
-  validate(z.object({ id: objectId }), 'params'),
+  requireRole("admin", "manager", "franchise", "seller", "vendeur"),
+  requirePermission("clients.manage"),
+  validate(z.object({ id: objectId }), "params"),
   validate(payload.partial()),
   asyncHandler(async (req, res) => {
-    const id = req.params.id;
+    const id = req.params.id as string;
     const input = req.body as z.infer<typeof payload>;
+    if (input.creditProfile && !canViewCredit(req)) {
+      throw forbidden("Sensitive credit fields require credit permission");
+    }
 
     const client = await Client.findById(id);
-    if (!client) throw notFound('Client not found');
+    if (!client) throw notFound("Client not found");
 
     const scope = franchiseScopeFilter(req.user);
-    if (scope.franchiseId && client.franchiseId?.toString() !== scope.franchiseId) throw forbidden();
+    if (
+      scope.franchiseId &&
+      client.franchiseId?.toString() !== scope.franchiseId
+    )
+      throw forbidden();
 
     if (input.franchiseId !== undefined) {
-      if (scope.franchiseId && input.franchiseId !== scope.franchiseId) throw forbidden();
+      if (scope.franchiseId && input.franchiseId !== scope.franchiseId)
+        throw forbidden();
       client.franchiseId = input.franchiseId as any;
     }
 
     Object.assign(client, {
       ...input,
-      email: input.email === '' ? undefined : input.email,
+      email: input.email === "" ? undefined : input.email,
     });
 
     await client.save();
-    await audit(req, { action: 'client.update', entity: 'Client', entityId: id, franchiseId: client.franchiseId?.toString() ?? null });
-    res.json({ client });
+    await audit(req, {
+      action: "client.update",
+      entity: "Client",
+      entityId: id,
+      franchiseId: client.franchiseId?.toString() ?? null,
+    });
+    if (canViewCredit(req)) {
+      await recordClientCreditScoreSnapshot(id, {
+        franchiseScopeId: scope.franchiseId as string | null,
+        capturedBy: req.user!.sub,
+        source: "manual_update",
+      });
+    }
+    res.json({
+      client: canViewCredit(req)
+        ? client
+        : stripCreditFields(client.toObject() as any),
+    });
   }),
 );
 
 router.delete(
-  '/:id',
+  "/:id",
   requireAuth,
-  requireRole('admin', 'manager', 'franchise', 'seller', 'vendeur'),
-  requirePermission('clients.manage'),
-  validate(z.object({ id: objectId }), 'params'),
+  requireRole("admin", "manager", "franchise", "seller", "vendeur"),
+  requirePermission("clients.manage"),
+  validate(z.object({ id: objectId }), "params"),
   asyncHandler(async (req, res) => {
     const id = req.params.id;
     const client = await Client.findById(id);
-    if (!client) throw notFound('Client not found');
+    if (!client) throw notFound("Client not found");
 
     const scope = franchiseScopeFilter(req.user);
-    if (scope.franchiseId && client.franchiseId?.toString() !== scope.franchiseId) throw forbidden();
+    if (
+      scope.franchiseId &&
+      client.franchiseId?.toString() !== scope.franchiseId
+    )
+      throw forbidden();
 
     client.active = false;
     await client.save();
 
     await audit(req, {
-      action: 'client.archive',
-      entity: 'Client',
+      action: "client.archive",
+      entity: "Client",
       entityId: id,
       franchiseId: client.franchiseId?.toString() ?? null,
       details: { fullName: client.fullName },

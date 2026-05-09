@@ -9,8 +9,10 @@ export const PERMISSIONS = [
   'sales.view',
   'sales.create',
   'sales.price.override',
+  'sales.credit.override',
   'clients.view',
   'clients.manage',
+  'clients.credit.view',
   'products.view',
   'products.manage',
   'categories.manage',
@@ -74,8 +76,10 @@ const managerPermissions: readonly Permission[] = [
   'sales.view',
   'sales.create',
   'sales.price.override',
+  'sales.credit.override',
   'clients.view',
   'clients.manage',
+  'clients.credit.view',
   'products.view',
   'products.manage',
   'categories.manage',
@@ -126,8 +130,10 @@ const franchisePermissions: readonly Permission[] = [
   'sales.view',
   'sales.create',
   'sales.price.override',
+  'sales.credit.override',
   'clients.view',
   'clients.manage',
+  'clients.credit.view',
   'products.view',
   'transfers.view',
   'transfers.manage',
@@ -312,13 +318,29 @@ export function isKnownPermission(value: string): value is Permission {
   return PERMISSION_SET.has(value);
 }
 
-export function normalizeCustomPermissionOverrides(input: unknown): CustomPermissionOverrides {
+export function normalizeCustomPermissionOverrides(
+  input: unknown,
+): CustomPermissionOverrides {
   const src = (input ?? {}) as { grants?: unknown; revokes?: unknown };
   const grants = Array.isArray(src.grants) ? src.grants : [];
   const revokes = Array.isArray(src.revokes) ? src.revokes : [];
 
-  const normalizedGrants = [...new Set(grants.filter((value): value is Permission => typeof value === 'string' && isKnownPermission(value)))];
-  const normalizedRevokes = [...new Set(revokes.filter((value): value is Permission => typeof value === 'string' && isKnownPermission(value)))];
+  const normalizedGrants = [
+    ...new Set(
+      grants.filter(
+        (value): value is Permission =>
+          typeof value === 'string' && isKnownPermission(value),
+      ),
+    ),
+  ];
+  const normalizedRevokes = [
+    ...new Set(
+      revokes.filter(
+        (value): value is Permission =>
+          typeof value === 'string' && isKnownPermission(value),
+      ),
+    ),
+  ];
 
   // Revokes always win if both are present.
   const revokeSet = new Set(normalizedRevokes);

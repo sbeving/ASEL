@@ -8,6 +8,7 @@ import { Sale } from '../models/Sale.js';
 import { User } from '../models/User.js';
 import { badRequest } from '../utils/AppError.js';
 import { logger } from '../utils/logger.js';
+import type { Role } from '../utils/roles.js';
 
 export function dayBounds(dateStr: string): { start: Date; end: Date } {
   const d = new Date(dateStr);
@@ -79,6 +80,16 @@ export function closingRequiresVarianceReason(
     Math.abs(closingVarianceAmount(declaredTotal, expectedTotal)) >=
     CLOSING_VARIANCE_REASON_THRESHOLD
   );
+}
+
+const CLOSING_LOCK_OVERRIDE_ROLES: ReadonlySet<Role> = new Set([
+  'superadmin',
+  'ceo',
+  'admin',
+]);
+
+export function canOverrideValidatedClosing(role?: Role | null) {
+  return role ? CLOSING_LOCK_OVERRIDE_ROLES.has(role) : false;
 }
 
 export function closingInstallmentAdvanceAmount(sale: {

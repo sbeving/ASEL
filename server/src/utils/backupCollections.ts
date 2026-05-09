@@ -11,6 +11,7 @@ export const BACKUP_COLLECTIONS = [
   'sales',
   'installments',
   'clients',
+  'client_credit_override_requests',
   'cashflows',
   'cash_ledger_entries',
   'closings',

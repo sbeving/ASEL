@@ -30,7 +30,7 @@ Work these one by one. Each item should be implemented, tested, and then marked 
 - [ ] Replace raw tables with responsive card/table hybrids on mobile for all high-use pages.
   - [x] HR workers table now has search/role/site/status filters, mobile worker cards, and clearer loading/empty states. Verified with client typecheck and production client build.
 - [ ] Standardize form footers, error states, empty states, loading states, and destructive confirmations.
-- [ ] Add keyboard-friendly POS flow: barcode/search focus, quantity shortcuts, validate shortcut, escape scanner/modal.
+- [x] Add keyboard-friendly POS flow: barcode/search focus, quantity shortcuts, validate shortcut, escape scanner/modal. Verified with client typecheck and production build.
 - [ ] Add print-friendly ticket/facture/devis preview before validation.
 
 ## 1. Client Credit And Trust Scoring
@@ -49,12 +49,12 @@ Work these one by one. Each item should be implemented, tested, and then marked 
   - internal credit notes
 - [x] Compute client trust score from payment history, debt, purchase relationship, stability, and profile completeness.
 - [x] Show score, risk tier, recommended credit limit, and monthly payment capacity in client fiche.
-- [ ] Add score history snapshots so managers can see score evolution over time.
-- [ ] Add manual override with manager approval and audit trail.
-- [ ] Add credit rules per franchise and global company policy.
-- [ ] Block or warn before installment sale if score is too low, debt too high, or late payments exist.
-- [ ] Add client document attachments: CIN, payslip, proof of address, signed agreement.
-- [ ] Add privacy permissions for sensitive credit fields.
+- [x] Add score history snapshots so managers can see score evolution over time. Verified with server/client typechecks and production build.
+- [x] Add manual override with manager approval and audit trail. Verified with credit override coverage tests plus server/client typechecks.
+- [x] Add credit rules per franchise and global company policy. Verified with client-insight policy tests plus server/client typechecks.
+- [x] Block or warn before installment sale if score is too low, debt too high, or late payments exist. Verified with client-insight guard tests plus server/client typechecks.
+- [x] Add client document attachments: CIN, payslip, proof of address, signed agreement. Verified with client-doc upload access tests plus server/client typechecks.
+- [x] Add privacy permissions for sensitive credit fields. Verified with permission tests plus server/client typechecks.
 
 ## 2. Echeances And Credit Payments
 
@@ -62,17 +62,17 @@ Work these one by one. Each item should be implemented, tested, and then marked 
 - [x] Default remainder due date is 4 days later when not explicitly selected.
 - [x] Add payment receipt generation for each installment payment.
 - [x] Add payment history per installment, not only split records.
-- [ ] Add renegotiation workflow: postpone, split, merge, waive fee, manager approval.
-- [ ] Add automatic late status scheduler.
-- [ ] Add reminders through WhatsApp/SMS templates at D-7, D-3, due day, overdue.
-- [ ] Add aging report: 0-7 days late, 8-30, 31-60, 60+.
-- [ ] Add collection dashboard by franchise and client risk.
+- [x] Add renegotiation workflow: postpone, split, merge, waive fee, manager approval. Verified with renegotiation helper tests plus server/client typechecks and production builds.
+- [x] Add automatic late status scheduler. Verified with installment notification refresh test plus server typecheck.
+- [x] Add reminders through WhatsApp/SMS templates at D-7, D-3, due day, overdue. Verified with client typecheck and production build.
+- [x] Add aging report: 0-7 days late, 8-30, 31-60, 60+. Verified with installment helper tests plus server/client typechecks.
+- [x] Add collection dashboard by franchise and client risk. Verified with collection-risk service tests plus server/client typechecks.
 
 ## 3. POS And Sales
 
 - [x] POS supports ticket, facture, devis, cash, card, transfer, installment, amount received, change, note, and client.
-- [ ] Add sale hold/resume for interrupted customers.
-- [ ] Add line-level discount and global discount approval thresholds.
+- [x] Add sale hold/resume for interrupted customers. Verified with client typecheck and production build.
+- [x] Add line-level discount and global discount approval thresholds. Verified with sales discount policy tests plus server/client typechecks and production builds.
 - [ ] Add returns/exchanges directly from sale detail.
 - [ ] Add invoice numbering policies by franchise/year/type.
 - [ ] Add receipt/facture PDF generation.
@@ -89,8 +89,8 @@ Work these one by one. Each item should be implemented, tested, and then marked 
 - [x] Add expected cash drawer calculation: cash sales + installment cash + cash in - cash out - refunds. Verified with closing service tests.
 - [x] Add declared cash denominations form. Verified with closing service tests plus server/client typechecks.
 - [x] Add variance reason requirement when difference is above threshold. Verified with closing service tests plus server/client typechecks.
-- [ ] Add manager validation workflow and locked day after validation.
-- [ ] Add closing PDF/export.
+- [x] Add manager validation workflow and locked day after validation. Verified with closing service tests plus server/client typechecks.
+- [x] Add closing PDF/export. Verified with client typecheck and production build.
 
 ## 5. OCR And Facture Entry
 

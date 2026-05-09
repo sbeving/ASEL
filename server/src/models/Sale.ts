@@ -1,15 +1,17 @@
-import { Schema, model, type InferSchemaType } from 'mongoose';
+import { Schema, model, type InferSchemaType } from "mongoose";
 
 const saleItemSchema = new Schema(
   {
-    productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
+    productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
     quantity: { type: Number, required: true, min: 1 },
     unitPrice: { type: Number, required: true, min: 0 },
+    lineSubtotal: { type: Number, required: true, min: 0 },
+    discount: { type: Number, min: 0, default: 0 },
     total: { type: Number, required: true, min: 0 },
     productType: {
       type: String,
-      enum: ['standard', 'asel_recharge', 'asel_forfait'],
-      default: 'standard',
+      enum: ["standard", "asel_recharge", "asel_forfait"],
+      default: "standard",
     },
     stockManaged: { type: Boolean, default: true },
     commissionRate: { type: Number, min: 0, max: 100, default: 0 },
@@ -38,38 +40,53 @@ const saleSchema = new Schema(
     invoiceNumber: { type: String, trim: true, maxlength: 40, default: null },
     saleType: {
       type: String,
-      enum: ['ticket', 'facture', 'devis'],
-      default: 'ticket',
+      enum: ["ticket", "facture", "devis"],
+      default: "ticket",
     },
-    franchiseId: { type: Schema.Types.ObjectId, ref: 'Franchise', required: true },
-    clientId: { type: Schema.Types.ObjectId, ref: 'Client', default: null },
-    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    items: { type: [saleItemSchema], required: true, validate: (v: unknown[]) => v.length > 0 },
+    franchiseId: {
+      type: Schema.Types.ObjectId,
+      ref: "Franchise",
+      required: true,
+    },
+    clientId: { type: Schema.Types.ObjectId, ref: "Client", default: null },
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    items: {
+      type: [saleItemSchema],
+      required: true,
+      validate: (v: unknown[]) => v.length > 0,
+    },
     subtotal: { type: Number, required: true, min: 0 },
+    lineDiscountTotal: { type: Number, min: 0, default: 0 },
     discount: { type: Number, default: 0, min: 0 },
+    discountApprovalReason: {
+      type: String,
+      trim: true,
+      maxlength: 1000,
+      default: "",
+    },
     total: { type: Number, required: true, min: 0 },
     commissionTotal: { type: Number, min: 0, default: 0 },
     companyShareTotal: { type: Number, min: 0, default: 0 },
     franchiseManagerShareTotal: { type: Number, min: 0, default: 0 },
     paymentMethod: {
       type: String,
-      enum: ['cash', 'card', 'transfer', 'installment', 'other'],
-      default: 'cash',
+      enum: ["cash", "card", "transfer", "installment", "other"],
+      default: "cash",
     },
     paymentStatus: {
       type: String,
-      enum: ['paid', 'partial', 'pending'],
-      default: 'paid',
+      enum: ["paid", "partial", "pending"],
+      default: "paid",
     },
     amountReceived: { type: Number, min: 0, default: null },
     changeDue: { type: Number, min: 0, default: 0 },
     installmentPlan: { type: installmentPlanSchema, default: undefined },
     note: { type: String, trim: true, maxlength: 500 },
     cancelledAt: { type: Date, default: null, index: true },
-    cancelledBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
-    cancelReason: { type: String, trim: true, maxlength: 500, default: '' },
+    cancelledBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    cancelReason: { type: String, trim: true, maxlength: 500, default: "" },
   },
-  { timestamps: true, collection: 'sales' },
+  { timestamps: true, collection: "sales" },
 );
 
 saleSchema.index({ franchiseId: 1, createdAt: -1 });
@@ -78,4 +95,4 @@ saleSchema.index({ invoiceNumber: 1 }, { sparse: true });
 saleSchema.index({ clientId: 1, createdAt: -1 });
 
 export type SaleDoc = InferSchemaType<typeof saleSchema>;
-export const Sale = model('Sale', saleSchema);
+export const Sale = model("Sale", saleSchema);

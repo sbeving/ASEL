@@ -14,6 +14,7 @@ import { Franchise } from '../models/Franchise.js';
 import { audit } from '../services/audit.service.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
 import {
+  canOverrideValidatedClosing,
   closingRequiresVarianceReason,
   closingVarianceAmount,
   computeClosingSummary,
@@ -152,6 +153,16 @@ router.post(
       throw badRequest('franchiseId does not exist');
 
     const { start } = dayBounds(input.date);
+    const existingClosing = await Closing.findOne({
+      franchiseId: input.franchiseId,
+      closingDate: start,
+    }).select('validated');
+    const isLockedOverride =
+      !!existingClosing?.validated &&
+      canOverrideValidatedClosing(req.user!.role);
+    if (existingClosing?.validated && !isLockedOverride) {
+      throw badRequest('Validated closing is locked');
+    }
     const summary = await computeClosingSummary(input.franchiseId, input.date);
     const denominations = normalizeClosingCashDenominations(
       input.cashDenominations ?? [],
@@ -235,6 +246,7 @@ router.post(
         expectedDrawerTotal: summary.expectedDrawerTotal,
         variance,
         varianceReason: input.varianceReason ?? '',
+        lockedOverride: isLockedOverride,
       },
     });
 
@@ -280,6 +292,11 @@ router.patch(
     const input = req.body as z.infer<typeof updateSchema>;
     const closing = await Closing.findById(req.params.id);
     if (!closing) throw notFound('Closing not found');
+    const isLockedOverride =
+      closing.validated && canOverrideValidatedClosing(req.user!.role);
+    if (closing.validated && !isLockedOverride) {
+      throw badRequest('Validated closing is locked');
+    }
 
     const nextFranchiseId = input.franchiseId ?? closing.franchiseId.toString();
     const nextDate =
@@ -365,7 +382,7 @@ router.patch(
       entity: 'Closing',
       entityId: closing._id.toString(),
       franchiseId: closing.franchiseId.toString(),
-      details: { before, after: input },
+      details: { before, after: input, lockedOverride: isLockedOverride },
     });
 
     res.json({ closing });
@@ -381,6 +398,11 @@ router.delete(
   asyncHandler(async (req, res) => {
     const closing = await Closing.findById(req.params.id);
     if (!closing) throw notFound('Closing not found');
+    const isLockedOverride =
+      closing.validated && canOverrideValidatedClosing(req.user!.role);
+    if (closing.validated && !isLockedOverride) {
+      throw badRequest('Validated closing is locked');
+    }
     const scope = franchiseScopeFilter(req.user);
     if (
       scope.franchiseId &&
@@ -397,6 +419,7 @@ router.delete(
       details: {
         date: closing.closingDate,
         declaredSalesTotal: closing.declaredSalesTotal,
+        lockedOverride: isLockedOverride,
       },
     });
 

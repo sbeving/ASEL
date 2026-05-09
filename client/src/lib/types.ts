@@ -1,18 +1,18 @@
 export type Role =
-  | 'ceo'
-  | 'admin'
-  | 'superadmin'
-  | 'manager'
-  | 'commercial_director'
-  | 'stock_central_maintainer'
-  | 'cash_central_maintainer'
-  | 'hr_admin'
-  | 'franchise'
-  | 'seller'
-  | 'vendeur'
-  | 'commercial'
-  | 'siege_employee'
-  | 'viewer';
+  | "ceo"
+  | "admin"
+  | "superadmin"
+  | "manager"
+  | "commercial_director"
+  | "stock_central_maintainer"
+  | "cash_central_maintainer"
+  | "hr_admin"
+  | "franchise"
+  | "seller"
+  | "vendeur"
+  | "commercial"
+  | "siege_employee"
+  | "viewer";
 
 export interface User {
   id: string;
@@ -55,6 +55,14 @@ export interface Franchise {
     endTime: string;
     timezone: string;
   };
+  creditPolicy?: {
+    enabled: boolean;
+    minimumScoreForInstallment: number;
+    blockRiskyTier: boolean;
+    blockLateInstallments: boolean;
+    maxDebtToRecommendedLimitRatio: number;
+    maxMonthlyPaymentRatio: number;
+  };
   active: boolean;
 }
 
@@ -82,7 +90,7 @@ export interface Client {
   phone2?: string;
   email?: string;
   address?: string;
-  clientType?: 'walkin' | 'boutique' | 'wholesale' | 'passager' | 'other';
+  clientType?: "walkin" | "boutique" | "wholesale" | "passager" | "other";
   company?: string;
   taxId?: string;
   cin?: string;
@@ -90,31 +98,31 @@ export interface Client {
     monthlySalary?: number | null;
     additionalIncome?: number | null;
     employmentStatus?:
-      | 'unknown'
-      | 'salaried'
-      | 'self_employed'
-      | 'business_owner'
-      | 'unemployed'
-      | 'retired'
-      | 'student'
-      | 'other';
+      | "unknown"
+      | "salaried"
+      | "self_employed"
+      | "business_owner"
+      | "unemployed"
+      | "retired"
+      | "student"
+      | "other";
     employer?: string;
     jobTitle?: string;
     housingStatus?:
-      | 'unknown'
-      | 'owner'
-      | 'family'
-      | 'rent'
-      | 'mortgage'
-      | 'other';
+      | "unknown"
+      | "owner"
+      | "family"
+      | "rent"
+      | "mortgage"
+      | "other";
     monthlyRent?: number | null;
     maritalStatus?:
-      | 'unknown'
-      | 'single'
-      | 'married'
-      | 'divorced'
-      | 'widowed'
-      | 'other';
+      | "unknown"
+      | "single"
+      | "married"
+      | "divorced"
+      | "widowed"
+      | "other";
     childrenCount?: number | null;
     spouseWorks?: boolean | null;
     distanceKmToFranchise?: number | null;
@@ -133,11 +141,20 @@ export interface Client {
   paidInstallments?: number;
   totalInstallments?: number;
   creditScore?: ClientCreditScore;
+  creditScoreHistory?: ClientCreditScoreSnapshot[];
+  documents?: {
+    cinImagePath?: string | null;
+    payslipPath?: string | null;
+    proofOfAddressPath?: string | null;
+    signedAgreementPath?: string | null;
+    updatedAt?: string | null;
+    updatedBy?: string | User | null;
+  };
 }
 
 export interface ClientCreditScore {
   score: number;
-  tier: 'excellent' | 'good' | 'watch' | 'risky';
+  tier: "excellent" | "good" | "watch" | "risky";
   label: string;
   recommendedCreditLimit: number;
   maxMonthlyPayment: number;
@@ -149,6 +166,39 @@ export interface ClientCreditScore {
     completeness: number;
   };
   reasons: string[];
+}
+
+export interface ClientCreditScoreSnapshot {
+  capturedAt: string;
+  capturedBy?: User | string | null;
+  source?: "create" | "manual_update" | "sale_guard" | "system";
+  score: number;
+  tier: ClientCreditScore["tier"];
+  label: string;
+  recommendedCreditLimit: number;
+  maxMonthlyPayment: number;
+  balanceDue: number;
+  lateInstallments: number;
+  totalSpent: number;
+  reasons: string[];
+}
+
+export interface ClientCreditOverrideRequest {
+  _id: string;
+  clientId: string | Client;
+  franchiseId: string | Franchise;
+  requestedBy?: string | User;
+  requestedCreditLimit: number;
+  requestedMonthlyPayment: number;
+  requestReason: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  approvedCreditLimit?: number;
+  approvedMonthlyPayment?: number;
+  expiresAt?: string | null;
+  reviewedBy?: string | User | null;
+  reviewedAt?: string | null;
+  reviewNote?: string;
+  createdAt?: string;
 }
 
 export interface Product {
@@ -169,8 +219,8 @@ export interface Product {
   sellPriceHt?: number;
   sellTaxRate?: number;
   sellPriceTtc?: number;
-  productType?: 'standard' | 'asel_recharge' | 'asel_forfait';
-  priceMode?: 'fixed' | 'variable';
+  productType?: "standard" | "asel_recharge" | "asel_forfait";
+  priceMode?: "fixed" | "variable";
   stockManaged?: boolean;
   commissionRate?: number;
   companyShareRate?: number;
@@ -213,8 +263,10 @@ export interface SaleItem {
   productId: Product | string;
   quantity: number;
   unitPrice: number;
+  lineSubtotal?: number;
+  discount?: number;
   total: number;
-  productType?: 'standard' | 'asel_recharge' | 'asel_forfait';
+  productType?: "standard" | "asel_recharge" | "asel_forfait";
   stockManaged?: boolean;
   commissionRate?: number;
   commissionBase?: number;
@@ -226,19 +278,21 @@ export interface SaleItem {
 export interface Sale {
   _id: string;
   invoiceNumber?: string | null;
-  saleType: 'ticket' | 'facture' | 'devis';
+  saleType: "ticket" | "facture" | "devis";
   franchiseId: Franchise | string;
   clientId?: Client | string | null;
   userId: User | string;
   items: SaleItem[];
   subtotal: number;
+  lineDiscountTotal?: number;
   discount: number;
+  discountApprovalReason?: string;
   total: number;
   commissionTotal?: number;
   companyShareTotal?: number;
   franchiseManagerShareTotal?: number;
-  paymentMethod: 'cash' | 'card' | 'transfer' | 'installment' | 'other';
-  paymentStatus: 'paid' | 'partial' | 'pending';
+  paymentMethod: "cash" | "card" | "transfer" | "installment" | "other";
+  paymentStatus: "paid" | "partial" | "pending";
   amountReceived?: number | null;
   changeDue?: number;
   installmentPlan?: {
@@ -262,7 +316,7 @@ export interface Transfer {
   destFranchiseId: Franchise | string;
   productId: Product | string;
   quantity: number;
-  status: 'pending' | 'accepted' | 'rejected' | 'cancelled';
+  status: "pending" | "accepted" | "rejected" | "cancelled";
   requestedBy: User | string;
   resolvedBy?: User | string | null;
   note?: string;
@@ -285,7 +339,7 @@ export interface DashboardPayload {
   recentSales: Sale[];
   roleProfile: {
     role: Role;
-    scope: 'global' | 'franchise';
+    scope: "global" | "franchise";
     primaryGoal: string;
     recommendedActions: string[];
   };
@@ -297,7 +351,7 @@ export interface DashboardPayload {
       revenue: number;
     }>;
     paymentBreakdown: Array<{
-      paymentMethod: Sale['paymentMethod'];
+      paymentMethod: Sale["paymentMethod"];
       count: number;
       total: number;
     }>;
@@ -325,7 +379,7 @@ export interface DashboardPayload {
       byRole?: Array<{ role: Role; count: number }>;
       latestPunches?: Array<{
         _id: string;
-        type: 'entree' | 'sortie' | 'pause_debut' | 'pause_fin' | 'verif';
+        type: "entree" | "sortie" | "pause_debut" | "pause_fin" | "verif";
         timestamp: string;
         employeeName: string;
         role: Role | string;
@@ -366,7 +420,7 @@ export interface DashboardPayload {
       networkPoints: number;
       outOfZonePings: number;
       pingsCount: number;
-      pointsByStatus: Array<{ status: NetworkPoint['status']; count: number }>;
+      pointsByStatus: Array<{ status: NetworkPoint["status"]; count: number }>;
       bestCommercial: {
         commercialId: string;
         commercialName?: string;
@@ -398,11 +452,11 @@ export interface DashboardPayload {
       pendingLeaveRequests: number;
       siteName?: string;
       lastType?:
-        | 'entree'
-        | 'sortie'
-        | 'pause_debut'
-        | 'pause_fin'
-        | 'verif'
+        | "entree"
+        | "sortie"
+        | "pause_debut"
+        | "pause_fin"
+        | "verif"
         | null;
       lastTimestamp?: string | null;
     };
@@ -499,7 +553,7 @@ export interface MonthlyInventory {
   _id: string;
   franchiseId: Franchise | string;
   month: string;
-  status: 'draft' | 'finalized';
+  status: "draft" | "finalized";
   totalSystemQuantity: number;
   totalCountedQuantity: number;
   totalVariance: number;
@@ -528,7 +582,7 @@ export interface Reception {
   franchiseId: Franchise | string;
   supplierId?: Supplier | string | null;
   receptionDate?: string;
-  status: 'draft' | 'validated' | 'cancelled';
+  status: "draft" | "validated" | "cancelled";
   totalHt: number;
   vat: number;
   totalTtc: number;
@@ -544,20 +598,20 @@ export interface Reception {
 export interface CashFlow {
   _id: string;
   franchiseId: Franchise | string;
-  type: 'encaissement' | 'decaissement';
+  type: "encaissement" | "decaissement";
   subType?:
-    | 'cash_sale'
-    | 'central_cashbox'
-    | 'bank_transfer'
-    | 'expense'
-    | 'other';
+    | "cash_sale"
+    | "central_cashbox"
+    | "bank_transfer"
+    | "expense"
+    | "other";
   isCentralCashbox?: boolean;
   counterpartyFranchiseId?: Franchise | string | null;
   linkedFlowId?: CashFlow | string | null;
   amount: number;
   reason: string;
   reference?: string;
-  status?: 'pending' | 'approved' | 'rejected';
+  status?: "pending" | "approved" | "rejected";
   reviewedBy?: User | string | null;
   reviewedAt?: string | null;
   reviewNote?: string;
@@ -629,7 +683,7 @@ export interface Installment {
   }>;
   dueDateUpdatedBy?: User | string | null;
   dueDateUpdatedAt?: string | null;
-  status: 'pending' | 'paid' | 'late';
+  status: "pending" | "paid" | "late" | "renegotiated";
   paidAt?: string | null;
   paidAtUpdatedBy?: User | string | null;
   paidAtUpdatedAt?: string | null;
@@ -647,6 +701,19 @@ export interface Installment {
   receiptNumber?: string | null;
   receiptPath?: string | null;
   receiptCreatedAt?: string | null;
+  waivedAmount?: number;
+  renegotiatedAt?: string | null;
+  renegotiatedBy?: User | string | null;
+  renegotiationHistory?: Array<{
+    type: "postpone" | "split" | "merge" | "waive";
+    reason?: string;
+    userId?: User | string;
+    createdAt: string;
+    before?: unknown;
+    after?: unknown;
+    relatedInstallmentIds?: Array<string | Installment>;
+    waivedAmount?: number;
+  }>;
   note?: string;
   splitFromInstallmentId?: string | null;
   userId?: User | string;
@@ -660,7 +727,7 @@ export interface ReturnRecord {
     | { _id: string; name: string; reference?: string; barcode?: string }
     | string;
   quantity: number;
-  returnType: 'return' | 'exchange';
+  returnType: "return" | "exchange";
   unitPrice: number;
   reason?: string;
   userId?: { _id: string; fullName?: string; username?: string } | string;
@@ -681,8 +748,8 @@ export interface Demand {
   productId?: Product | string | null;
   productName: string;
   quantity: number;
-  urgency: 'normal' | 'urgent' | 'critical';
-  status: 'pending' | 'approved' | 'rejected' | 'delivered';
+  urgency: "normal" | "urgent" | "critical";
+  status: "pending" | "approved" | "rejected" | "delivered";
   note?: string;
   response?: string;
   requestedBy?: User | string;
@@ -700,7 +767,7 @@ export interface DemandSummary {
 export interface Service {
   _id: string;
   name: string;
-  category: 'technique' | 'compte' | 'autre';
+  category: "technique" | "compte" | "autre";
   price: number;
   description?: string;
   durationMinutes: number;
@@ -711,7 +778,7 @@ export interface Service {
 export interface ServiceRecord {
   _id: string;
   serviceId:
-    | { _id: string; name: string; category: 'technique' | 'compte' | 'autre' }
+    | { _id: string; name: string; category: "technique" | "compte" | "autre" }
     | string;
   franchiseId: Franchise | string;
   clientId?: { _id: string; fullName: string; phone?: string } | string | null;
@@ -726,22 +793,22 @@ export interface ServiceRecord {
 export interface NetworkPoint {
   _id: string;
   name: string;
-  type: 'franchise' | 'activation' | 'recharge' | 'activation_recharge';
+  type: "franchise" | "activation" | "recharge" | "activation_recharge";
   status:
-    | 'prospect'
-    | 'contact'
-    | 'contrat_non_signe'
-    | 'contrat_signe'
-    | 'actif'
-    | 'suspendu'
-    | 'resilie';
+    | "prospect"
+    | "contact"
+    | "contrat_non_signe"
+    | "contrat_signe"
+    | "actif"
+    | "suspendu"
+    | "resilie";
   leadStatus?:
-    | 'lead'
-    | 'contacted'
-    | 'qualified'
-    | 'contract_given'
-    | 'won'
-    | 'lost';
+    | "lead"
+    | "contacted"
+    | "qualified"
+    | "contract_given"
+    | "won"
+    | "lost";
   address?: string;
   city?: string;
   governorate?: string;
@@ -787,12 +854,12 @@ export interface NetworkPoint {
     lastAllocationAt?: string | null;
     daysSinceAllocation?: number | null;
     recommendation?:
-      | 'worthy'
-      | 'watch'
-      | 'review'
-      | 'dormant'
-      | 'revoke_candidate'
-      | 'revoked';
+      | "worthy"
+      | "watch"
+      | "review"
+      | "dormant"
+      | "revoke_candidate"
+      | "revoked";
   };
   active: boolean;
   createdAt?: string;
@@ -803,7 +870,7 @@ export interface NetworkPointAllocation {
   networkPointId: NetworkPoint | string;
   franchiseId: Franchise | string;
   productId?: Product | string | null;
-  kind: 'sim' | 'recharge' | 'other';
+  kind: "sim" | "recharge" | "other";
   quantity: number;
   amount?: number;
   barcodes: string[];
@@ -829,18 +896,18 @@ export interface AppNotification {
   _id: string;
   userId?: string | null;
   franchiseId?: string | null;
-  roleTarget?: Role | 'all' | null;
-  roleTargets?: Array<Role | 'all'>;
+  roleTarget?: Role | "all" | null;
+  roleTargets?: Array<Role | "all">;
   title: string;
   message: string;
-  type: 'info' | 'warning' | 'danger' | 'success';
+  type: "info" | "warning" | "danger" | "success";
   link?: string;
   readAt?: string | null;
   createdAt: string;
 }
 
 export interface ProductOverview {
-  product: Omit<Product, 'categoryId' | 'supplierId'> & {
+  product: Omit<Product, "categoryId" | "supplierId"> & {
     categoryId?: { _id: string; name: string } | string;
     supplierId?: { _id: string; name: string } | string | null;
   };
@@ -872,7 +939,10 @@ export interface ClientOverview {
     paidInstallments: number;
     totalInstallments: number;
   };
-  creditScore: ClientCreditScore;
+  creditScore?: ClientCreditScore | null;
+  creditScoreHistory?: ClientCreditScoreSnapshot[];
+  recentCreditOverrides?: ClientCreditOverrideRequest[];
+  creditRestricted?: boolean;
   recentSales: Sale[];
   recentInstallments: Installment[];
 }
