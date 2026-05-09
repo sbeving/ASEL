@@ -28,6 +28,7 @@ Work these one by one. Each item should be implemented, tested, and then marked 
 - [x] POS payment, document type, client, discount, note, and installment controls are grouped into clearer sections.
 - [ ] Review every page at 390px, 768px, 1024px, 1366px, and 1920px.
 - [ ] Replace raw tables with responsive card/table hybrids on mobile for all high-use pages.
+  - [x] HR workers table now has search/role/site/status filters, mobile worker cards, and clearer loading/empty states. Verified with client typecheck and production client build.
 - [ ] Standardize form footers, error states, empty states, loading states, and destructive confirmations.
 - [ ] Add keyboard-friendly POS flow: barcode/search focus, quantity shortcuts, validate shortcut, escape scanner/modal.
 - [ ] Add print-friendly ticket/facture/devis preview before validation.

@@ -1,6 +1,7 @@
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Clock, Users, UserCheck, CalendarClock, UserCog } from 'lucide-react';
+import { CalendarClock, Clock, Search, UserCheck, UserCog, Users } from 'lucide-react';
 import { api, apiError } from '../lib/api';
 import { PageHeader } from '../components/PageHeader';
 import { dateTime } from '../lib/money';
@@ -73,8 +74,18 @@ function employeeSite(employee: HrEmployee) {
   return '-';
 }
 
+function employeeStatus(employee: HrEmployee): 'active' | 'inactive' | 'none' {
+  if (employee.activeShift) return 'active';
+  if (employee.lastType) return 'inactive';
+  return 'none';
+}
+
 export function HrPage() {
   const qc = useQueryClient();
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [siteFilter, setSiteFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const summary = useQuery({
     queryKey: ['hr-summary'],
     queryFn: async () => (await api.get<HrSummaryPayload>('/hr/summary')).data,
@@ -89,6 +100,29 @@ export function HrPage() {
   });
 
   const data = summary.data;
+  const employees = data?.employees ?? [];
+  const roleOptions = useMemo(
+    () => Array.from(new Set(employees.map((employee) => employee.role))).sort(),
+    [employees],
+  );
+  const siteOptions = useMemo(
+    () => Array.from(new Set(employees.map(employeeSite))).filter((site) => site !== '-').sort(),
+    [employees],
+  );
+  const filteredEmployees = useMemo(() => {
+    const needle = employeeSearch.trim().toLowerCase();
+    return employees.filter((employee) => {
+      const site = employeeSite(employee);
+      const status = employeeStatus(employee);
+      const haystack = [employee.fullName, employee.username, employee.role, site].join(' ').toLowerCase();
+      return (
+        (!needle || haystack.includes(needle)) &&
+        (!roleFilter || employee.role === roleFilter) &&
+        (!siteFilter || site === siteFilter) &&
+        (!statusFilter || status === statusFilter)
+      );
+    });
+  }, [employeeSearch, employees, roleFilter, siteFilter, statusFilter]);
 
   return (
     <>
@@ -117,53 +151,137 @@ export function HrPage() {
       </section>
 
       <section className="mb-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="card overflow-x-auto">
+        <div className="card overflow-hidden">
           <div className="border-b border-surface-200 px-4 py-3">
-            <h2 className="text-sm font-semibold text-surface-900">Timesheets semaine</h2>
-            <p className="mt-1 text-xs text-surface-500">
-              Depuis {data?.weekStart ? dateTime(data.weekStart) : '-'}
-            </p>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-surface-900">Timesheets semaine</h2>
+                <p className="mt-1 text-xs text-surface-500">
+                  Depuis {data?.weekStart ? dateTime(data.weekStart) : '-'} · {filteredEmployees.length}/{employees.length} employes affiches
+                </p>
+              </div>
+              <Link to="/timelogs?scope=team" className="btn-secondary !min-h-[38px] !py-1.5">
+                Ouvrir pointage
+              </Link>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <label className="block">
+                <span className="label">Recherche</span>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-surface-400" />
+                  <input
+                    className="input pl-9"
+                    value={employeeSearch}
+                    onChange={(event) => setEmployeeSearch(event.target.value)}
+                    placeholder="Nom, username, role..."
+                  />
+                </div>
+              </label>
+              <label className="block">
+                <span className="label">Role</span>
+                <select className="input" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
+                  <option value="">Tous les roles</option>
+                  {roleOptions.map((role) => (
+                    <option key={role} value={role}>{role}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="label">Zone de travail</span>
+                <select className="input" value={siteFilter} onChange={(event) => setSiteFilter(event.target.value)}>
+                  <option value="">Toutes les zones</option>
+                  {siteOptions.map((site) => (
+                    <option key={site} value={site}>{site}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="label">Statut</span>
+                <select className="input" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                  <option value="">Tous</option>
+                  <option value="active">En travail</option>
+                  <option value="inactive">Dernier pointage</option>
+                  <option value="none">Aucun pointage</option>
+                </select>
+              </label>
+            </div>
           </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr>
-                <th className="th">Employe</th>
-                <th className="th">Role</th>
-                <th className="th">Site</th>
-                <th className="th">Statut</th>
-                <th className="th text-right">Heures semaine</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(data?.employees ?? []).map((employee) => (
-                <tr key={employee._id}>
-                  <td className="td">
-                    <div className="font-semibold text-surface-900">{employee.fullName}</div>
-                    <div className="text-xs text-surface-500">{employee.username}</div>
-                  </td>
-                  <td className="td">
-                    <span className="badge-info capitalize">{employee.role}</span>
-                  </td>
-                  <td className="td text-surface-600">{employeeSite(employee)}</td>
-                  <td className="td">
-                    {employee.activeShift ? (
-                      <span className="badge-success">En travail</span>
-                    ) : employee.lastType ? (
-                      <span className="badge-muted">{lastTypeLabel[employee.lastType]}</span>
-                    ) : (
-                      <span className="badge-muted">Aucun pointage</span>
-                    )}
-                  </td>
-                  <td className="td text-right font-semibold">{formatHours(employee.workedMinutes)}</td>
-                </tr>
-              ))}
-              {!summary.isLoading && (data?.employees.length ?? 0) === 0 && (
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full text-sm">
+              <thead>
                 <tr>
-                  <td className="td text-surface-400" colSpan={5}>Aucun employe actif.</td>
+                  <th className="th">Employe</th>
+                  <th className="th">Role</th>
+                  <th className="th">Site</th>
+                  <th className="th">Statut</th>
+                  <th className="th text-right">Heures semaine</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredEmployees.map((employee) => (
+                  <tr key={employee._id}>
+                    <td className="td">
+                      <div className="font-semibold text-surface-900">{employee.fullName}</div>
+                      <div className="text-xs text-surface-500">{employee.username}</div>
+                    </td>
+                    <td className="td">
+                      <span className="badge-info capitalize">{employee.role}</span>
+                    </td>
+                    <td className="td text-surface-600">{employeeSite(employee)}</td>
+                    <td className="td">
+                      <EmployeeStatusBadge employee={employee} />
+                    </td>
+                    <td className="td text-right font-semibold">{formatHours(employee.workedMinutes)}</td>
+                  </tr>
+                ))}
+                {!summary.isLoading && filteredEmployees.length === 0 && (
+                  <tr>
+                    <td className="td text-surface-400" colSpan={5}>Aucun employe pour ces filtres.</td>
+                  </tr>
+                )}
+                {summary.isLoading && (
+                  <tr>
+                    <td className="td text-surface-400" colSpan={5}>Chargement des employes...</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="space-y-3 p-3 md:hidden">
+            {filteredEmployees.map((employee) => (
+              <article key={employee._id} className="mobile-record-card space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold text-surface-900">{employee.fullName}</div>
+                    <div className="mt-1 text-xs text-surface-500">{employee.username}</div>
+                  </div>
+                  <EmployeeStatusBadge employee={employee} />
+                </div>
+                <div className="mobile-record-row">
+                  <span className="mobile-record-label">Role</span>
+                  <span className="mobile-record-value capitalize">{employee.role}</span>
+                </div>
+                <div className="mobile-record-row">
+                  <span className="mobile-record-label">Zone</span>
+                  <span className="mobile-record-value">{employeeSite(employee)}</span>
+                </div>
+                <div className="mobile-record-row">
+                  <span className="mobile-record-label">Heures</span>
+                  <span className="mobile-record-value">{formatHours(employee.workedMinutes)}</span>
+                </div>
+              </article>
+            ))}
+            {!summary.isLoading && filteredEmployees.length === 0 && (
+              <div className="rounded-lg border border-dashed border-surface-200 px-3 py-6 text-center text-sm text-surface-500">
+                Aucun employe pour ces filtres.
+              </div>
+            )}
+            {summary.isLoading && (
+              <div className="rounded-lg border border-surface-200 bg-surface-50 px-3 py-6 text-center text-sm text-surface-500">
+                Chargement des employes...
+              </div>
+            )}
+          </div>
         </div>
 
         <aside className="card p-4">
@@ -238,4 +356,10 @@ function MetricCard({
       <div className={`mt-2 text-2xl font-semibold ${accent ?? 'text-surface-900'}`}>{value}</div>
     </div>
   );
+}
+
+function EmployeeStatusBadge({ employee }: { employee: HrEmployee }) {
+  if (employee.activeShift) return <span className="badge-success">En travail</span>;
+  if (employee.lastType) return <span className="badge-muted">{lastTypeLabel[employee.lastType]}</span>;
+  return <span className="badge-muted">Aucun pointage</span>;
 }
