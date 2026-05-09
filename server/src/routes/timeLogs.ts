@@ -35,7 +35,9 @@ const logSchema = z.object({
     address: z.string().optional()
   }),
   integrity: deviceIntegritySchema,
-  note: z.string().max(500).optional()
+  note: z.string().max(500).optional(),
+  timestamp: z.string().datetime().optional(),
+  clientRequestId: z.string().trim().min(8).max(80).optional(),
 });
 
 const siegeZoneSchema = z.object({
@@ -271,11 +273,23 @@ router.post(
     }
     const integrityAssessment = assertLocationIntegrity(input.gps, input.integrity);
     await assertPointageGeofence(req.user!, input.gps);
+    if (input.clientRequestId) {
+      const existing = await TimeLog.findOne({
+        userId: req.user!.sub,
+        clientRequestId: input.clientRequestId,
+      });
+      if (existing) {
+        res.json({ log: existing, duplicate: true });
+        return;
+      }
+    }
 
     const log = await TimeLog.create({
       userId: req.user!.sub,
       franchiseId: req.user!.franchiseId ?? null,
       type: input.type,
+      timestamp: input.timestamp ? new Date(input.timestamp) : new Date(),
+      clientRequestId: input.clientRequestId,
       gps: input.gps,
       integrity: integrityAssessment.integrity,
       note: input.note,

@@ -28,6 +28,7 @@ const schema = z.object({
   BACKUP_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(14),
   BACKUP_MAX_FILES: z.coerce.number().int().min(1).max(365).default(30),
   BACKUP_MAX_TOTAL_MB: z.coerce.number().int().min(64).max(10240).default(512),
+  BACKUP_OFFSITE_DIR: z.string().optional(),
   SIEGE_NAME: z.string().trim().min(1).default('ASEL Siege'),
   SIEGE_LAT: z.coerce.number().min(-90).max(90).default(36.8065),
   SIEGE_LNG: z.coerce.number().min(-180).max(180).default(10.1815),

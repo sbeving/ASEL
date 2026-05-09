@@ -11,6 +11,20 @@ const installmentDueDateHistorySchema = new Schema(
   { _id: false },
 );
 
+const installmentPaymentHistorySchema = new Schema(
+  {
+    amount: { type: Number, required: true, min: 0 },
+    paidAt: { type: Date, required: true },
+    paymentMethod: { type: String, trim: true, maxlength: 40, default: null },
+    receiptNumber: { type: String, trim: true, maxlength: 80, default: null },
+    receiptPath: { type: String, trim: true, maxlength: 260, default: null },
+    note: { type: String, trim: true, maxlength: 1000, default: '' },
+    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    createdAt: { type: Date, default: Date.now },
+  },
+  { _id: true },
+);
+
 const installmentSchema = new Schema(
   {
     saleId: { type: Schema.Types.ObjectId, ref: 'Sale', required: true },
@@ -28,6 +42,10 @@ const installmentSchema = new Schema(
     paidAtUpdatedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     paidAtUpdatedAt: { type: Date, default: null },
     paymentMethod: { type: String, trim: true, maxlength: 40, default: null },
+    paymentHistory: { type: [installmentPaymentHistorySchema], default: [] },
+    receiptNumber: { type: String, trim: true, maxlength: 80, default: null },
+    receiptPath: { type: String, trim: true, maxlength: 260, default: null },
+    receiptCreatedAt: { type: Date, default: null },
     note: { type: String, trim: true, maxlength: 1000 },
     splitFromInstallmentId: { type: Schema.Types.ObjectId, ref: 'Installment', default: null },
     remind7dSent: { type: Boolean, default: false },
@@ -39,6 +57,10 @@ const installmentSchema = new Schema(
 
 installmentSchema.index({ franchiseId: 1, dueDate: 1, status: 1 });
 installmentSchema.index({ saleId: 1 });
+installmentSchema.index(
+  { receiptNumber: 1 },
+  { unique: true, partialFilterExpression: { receiptNumber: { $type: 'string' } } },
+);
 
 export type InstallmentDoc = InferSchemaType<typeof installmentSchema>;
 export const Installment = model('Installment', installmentSchema);

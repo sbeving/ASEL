@@ -45,12 +45,14 @@ services:
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
       BACKUP_MAX_FILES: ${BACKUP_MAX_FILES:-30}
       BACKUP_MAX_TOTAL_MB: ${BACKUP_MAX_TOTAL_MB:-512}
+      BACKUP_OFFSITE_DIR: ${BACKUP_OFFSITE_DIR:-}
       SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
       SEED_SHARED_PASSWORD: ${SEED_SHARED_PASSWORD}
     volumes:
       - uploads-data:/app/uploads
       - backups-data:/app/backups
+      - ${BACKUP_OFFSITE_HOST_DIR:-./offsite-backups}:/app/offsite-backups
 
   web:
     build:

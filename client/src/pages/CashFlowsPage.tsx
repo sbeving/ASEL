@@ -7,7 +7,7 @@ import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../auth/AuthContext';
 import type { CashFlow, Franchise } from '../lib/types';
-import { openPrintableReport } from '../lib/report';
+import { downloadHtmlReport, safeReportFilename } from '../lib/report';
 
 type CashFlowSubType = NonNullable<CashFlow['subType']>;
 
@@ -96,7 +96,7 @@ function generateTreasuryReport({
     <div class="filter"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value || 'Tous')}</strong></div>
   `).join('');
 
-  return openPrintableReport(`
+  return downloadHtmlReport(`
     <!doctype html>
     <html lang="fr">
       <head>
@@ -126,7 +126,6 @@ function generateTreasuryReport({
           a { color: #0f766e; font-weight: 700; text-decoration: none; }
           @media print {
             body { background: #fff; padding: 0; }
-            .no-print { display: none; }
             .panel { break-inside: avoid; }
           }
         </style>
@@ -137,7 +136,6 @@ function generateTreasuryReport({
             <h1>${escapeHtml(title)}</h1>
             <div class="muted">Genere le ${escapeHtml(new Date().toLocaleString('fr-TN'))}${generatedBy ? ` par ${escapeHtml(generatedBy)}` : ''}</div>
           </div>
-          <button class="no-print" onclick="window.print()">Imprimer / PDF</button>
         </header>
         <section class="panel filters">${filterRows}</section>
         <section class="panel metrics">
@@ -169,7 +167,7 @@ function generateTreasuryReport({
         </section>
       </body>
     </html>
-  `);
+  `, safeReportFilename(title));
 }
 
 export function CashFlowsPage() {
@@ -259,13 +257,12 @@ export function CashFlowsPage() {
   );
 
   const openReport = (reportFlows: CashFlow[], title: string, extraFilters: Array<[string, string]> = []) => {
-    const opened = generateTreasuryReport({
+    generateTreasuryReport({
       flows: reportFlows,
       title,
       filters: [...reportFilters, ...extraFilters],
       generatedBy: user?.fullName || user?.username,
     });
-    if (!opened) window.alert('Le navigateur a bloque la fenetre du rapport. Autorisez les popups pour generer le rapport.');
   };
 
   const reviewCentral = useMutation({

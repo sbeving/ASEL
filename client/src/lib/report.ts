@@ -1,4 +1,15 @@
-export function openPrintableReport(html: string, filename = `asel-report-${new Date().toISOString().slice(0, 10)}.html`) {
+export function safeReportFilename(label: string, extension = 'html') {
+  const safeLabel = label
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'asel-report';
+  return `${safeLabel}-${new Date().toISOString().slice(0, 10)}.${extension.replace(/^\./, '')}`;
+}
+
+export function downloadHtmlReport(html: string, filename = safeReportFilename('asel-report')) {
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -12,3 +23,5 @@ export function openPrintableReport(html: string, filename = `asel-report-${new 
 
   return true;
 }
+
+export const openPrintableReport = downloadHtmlReport;

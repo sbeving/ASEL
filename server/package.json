@@ -9,6 +9,8 @@
     "start": "node dist/index.js",
     "seed": "tsx src/seed.ts",
     "seed:legacy": "tsx src/seed.legacy.ts",
+    "backup:verify": "tsx src/scripts/verifyBackup.ts",
+    "backup:restore": "tsx src/scripts/restoreBackup.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

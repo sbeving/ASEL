@@ -11,14 +11,14 @@ Work these one by one. Each item should be implemented, tested, and then marked 
 - [x] Upload storage hygiene: image uploads are compressed before storage, and local uploads were copied to the VPS Docker uploads volume.
 - [x] Treasury receipt numbering: random receipt IDs were replaced with yearly sequence numbers (`REC-YYYY-000001`) and a sparse unique index. Verified with `documentNumbers` tests and server typecheck.
 - [x] Treasury transaction integrity: cashflow create/update/review/delete and mirrored caisse centrale entries now share Mongo transaction paths with single-node fallback. Verified with focused server tests and typecheck.
-- [ ] Treasury ledger: add immutable account ledger lines for franchise cashboxes and caisse centrale balances.
-- [ ] Installment receipts and payment ledger: generate receipt per payment, keep payment history, and keep partial-payment splits traceable.
-- [ ] Role/API matrix tests: prove every endpoint against CEO/admin/HR/franchise/vendeur/commercial/central roles.
-- [ ] Upload object authorization audit: verify every bucket and linked document has object-level access checks.
-- [ ] Report export system: replace any popup/print report with backend or Blob PDF/CSV/XLSX downloads.
-- [ ] Dashboard drilldowns: CEO, commercial director, HR admin, franchise, vendeur, and commercial dashboards need role-specific drilldown cards and exports.
-- [ ] Mobile production pass: SecureStore/session hardening, offline queue, EAS build, tracking reliability, and commercial UX polish.
-- [ ] Backup/restore playbook: automated DB + uploads + PDFs backup, offsite copy, and restore test.
+- [x] Treasury ledger: approved movements now post versioned ledger lines for franchise cashboxes and caisse centrale, edits/rejections/deletes void prior active lines, and `/api/cashflows/ledger` exposes scoped paginated balances. Verified with ledger service tests and server typecheck.
+- [x] Installment receipts and payment ledger: paid échéances now get yearly receipt numbers/PDF receipts, payment history entries, protected receipt uploads, and visible receipt links in web. Partial payments still split the remaining balance into a new échéance. Verified with document-number tests plus server/client typechecks.
+- [x] Role/API matrix tests: added route-level matrix coverage for 35 representative API contracts across all roles, including ERP, HR, pointage, treasury, map, audit, users, products, stock, receptions, and notifications. Verified with `accessMatrix` tests.
+- [x] Upload object authorization audit: every upload bucket now resolves to its owning object before serving, including product images, user avatars, treasury docs/receipts, installment receipts, OCR files, and network point documents. Verified with upload access tests.
+- [x] Report export system: dashboard and treasury reports now use direct Blob HTML downloads with safe filenames, no popup/redirect/print-window dependency. Verified with client typecheck and report-flow source scan.
+- [x] Dashboard drilldowns: role KPI cards now link directly into the relevant ERP module for CEO/admin, HR admin, commercial director, commercial, siege employee, franchise, and vendeur dashboards; reports export through direct downloads. Verified with client typecheck.
+- [x] Mobile production pass: SecureStore session auth, offline queue for pointage/location writes, idempotent client request IDs, visible sync queue, EAS APK profiles, and tracking reliability polish. Verified with mobile/server typechecks.
+- [x] Backup/restore playbook: restore-grade Mongo EJSON + uploads/PDF ZIP backups, optional offsite copy, verify/restore scripts, and staging restore test. Verified with `backup:verify` and restore into `asel_restore_test`.
 
 ## 0. Immediate UI/UX Hardening
 
@@ -59,8 +59,8 @@ Work these one by one. Each item should be implemented, tested, and then marked 
 
 - [x] Support partial installment payment by splitting the unpaid remainder into a new due installment.
 - [x] Default remainder due date is 4 days later when not explicitly selected.
-- [ ] Add payment receipt generation for each installment payment.
-- [ ] Add payment history per installment, not only split records.
+- [x] Add payment receipt generation for each installment payment.
+- [x] Add payment history per installment, not only split records.
 - [ ] Add renegotiation workflow: postpone, split, merge, waive fee, manager approval.
 - [ ] Add automatic late status scheduler.
 - [ ] Add reminders through WhatsApp/SMS templates at D-7, D-3, due day, overdue.
@@ -140,7 +140,7 @@ Work these one by one. Each item should be implemented, tested, and then marked 
 - [ ] Add request validation coverage for every route.
 - [ ] Add rate limit profiles by route sensitivity.
 - [ ] Add structured audit events for all money, stock, credit, and user actions.
-- [ ] Add backup and restore playbook.
+- [x] Add backup and restore playbook.
 - [ ] Add seed data only for development, never production.
 - [ ] Add environment validation for production secrets and CORS.
 
@@ -174,7 +174,7 @@ Work these one by one. Each item should be implemented, tested, and then marked 
 
 ## 10. Deployment
 
-- [ ] Production Docker compose with Mongo persistence, API, web, and backups.
+- [x] Production Docker compose with Mongo persistence, API, web, backups, and optional offsite backup mount.
 - [ ] TLS domain instead of temporary tunnel.
 - [ ] Health checks for API, database, frontend, and OCR provider.
 - [ ] Error monitoring and request logs.

@@ -10,10 +10,13 @@ type LocationTaskData = {
   locations?: Location.LocationObject[];
 };
 
-async function postLocation(location: Location.LocationObject, source: 'mobile_foreground' | 'mobile_background') {
+async function postLocation(location: Location.LocationObject, source: 'mobile_foreground' | 'mobile_background', ownerId?: string) {
   const integrity = await collectDeviceIntegrity(location);
   await apiFetch('/location-pings', {
     method: 'POST',
+    queueOnNetworkError: true,
+    queueOwnerId: ownerId,
+    queueTag: 'location-ping',
     body: JSON.stringify({
       source,
       timestamp: new Date(location.timestamp).toISOString(),
@@ -82,9 +85,9 @@ export async function stopBackgroundLocationReporting() {
   if (started) await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
 }
 
-export async function sendCurrentLocation(source: 'mobile_foreground' | 'mobile_background' = 'mobile_foreground') {
+export async function sendCurrentLocation(source: 'mobile_foreground' | 'mobile_background' = 'mobile_foreground', ownerId?: string) {
   const location = await getCurrentLocation();
-  await postLocation(location, source);
+  await postLocation(location, source, ownerId);
   return location;
 }
 

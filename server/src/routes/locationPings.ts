@@ -62,6 +62,7 @@ const createSchema = z.object({
   }),
   integrity: deviceIntegritySchema,
   timestamp: z.string().datetime().optional(),
+  clientRequestId: z.string().trim().min(8).max(80).optional(),
   source: z.enum(['mobile_foreground', 'mobile_background', 'manual']).default('mobile_foreground'),
   batteryPct: z.number().min(0).max(100).optional().nullable(),
 });
@@ -76,12 +77,23 @@ router.post(
     const user = req.user!;
     const zone = await resolveCommercialZone(user, input.gps);
     const integrityAssessment = assessLocationIntegrity(input.gps, input.integrity);
+    if (input.clientRequestId) {
+      const existing = await LocationPing.findOne({
+        userId: user.sub,
+        clientRequestId: input.clientRequestId,
+      });
+      if (existing) {
+        res.json({ ping: existing, duplicate: true });
+        return;
+      }
+    }
 
     const ping = await LocationPing.create({
       userId: user.sub,
       franchiseId: user.franchiseId ?? null,
       role: user.role,
       timestamp: input.timestamp ? new Date(input.timestamp) : new Date(),
+      clientRequestId: input.clientRequestId,
       source: input.source,
       gps: {
         lat: input.gps.lat,

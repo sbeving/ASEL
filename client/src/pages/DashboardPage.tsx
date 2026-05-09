@@ -17,7 +17,7 @@ import { PageHeader } from '../components/PageHeader';
 import { useAuth } from '../auth/AuthContext';
 import type { DashboardPayload, Franchise, Role, Sale } from '../lib/types';
 import clsx from 'clsx';
-import { openPrintableReport } from '../lib/report';
+import { downloadHtmlReport, safeReportFilename } from '../lib/report';
 
 function KpiCard({ 
   label, value, hint, icon: Icon, trend, index 
@@ -177,10 +177,9 @@ function generateDashboardReport(data: DashboardPayload, filters: DashboardFilte
     <table><thead><tr><th>Produit</th><th>Quantite</th><th>CA</th></tr></thead><tbody>${productRows || '<tr><td colspan="3">Aucune donnee</td></tr>'}</tbody></table>
     <h2>Alertes stock</h2>
     <table><thead><tr><th>Produit</th><th>Franchise</th><th>Stock</th><th>Seuil</th></tr></thead><tbody>${lowStockRows || '<tr><td colspan="4">Aucune alerte</td></tr>'}</tbody></table>
-    <script>window.addEventListener('load', () => window.print());</script>
   </body>
 </html>`;
-  return openPrintableReport(html);
+  return downloadHtmlReport(html, safeReportFilename('rapport-dashboard-asel'));
 }
 
 const quickLinks = [
@@ -268,15 +267,36 @@ const pointStatusLabel: Record<string, string> = {
   resilie: 'Resilies',
 };
 
-function RoleKpi({ label, value, icon: Icon, accent = '' }: { label: string; value: string; icon: any; accent?: string }) {
-  return (
-    <div className="card p-4">
+function RoleKpi({
+  label,
+  value,
+  icon: Icon,
+  accent = '',
+  to,
+}: {
+  label: string;
+  value: string;
+  icon: any;
+  accent?: string;
+  to?: string;
+}) {
+  const content = (
+    <>
       <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-surface-500">
         <Icon className="h-4 w-4" />
         {label}
+        {to && <ArrowUpRight className="ml-auto h-3.5 w-3.5 text-surface-400" />}
       </div>
       <div className={clsx('mt-2 text-2xl font-black tracking-tight text-surface-900', accent)}>{value}</div>
-    </div>
+    </>
+  );
+  const className = 'card p-4 transition-colors hover:border-brand-200 hover:bg-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2';
+  return to ? (
+    <Link to={to} className={className} aria-label={`Voir detail ${label}`}>
+      {content}
+    </Link>
+  ) : (
+    <div className="card p-4">{content}</div>
   );
 }
 
@@ -406,10 +426,7 @@ export function DashboardPage() {
   };
   const resetFilters = () => setFilters(defaultDashboardFilters());
   const handleGenerateReport = () => {
-    const opened = generateDashboardReport(data, filters, selectedFranchiseName);
-    if (!opened) {
-      window.alert('Le navigateur a bloque la fenetre du rapport. Autorisez les popups pour generer le rapport.');
-    }
+    generateDashboardReport(data, filters, selectedFranchiseName);
   };
   const showPaymentFilter = !['hr_admin', 'commercial', 'siege_employee', 'commercial_director'].includes(user?.role ?? '');
   const dashboardHeader = (title: string, subtitle: string) => (
@@ -522,12 +539,12 @@ export function DashboardPage() {
       <div className="mx-auto max-w-[1600px]">
         {dashboardHeader(title, `Vue groupe filtree ${displayedPeriod}: ventes, rentabilite, stock, tresorerie, commerciaux et zones`)}
         <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <RoleKpi icon={TrendingUp} label="CA mois" value={money(kpis.monthSalesTotal)} />
-          <RoleKpi icon={Wallet} label="Tresorerie nette" value={money(pilotage?.treasury.net ?? 0)} accent={(pilotage?.treasury.net ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'} />
-          <RoleKpi icon={PackageOpen} label="Valeur stock" value={money(pilotage?.stock.value ?? 0)} />
-          <RoleKpi icon={Boxes} label="Marge stock" value={money(pilotage?.stock.marginPotential ?? 0)} accent="text-emerald-700" />
-          <RoleKpi icon={MapPin} label="Zones mortes" value={String(pilotage?.deadZones.length ?? 0)} accent={(pilotage?.deadZones.length ?? 0) > 0 ? 'text-rose-700' : 'text-emerald-700'} />
-          <RoleKpi icon={Users} label="Commerciaux dormants" value={String(pilotage?.dormantCommercials.length ?? 0)} accent={(pilotage?.dormantCommercials.length ?? 0) > 0 ? 'text-amber-700' : 'text-emerald-700'} />
+          <RoleKpi icon={TrendingUp} label="CA mois" value={money(kpis.monthSalesTotal)} to="/sales" />
+          <RoleKpi icon={Wallet} label="Tresorerie nette" value={money(pilotage?.treasury.net ?? 0)} accent={(pilotage?.treasury.net ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'} to="/cashflows" />
+          <RoleKpi icon={PackageOpen} label="Valeur stock" value={money(pilotage?.stock.value ?? 0)} to="/stock" />
+          <RoleKpi icon={Boxes} label="Marge stock" value={money(pilotage?.stock.marginPotential ?? 0)} accent="text-emerald-700" to="/stock" />
+          <RoleKpi icon={MapPin} label="Zones mortes" value={String(pilotage?.deadZones.length ?? 0)} accent={(pilotage?.deadZones.length ?? 0) > 0 ? 'text-rose-700' : 'text-emerald-700'} to="/map" />
+          <RoleKpi icon={Users} label="Commerciaux dormants" value={String(pilotage?.dormantCommercials.length ?? 0)} accent={(pilotage?.dormantCommercials.length ?? 0) > 0 ? 'text-amber-700' : 'text-emerald-700'} to="/timelogs?scope=team" />
         </section>
 
         <section className="mb-5 grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(360px,0.8fr)]">
@@ -597,10 +614,10 @@ export function DashboardPage() {
       <div className="mx-auto max-w-7xl">
         {dashboardHeader('Dashboard RH', `Pointage, presence et demandes conge sur ${displayedPeriod}`)}
         <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <RoleKpi icon={Users} label="Employes" value={String(stats?.employeeCount ?? 0)} />
-          <RoleKpi icon={UserCheck} label="En travail" value={String(stats?.atWorkCount ?? 0)} accent="text-emerald-700" />
-          <RoleKpi icon={Clock} label="Heures semaine" value={`${stats?.weekHours ?? 0}h`} />
-          <RoleKpi icon={CalendarClock} label="Conges attente" value={String(stats?.pendingLeaveRequests ?? 0)} accent="text-amber-700" />
+          <RoleKpi icon={Users} label="Employes" value={String(stats?.employeeCount ?? 0)} to="/hr" />
+          <RoleKpi icon={UserCheck} label="En travail" value={String(stats?.atWorkCount ?? 0)} accent="text-emerald-700" to="/timelogs?scope=team" />
+          <RoleKpi icon={Clock} label="Heures semaine" value={`${stats?.weekHours ?? 0}h`} to="/timelogs?scope=team" />
+          <RoleKpi icon={CalendarClock} label="Conges attente" value={String(stats?.pendingLeaveRequests ?? 0)} accent="text-amber-700" to="/hr" />
         </section>
         <section className="grid gap-3 md:grid-cols-3">
           <RoleAction to="/hr" label="Module RH" description="Timesheets, pointage equipe et conges." icon={Users} />
@@ -641,12 +658,12 @@ export function DashboardPage() {
       <div className="mx-auto max-w-[1600px]">
         {dashboardHeader('Direction commerciale', `Zones, commerciaux et tracabilite terrain sur ${displayedPeriod}`)}
         <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <RoleKpi icon={Users} label="Commerciaux" value={String(stats?.commercialCount ?? 0)} />
-          <RoleKpi icon={UserCheck} label="Actifs semaine" value={String(stats?.activeCommercialsThisWeek ?? 0)} accent="text-emerald-700" />
-          <RoleKpi icon={MapPin} label="Zones" value={String(stats?.zonesCount ?? 0)} />
-          <RoleKpi icon={MapPin} label="Zones non liees" value={String(stats?.unassignedZones ?? 0)} accent={(stats?.unassignedZones ?? 0) > 0 ? 'text-rose-700' : 'text-emerald-700'} />
-          <RoleKpi icon={NetworkIcon} label="Points reseau" value={String(stats?.networkPoints ?? 0)} />
-          <RoleKpi icon={Clock} label="Hors zone" value={String(stats?.outOfZonePings ?? 0)} accent={(stats?.outOfZonePings ?? 0) > 0 ? 'text-rose-700' : 'text-emerald-700'} />
+          <RoleKpi icon={Users} label="Commerciaux" value={String(stats?.commercialCount ?? 0)} to="/users" />
+          <RoleKpi icon={UserCheck} label="Actifs semaine" value={String(stats?.activeCommercialsThisWeek ?? 0)} accent="text-emerald-700" to="/timelogs?scope=team" />
+          <RoleKpi icon={MapPin} label="Zones" value={String(stats?.zonesCount ?? 0)} to="/map" />
+          <RoleKpi icon={MapPin} label="Zones non liees" value={String(stats?.unassignedZones ?? 0)} accent={(stats?.unassignedZones ?? 0) > 0 ? 'text-rose-700' : 'text-emerald-700'} to="/map" />
+          <RoleKpi icon={NetworkIcon} label="Points reseau" value={String(stats?.networkPoints ?? 0)} to="/network-points" />
+          <RoleKpi icon={Clock} label="Hors zone" value={String(stats?.outOfZonePings ?? 0)} accent={(stats?.outOfZonePings ?? 0) > 0 ? 'text-rose-700' : 'text-emerald-700'} to="/timelogs?scope=team" />
         </section>
         <section className="mb-5 grid gap-3 md:grid-cols-3">
           <RoleAction to="/map" label="Carte commerciale" description="Zones, points et maintenance des affectations." icon={MapPin} />
@@ -691,9 +708,9 @@ export function DashboardPage() {
       <div className="mx-auto max-w-7xl">
         {dashboardHeader('Dashboard commercial', 'Carte, zones et points activation/recharge')}
         <section className="mb-5 grid gap-3 sm:grid-cols-3">
-          <RoleKpi icon={MapPin} label="Points reseau" value={String(stats?.networkPoints ?? 0)} />
-          <RoleKpi icon={MapPin} label="Points GPS" value={String(stats?.pointsWithGps ?? 0)} accent="text-emerald-700" />
-          <RoleKpi icon={ClipboardList} label="Zones assignees" value={String(stats?.zones ?? 0)} />
+          <RoleKpi icon={MapPin} label="Points reseau" value={String(stats?.networkPoints ?? 0)} to="/network-points" />
+          <RoleKpi icon={MapPin} label="Points GPS" value={String(stats?.pointsWithGps ?? 0)} accent="text-emerald-700" to="/map" />
+          <RoleKpi icon={ClipboardList} label="Zones assignees" value={String(stats?.zones ?? 0)} to="/map" />
         </section>
         <section className="grid gap-3 md:grid-cols-3">
           <RoleAction to="/map" label="Ma carte" description="Voir zones et points de recharge/activation." icon={MapPin} />
@@ -710,10 +727,10 @@ export function DashboardPage() {
       <div className="mx-auto max-w-7xl">
         {dashboardHeader('Mon dashboard siege', 'Pointage, heures travaillees et demandes conge')}
         <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <RoleKpi icon={Clock} label="Heures semaine" value={formatHours(stats?.workedMinutesThisWeek ?? 0)} />
-          <RoleKpi icon={UserCheck} label="Shift actif" value={stats?.activeShift ? 'Oui' : 'Non'} accent={stats?.activeShift ? 'text-emerald-700' : ''} />
-          <RoleKpi icon={CalendarClock} label="Conges attente" value={String(stats?.pendingLeaveRequests ?? 0)} />
-          <RoleKpi icon={MapPin} label="Site pointage" value={stats?.siteName ?? 'Siege'} />
+          <RoleKpi icon={Clock} label="Heures semaine" value={formatHours(stats?.workedMinutesThisWeek ?? 0)} to="/timelogs" />
+          <RoleKpi icon={UserCheck} label="Shift actif" value={stats?.activeShift ? 'Oui' : 'Non'} accent={stats?.activeShift ? 'text-emerald-700' : ''} to="/timelogs?verify=1" />
+          <RoleKpi icon={CalendarClock} label="Conges attente" value={String(stats?.pendingLeaveRequests ?? 0)} to="/timelogs" />
+          <RoleKpi icon={MapPin} label="Site pointage" value={stats?.siteName ?? 'Siege'} to="/timelogs" />
         </section>
         <section className="mb-5 grid gap-3 md:grid-cols-2">
           <RoleAction to="/timelogs" label="Pointage" description="Verifier GPS, pointer entree/sortie/pauses." icon={Clock} />
@@ -743,12 +760,12 @@ export function DashboardPage() {
       <div className="mx-auto max-w-[1600px]">
         {dashboardHeader('Dashboard franchise', `Stock, marge potentielle, caisse et ventes sur ${displayedPeriod}`)}
         <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <RoleKpi icon={TrendingUp} label="CA periode" value={money(stats?.ca ?? 0)} />
-          <RoleKpi icon={Receipt} label="Ventes" value={String(stats?.salesCount ?? 0)} />
-          <RoleKpi icon={PackageOpen} label="Cout stock" value={money(stats?.stockCost ?? 0)} />
-          <RoleKpi icon={Boxes} label="Profit potentiel" value={money(stats?.stockMarginPotential ?? 0)} accent="text-emerald-700" />
-          <RoleKpi icon={Wallet} label="Tresorerie nette" value={money(stats?.treasury.net ?? 0)} accent={(stats?.treasury.net ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'} />
-          <RoleKpi icon={PackageOpen} label="Alertes stock" value={String(stats?.lowStockCount ?? 0)} accent={(stats?.lowStockCount ?? 0) > 0 ? 'text-rose-700' : 'text-emerald-700'} />
+          <RoleKpi icon={TrendingUp} label="CA periode" value={money(stats?.ca ?? 0)} to="/sales" />
+          <RoleKpi icon={Receipt} label="Ventes" value={String(stats?.salesCount ?? 0)} to="/sales" />
+          <RoleKpi icon={PackageOpen} label="Cout stock" value={money(stats?.stockCost ?? 0)} to="/stock" />
+          <RoleKpi icon={Boxes} label="Profit potentiel" value={money(stats?.stockMarginPotential ?? 0)} accent="text-emerald-700" to="/stock" />
+          <RoleKpi icon={Wallet} label="Tresorerie nette" value={money(stats?.treasury.net ?? 0)} accent={(stats?.treasury.net ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'} to="/cashflows" />
+          <RoleKpi icon={PackageOpen} label="Alertes stock" value={String(stats?.lowStockCount ?? 0)} accent={(stats?.lowStockCount ?? 0) > 0 ? 'text-rose-700' : 'text-emerald-700'} to="/stock?lowOnly=true" />
         </section>
         <section className="mb-5 grid gap-3 md:grid-cols-4">
           <RoleAction to="/stock" label="Stock" description="Quantites, cout et mouvements." icon={Boxes} />
@@ -807,10 +824,10 @@ export function DashboardPage() {
       <div className="mx-auto max-w-7xl">
         {dashboardHeader('Mon dashboard vendeur', `Vos ventes et actions de caisse sur ${displayedPeriod}`)}
         <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <RoleKpi icon={Wallet} label="CA aujourd'hui" value={money(stats?.todaySalesTotal ?? 0)} />
-          <RoleKpi icon={Receipt} label="Ventes aujourd'hui" value={String(stats?.todaySalesCount ?? 0)} />
-          <RoleKpi icon={TrendingUp} label="CA mois" value={money(stats?.monthSalesTotal ?? 0)} />
-          <RoleKpi icon={ShoppingCart} label="Ticket moyen" value={money(stats?.averageTicket ?? 0)} />
+          <RoleKpi icon={Wallet} label="CA aujourd'hui" value={money(stats?.todaySalesTotal ?? 0)} to="/sales" />
+          <RoleKpi icon={Receipt} label="Ventes aujourd'hui" value={String(stats?.todaySalesCount ?? 0)} to="/sales" />
+          <RoleKpi icon={TrendingUp} label="CA mois" value={money(stats?.monthSalesTotal ?? 0)} to="/sales" />
+          <RoleKpi icon={ShoppingCart} label="Ticket moyen" value={money(stats?.averageTicket ?? 0)} to="/pos" />
         </section>
         <section className="mb-5 grid gap-3 md:grid-cols-3">
           <RoleAction to="/pos" label="Caisse" description="Scanner, vendre et encaisser." icon={ShoppingCart} />

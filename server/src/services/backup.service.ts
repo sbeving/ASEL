@@ -6,35 +6,7 @@ import { env } from '../config/env.js';
 import { uploadRoot } from '../config/uploads.js';
 import { auditSystem } from './audit.service.js';
 import { logger } from '../utils/logger.js';
-
-const COLLECTIONS = [
-  'franchises',
-  'users',
-  'categories',
-  'suppliers',
-  'products',
-  'stocks',
-  'movements',
-  'sales',
-  'installments',
-  'clients',
-  'cashflows',
-  'closings',
-  'returns',
-  'transfers',
-  'demands',
-  'receptions',
-  'monthly_inventories',
-  'services',
-  'prestations',
-  'network_points',
-  'network_point_allocations',
-  'commercial_zones',
-  'location_pings',
-  'leave_requests',
-] as const;
-
-const AUDIT_LOG_RETENTION_DAYS = 90;
+import { BACKUP_COLLECTIONS } from '../utils/backupCollections.js';
 
 interface ZipEntry {
   name: string;
@@ -53,6 +25,13 @@ let backupRunning = false;
 
 function backupDirectory(): string {
   return path.isAbsolute(env.BACKUP_DIR) ? env.BACKUP_DIR : path.resolve(process.cwd(), env.BACKUP_DIR);
+}
+
+function offsiteBackupDirectory(): string | null {
+  if (!env.BACKUP_OFFSITE_DIR) return null;
+  return path.isAbsolute(env.BACKUP_OFFSITE_DIR)
+    ? env.BACKUP_OFFSITE_DIR
+    : path.resolve(process.cwd(), env.BACKUP_OFFSITE_DIR);
 }
 
 function dateStamp(date = new Date()): string {
@@ -150,11 +129,6 @@ async function collectionDocuments(collectionName: string, now: Date) {
   const db = mongoose.connection.db;
   if (!db) throw new Error('MongoDB connection is not ready');
 
-  if (collectionName === 'audit_logs') {
-    const since = new Date(now.getTime() - AUDIT_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-    return db.collection(collectionName).find({ createdAt: { $gte: since } }).sort({ createdAt: 1 }).toArray();
-  }
-
   return db.collection(collectionName).find({}).toArray();
 }
 
@@ -183,6 +157,16 @@ async function collectUploadEntries(root: string, now: Date, base = root): Promi
   }
 }
 
+async function copyToOffsite(filePath: string, filename: string) {
+  const offsiteDir = offsiteBackupDirectory();
+  if (!offsiteDir) return null;
+  await fs.mkdir(offsiteDir, { recursive: true });
+  const destination = path.join(offsiteDir, filename);
+  await fs.copyFile(filePath, destination);
+  await fs.chmod(destination, 0o600).catch(() => undefined);
+  return destination;
+}
+
 export async function createOperationalBackup(now = new Date()) {
   if (backupRunning) return { skipped: true, reason: 'already_running' as const };
   backupRunning = true;
@@ -195,9 +179,10 @@ export async function createOperationalBackup(now = new Date()) {
       app: 'ASEL',
       createdAt: now.toISOString(),
       database: mongoose.connection.db?.databaseName ?? 'unknown',
-      collections: [...COLLECTIONS, 'audit_logs'],
-      includes: ['database', 'uploads'],
+      collections: [...BACKUP_COLLECTIONS, 'audit_logs'],
+      includes: ['database', 'uploads', ...(env.BACKUP_OFFSITE_DIR ? ['offsite-copy'] : [])],
       uploadFiles: 0,
+      format: 'mongo-ejson-v1',
       retention: {
         days: env.BACKUP_RETENTION_DAYS,
         maxFiles: env.BACKUP_MAX_FILES,
@@ -216,11 +201,11 @@ export async function createOperationalBackup(now = new Date()) {
       },
     ];
 
-    for (const collection of [...COLLECTIONS, 'audit_logs']) {
+    for (const collection of [...BACKUP_COLLECTIONS, 'audit_logs']) {
       const docs = await collectionDocuments(collection, now);
       entries.push({
         name: `collections/${collection}.json`,
-        data: Buffer.from(JSON.stringify(docs, null, 2)),
+        data: Buffer.from(mongoose.mongo.BSON.EJSON.stringify(docs, undefined, 2, { relaxed: false })),
         mtime: now,
       });
     }
@@ -231,6 +216,7 @@ export async function createOperationalBackup(now = new Date()) {
     const filePath = path.join(dir, filename);
     const archive = zip(entries);
     await fs.writeFile(filePath, archive, { mode: 0o600 });
+    const offsitePath = await copyToOffsite(filePath, filename);
 
     await cleanupBackups(dir);
 
@@ -238,13 +224,14 @@ export async function createOperationalBackup(now = new Date()) {
       action: 'backup.create',
       entity: 'Backup',
       entityId: filename,
-      details: { filename, sizeBytes: archive.length, collections: metadata.collections },
+      details: { filename, sizeBytes: archive.length, collections: metadata.collections, offsitePath },
     });
 
     return {
       skipped: false as const,
       filename,
       path: filePath,
+      offsitePath,
       sizeBytes: archive.length,
       collections: metadata.collections.length,
     };

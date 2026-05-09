@@ -12,6 +12,7 @@ type UploadBucket =
   | 'user-avatars'
   | 'treasury-docs'
   | 'treasury-receipts'
+  | 'installment-receipts'
   | 'reception-ocr'
   | 'network-point-docs';
 

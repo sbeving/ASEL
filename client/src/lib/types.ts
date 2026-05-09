@@ -509,6 +509,19 @@ export interface Installment {
   paidAtUpdatedBy?: User | string | null;
   paidAtUpdatedAt?: string | null;
   paymentMethod?: string | null;
+  paymentHistory?: Array<{
+    amount: number;
+    paidAt: string;
+    paymentMethod?: string | null;
+    receiptNumber?: string | null;
+    receiptPath?: string | null;
+    note?: string;
+    userId?: User | string;
+    createdAt: string;
+  }>;
+  receiptNumber?: string | null;
+  receiptPath?: string | null;
+  receiptCreatedAt?: string | null;
   note?: string;
   splitFromInstallmentId?: string | null;
   userId?: User | string;

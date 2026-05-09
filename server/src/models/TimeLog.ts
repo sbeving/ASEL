@@ -5,6 +5,7 @@ const schema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   type: { type: String, enum: ['entree', 'sortie', 'pause_debut', 'pause_fin', 'verif'], required: true },
   timestamp: { type: Date, default: Date.now },
+  clientRequestId: { type: String, trim: true, maxlength: 80 },
   source: { type: String, enum: ['manual', 'auto_login'], default: 'manual' },
   localDate: { type: String, trim: true, maxlength: 10, default: null },
   gps: {
@@ -37,5 +38,9 @@ const schema = new mongoose.Schema({
 schema.index({ userId: 1, franchiseId: 1, type: 1, timestamp: -1 });
 schema.index({ userId: 1, localDate: 1, type: 1 });
 schema.index({ 'integrity.blocked': 1, timestamp: -1 });
+schema.index(
+  { userId: 1, clientRequestId: 1 },
+  { unique: true, partialFilterExpression: { clientRequestId: { $type: 'string' } } },
+);
 
 export const TimeLog = mongoose.model('TimeLog', schema);

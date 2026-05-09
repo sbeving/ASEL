@@ -79,10 +79,24 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 
 ## Backup notes
 
-Mongo data is stored in the `mongo-data` volume.
-Uploads are stored in the `uploads-data` volume.
+The API creates daily restore-grade ZIP backups when `BACKUP_ENABLED=true`.
+Backups include Mongo Extended JSON collections plus uploaded files/PDFs.
 
-At minimum, back up both volumes regularly.
+Recommended env:
+
+```bash
+BACKUP_DIR=/app/backups
+BACKUP_OFFSITE_DIR=/app/offsite-backups
+BACKUP_OFFSITE_HOST_DIR=/srv/asel-offsite-backups
+```
+
+Verify an archive:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml exec server npm run backup:verify -- /app/backups/asel-backup-YYYY-MM-DDTHH-MM-SS-ZZZZ.zip
+```
+
+See `docs/BACKUP_RESTORE.md` for restore testing and offsite sync guidance.
 
 ## Production recommendations
 
@@ -90,4 +104,4 @@ At minimum, back up both volumes regularly.
 2. Rotate seeded passwords immediately after bootstrap
 3. Restrict SSH to key-based access only
 4. Enable automatic security updates on the VPS
-5. Add offsite backups for Mongo and uploads
+5. Configure encrypted offsite sync for `/srv/asel-offsite-backups`

@@ -19,7 +19,16 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import MapView, { Circle as MapCircle, Marker, Polygon } from 'react-native-maps';
-import { apiFetch, loadMe, login, logout } from './src/api';
+import {
+  apiFetch,
+  flushQueuedApiRequests,
+  getQueuedApiRequestCount,
+  isOfflineQueuedError,
+  isSessionExpiredError,
+  loadMe,
+  login,
+  logout,
+} from './src/api';
 import {
   locationIntervalMs,
   sendCurrentLocation,
@@ -462,6 +471,7 @@ export default function App() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [queuedCount, setQueuedCount] = useState(0);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequestRow[]>([]);
   const [timeLogs, setTimeLogs] = useState<PointageLog[]>([]);
   const [workedMinutes, setWorkedMinutes] = useState(0);
@@ -650,6 +660,7 @@ export default function App() {
           { label: 'Activation', value: String(points.filter((point) => point.type === 'activation' || point.type === 'activation_recharge').length) },
           { label: 'Recharge', value: String(points.filter((point) => point.type === 'recharge' || point.type === 'activation_recharge').length) },
           { label: 'Points sans GPS', value: String(Math.max(0, commercialPipeline.total - commercialPipeline.mapped)) },
+          { label: 'Actions hors ligne', value: String(queuedCount) },
           { label: 'Conges en attente', value: String(leaveRequests.filter((item) => item.status === 'pending').length) },
         ],
         activity: nearestPoints.map((point) => ({
@@ -678,6 +689,7 @@ export default function App() {
         highlights: [
           { label: 'Derniere synchro', value: formatDateTime(lastSyncedAt) },
           { label: 'Mon GPS', value: lastGps?.accuracy != null ? `${lastGps.accuracy} m` : 'A verifier' },
+          { label: 'Actions hors ligne', value: String(queuedCount) },
           { label: 'Notifications', value: String(unreadCount) },
         ],
         rows: (hrStats?.byRole ?? []).map((row) => ({ label: statusLabel(row.role), value: String(row.count) })),
@@ -706,6 +718,7 @@ export default function App() {
       highlights: [
         { label: 'Dernier pointage', value: employeeStats?.lastType ? `${pointageLabels[employeeStats.lastType]} · ${formatDateTime(employeeStats.lastTimestamp)}` : 'Aucun' },
         { label: 'Derniere synchro', value: formatDateTime(lastSyncedAt) },
+        { label: 'Actions hors ligne', value: String(queuedCount) },
         { label: 'Notifications', value: String(unreadCount) },
       ],
       rows: leaveRequests.slice(0, 4).map((item) => ({ label: `${item.fromDate} au ${item.toDate}`, value: statusLabel(item.status) })),
@@ -731,6 +744,7 @@ export default function App() {
     nearestPoints,
     pausedShift,
     points,
+    queuedCount,
     timeLogs,
     todayLogCount,
     unreadCount,
@@ -738,6 +752,35 @@ export default function App() {
     workedMinutes,
     zones,
   ]);
+
+  function handleApiError(error: unknown, fallback: string) {
+    if (isSessionExpiredError(error)) {
+      stopBackgroundLocationReporting().catch(() => undefined);
+      setUser(null);
+      setPassword('');
+      setMessage(error instanceof Error ? error.message : 'Session expiree. Connectez-vous a nouveau.');
+      return;
+    }
+    setMessage(error instanceof Error ? error.message : fallback);
+  }
+
+  async function refreshQueueCount() {
+    setQueuedCount(await getQueuedApiRequestCount(user?.id));
+  }
+
+  async function syncQueuedActions(showToast = false) {
+    try {
+      const result = await flushQueuedApiRequests(user?.id);
+      setQueuedCount(result.remaining);
+      if (showToast && result.sent > 0) {
+        setMessage(`${result.sent} action${result.sent > 1 ? 's' : ''} hors ligne synchronisee${result.sent > 1 ? 's' : ''}.`);
+      }
+      return result;
+    } catch (error) {
+      handleApiError(error, 'Synchronisation indisponible.');
+      return null;
+    }
+  }
 
   async function refreshWorkedHours() {
     const data = await apiFetch<{ logs: PointageLog[] }>(`/timelogs?scope=self&month=${monthKey()}&pageSize=500`);
@@ -778,7 +821,8 @@ export default function App() {
     setProducts(data.products ?? []);
   }
 
-  async function refreshMobileData() {
+  async function refreshMobileData(showSyncToast = false) {
+    await syncQueuedActions(showSyncToast);
     await Promise.all([
       refreshDashboard().catch(() => undefined),
       refreshWorkedHours().catch(() => undefined),
@@ -787,13 +831,14 @@ export default function App() {
       refreshNetwork().catch(() => undefined),
       refreshProducts().catch(() => undefined),
     ]);
+    await refreshQueueCount().catch(() => undefined);
     setLastSyncedAt(new Date().toISOString());
   }
 
   async function pullToRefresh() {
     setRefreshing(true);
     try {
-      await refreshMobileData();
+      await refreshMobileData(true);
       if (selectedPointId) await refreshPointOverview(selectedPointId).catch(() => undefined);
     } finally {
       setRefreshing(false);
@@ -823,7 +868,7 @@ export default function App() {
   }
 
   async function captureGps(postPing: boolean) {
-    const location = postPing ? await sendCurrentLocation('mobile_foreground') : await getForegroundLocation();
+    const location = postPing ? await sendCurrentLocation('mobile_foreground', user?.id) : await getForegroundLocation();
     const nextIntegrity = await collectDeviceIntegrity(location);
     setLastGps(gpsFromLocation(location));
     setIntegrity(nextIntegrity);
@@ -847,6 +892,7 @@ export default function App() {
       return;
     }
     await captureGps(true);
+    await refreshQueueCount().catch(() => undefined);
   }
 
   async function verifyGps() {
@@ -872,6 +918,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!user) {
+      setQueuedCount(0);
+      return;
+    }
+    refreshQueueCount().catch(() => undefined);
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!user || !allowed) return undefined;
     captureGps(false).catch((error) => setMessage(error instanceof Error ? error.message : 'Erreur GPS'));
     refreshMobileData().catch(() => undefined);
@@ -886,11 +940,12 @@ export default function App() {
     }
     enableCommercialTracking().catch((error) => setMessage(error instanceof Error ? error.message : 'Erreur GPS'));
     const timer = setInterval(() => {
-      sendCurrentLocation('mobile_foreground')
+      sendCurrentLocation('mobile_foreground', user?.id)
         .then(async (location) => {
           setLastGps(gpsFromLocation(location));
           setIntegrity(await collectDeviceIntegrity(location));
           setLocationConfirmed(false);
+          await refreshQueueCount().catch(() => undefined);
         })
         .catch(() => undefined);
     }, locationIntervalMs());
@@ -904,8 +959,9 @@ export default function App() {
       const nextUser = await login(username.trim(), password);
       setUser(nextUser);
       setScreen(nextUser.role === 'commercial' ? 'map' : 'dashboard');
+      await getQueuedApiRequestCount(nextUser.id).then(setQueuedCount).catch(() => undefined);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Connexion impossible');
+      handleApiError(error, 'Connexion impossible');
     } finally {
       setBusy(false);
     }
@@ -914,15 +970,21 @@ export default function App() {
   async function punch(type: TimeLogType) {
     setBusy(true);
     setMessage('');
+    const submittedAt = new Date().toISOString();
+    const submittedNote = note;
     try {
       if (!lastGps) throw new Error('Verifiez votre position GPS avant le pointage.');
       if (!locationConfirmed) throw new Error('Confirmez la position affichee avant le pointage.');
       assertLocationSafe();
       await apiFetch('/timelogs', {
         method: 'POST',
+        queueOnNetworkError: true,
+        queueOwnerId: user?.id,
+        queueTag: 'pointage',
         body: JSON.stringify({
           type,
-          note: note || undefined,
+          timestamp: submittedAt,
+          note: submittedNote || undefined,
           gps: {
             lat: lastGps.lat,
             lng: lastGps.lng,
@@ -938,14 +1000,33 @@ export default function App() {
       await refreshDashboard().catch(() => undefined);
       if (isCommercial && type === 'entree') {
         await startBackgroundLocationReporting().catch(() => undefined);
-        await sendCurrentLocation('mobile_foreground').catch(() => undefined);
+        await sendCurrentLocation('mobile_foreground', user?.id).catch(() => undefined);
       }
       if (isCommercial && type === 'sortie') {
         await stopBackgroundLocationReporting().catch(() => undefined);
       }
       setMessage(`Pointage enregistre: ${pointageLabels[type]}`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Pointage impossible');
+      if (isOfflineQueuedError(error)) {
+        const localLogs = [...timeLogs, { type, timestamp: submittedAt, note: submittedNote || undefined }];
+        const state = computeWorkState(localLogs);
+        setTimeLogs(localLogs);
+        setWorkedMinutes(state.workedMinutes);
+        setActiveShift(state.activeShift);
+        setPausedShift(state.paused);
+        setNote('');
+        setLocationConfirmed(false);
+        if (isCommercial && type === 'entree') {
+          await startBackgroundLocationReporting().catch(() => undefined);
+        }
+        if (isCommercial && type === 'sortie') {
+          await stopBackgroundLocationReporting().catch(() => undefined);
+        }
+        await refreshQueueCount().catch(() => undefined);
+        setMessage(error instanceof Error ? error.message : 'Pointage garde hors ligne.');
+      } else {
+        handleApiError(error, 'Pointage impossible');
+      }
     } finally {
       setBusy(false);
     }
@@ -968,7 +1049,7 @@ export default function App() {
       await Promise.all([refreshLeaveHistory(), refreshDashboard(), refreshNotifications()].map((task) => task.catch(() => undefined)));
       setMessage('Demande conge envoyee.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Demande impossible');
+      handleApiError(error, 'Demande impossible');
     } finally {
       setBusy(false);
     }
@@ -983,7 +1064,7 @@ export default function App() {
       setLastSyncedAt(new Date().toISOString());
       setMessage('Notifications marquees comme lues.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Notifications indisponibles');
+      handleApiError(error, 'Notifications indisponibles');
     } finally {
       setBusy(false);
     }
@@ -1112,7 +1193,7 @@ export default function App() {
       await selectPoint(created.point._id, 'points');
       setMessage('Point reseau ajoute avec fiche signee.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Creation impossible');
+      handleApiError(error, 'Creation impossible');
     } finally {
       setBusy(false);
     }
@@ -1150,7 +1231,7 @@ export default function App() {
       await refreshPointOverview(selectedPoint._id);
       setMessage('Dotation enregistree.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Dotation impossible');
+      handleApiError(error, 'Dotation impossible');
     } finally {
       setBusy(false);
     }
@@ -1243,6 +1324,14 @@ export default function App() {
         <Pressable style={styles.statusChipButton} disabled={refreshing || busy} onPress={pullToRefresh}>
           <Text style={styles.statusChipLabel}>Sync</Text>
           <Text style={styles.statusChipValue}>{refreshing ? '...' : syncLabel}</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.statusChipButton, queuedCount > 0 && styles.statusChipAmber]}
+          disabled={refreshing || busy || queuedCount === 0}
+          onPress={() => syncQueuedActions(true)}
+        >
+          <Text style={styles.statusChipLabel}>File</Text>
+          <Text style={styles.statusChipValue}>{queuedCount > 0 ? `${queuedCount} attente` : 'Vide'}</Text>
         </Pressable>
       </View>
 
@@ -2394,6 +2483,10 @@ const styles = StyleSheet.create({
   statusChipSlate: {
     borderColor: '#cbd5e1',
     backgroundColor: '#f8fafc',
+  },
+  statusChipAmber: {
+    borderColor: '#fbbf24',
+    backgroundColor: '#fffbeb',
   },
   statusChipLabel: {
     color: '#64748b',

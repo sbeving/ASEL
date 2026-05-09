@@ -8,6 +8,9 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { uploadRoot } from '../config/uploads.js';
 import { notFound, forbidden } from '../utils/AppError.js';
 import { CashFlow } from '../models/CashFlow.js';
+import { Installment } from '../models/Installment.js';
+import { Product } from '../models/Product.js';
+import { User } from '../models/User.js';
 import { CommercialZone } from '../models/CommercialZone.js';
 import { NetworkPoint } from '../models/NetworkPoint.js';
 import { Reception } from '../models/Reception.js';
@@ -17,7 +20,7 @@ import { isGlobalRole } from '../utils/roles.js';
 const router = Router();
 
 const paramsSchema = z.object({
-  bucket: z.enum(['product-images', 'user-avatars', 'treasury-docs', 'treasury-receipts', 'reception-ocr', 'network-point-docs']),
+  bucket: z.enum(['product-images', 'user-avatars', 'treasury-docs', 'treasury-receipts', 'installment-receipts', 'reception-ocr', 'network-point-docs']),
   filename: z.string().min(1).max(220).regex(/^[a-zA-Z0-9._-]+$/),
 });
 
@@ -41,6 +44,21 @@ async function assertSensitiveUploadAccess(req: Express.Request, bucket: string,
   const user = req.user;
   if (!user) throw forbidden();
 
+  if (bucket === 'product-images') {
+    if (!hasPermission(req, 'products.view')) throw forbidden();
+    const product = await Product.findOne({ imagePath: uploadPath }).select('_id active').lean();
+    if (!product) throw notFound('File not found');
+    return;
+  }
+
+  if (bucket === 'user-avatars') {
+    const owner = await User.findOne({ avatarPath: uploadPath }).select('_id franchiseId').lean();
+    if (!owner) throw notFound('File not found');
+    if (owner._id.toString() === user.sub) return;
+    if (hasPermission(req, 'users.manage')) return;
+    throw forbidden();
+  }
+
   if (bucket === 'treasury-docs' || bucket === 'treasury-receipts') {
     if (!hasPermission(req, 'cashflows.view')) throw forbidden();
     const pathField = bucket === 'treasury-docs' ? 'attachmentPath' : 'receiptPath';
@@ -50,6 +68,15 @@ async function assertSensitiveUploadAccess(req: Express.Request, bucket: string,
     if (!flow) throw notFound('File not found');
     if (isGlobalRole(user.role)) return;
     if (!flow.isCentralCashbox && user.franchiseId && flow.franchiseId?.toString() === user.franchiseId) return;
+    throw forbidden();
+  }
+
+  if (bucket === 'installment-receipts') {
+    if (!hasPermission(req, 'installments.view')) throw forbidden();
+    const installment = await Installment.findOne({ receiptPath: uploadPath }).select('franchiseId').lean();
+    if (!installment) throw notFound('File not found');
+    if (isGlobalRole(user.role)) return;
+    if (user.franchiseId && installment.franchiseId?.toString() === user.franchiseId) return;
     throw forbidden();
   }
 

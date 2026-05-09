@@ -7,6 +7,7 @@ const locationPingSchema = new Schema(
     franchiseId: { type: Schema.Types.ObjectId, ref: 'Franchise', default: null, index: true },
     role: { type: String, enum: ROLES, required: true, index: true },
     timestamp: { type: Date, default: Date.now, index: true },
+    clientRequestId: { type: String, trim: true, maxlength: 80 },
     source: {
       type: String,
       enum: ['mobile_foreground', 'mobile_background', 'manual'],
@@ -49,6 +50,10 @@ locationPingSchema.index({ userId: 1, timestamp: -1 });
 locationPingSchema.index({ franchiseId: 1, timestamp: -1 });
 locationPingSchema.index({ role: 1, inZone: 1, timestamp: -1 });
 locationPingSchema.index({ 'integrity.blocked': 1, timestamp: -1 });
+locationPingSchema.index(
+  { userId: 1, clientRequestId: 1 },
+  { unique: true, partialFilterExpression: { clientRequestId: { $type: 'string' } } },
+);
 
 export type LocationPingDoc = InferSchemaType<typeof locationPingSchema>;
 export const LocationPing = model('LocationPing', locationPingSchema);

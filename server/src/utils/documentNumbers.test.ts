@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { cashFlowReceiptSequenceKey, formatCashFlowReceiptNumber } from './documentNumbers.js';
+import {
+  cashFlowReceiptSequenceKey,
+  formatCashFlowReceiptNumber,
+  formatInstallmentReceiptNumber,
+  installmentReceiptSequenceKey,
+} from './documentNumbers.js';
 
 describe('document numbers', () => {
   it('formats cashflow receipt numbers by year and padded sequence', () => {
@@ -13,5 +18,16 @@ describe('document numbers', () => {
   it('uses a yearly sequence key for cashflow receipts', () => {
     expect(cashFlowReceiptSequenceKey(new Date(2026, 0, 1, 12))).toBe('cashflow-receipt:2026');
     expect(cashFlowReceiptSequenceKey(new Date(2027, 11, 31, 12))).toBe('cashflow-receipt:2027');
+  });
+
+  it('formats installment receipt numbers by year and padded sequence', () => {
+    const date = new Date('2026-05-09T10:00:00.000Z');
+
+    expect(formatInstallmentReceiptNumber(date, 1)).toBe('ECH-2026-000001');
+    expect(formatInstallmentReceiptNumber(date, 42)).toBe('ECH-2026-000042');
+  });
+
+  it('uses a yearly sequence key for installment receipts', () => {
+    expect(installmentReceiptSequenceKey(new Date(2026, 0, 1, 12))).toBe('installment-receipt:2026');
   });
 });

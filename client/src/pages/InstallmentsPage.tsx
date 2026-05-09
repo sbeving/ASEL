@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { api, apiError } from '../lib/api';
+import { api, apiError, uploadUrl } from '../lib/api';
 import { PageHeader } from '../components/PageHeader';
 import { ContactActions } from '../components/ContactActions';
 import { Modal } from '../components/Modal';
@@ -428,7 +428,12 @@ export function InstallmentsPage() {
                   </button>
                 </div>
               ) : (
-                <div className="mt-3 flex justify-end">
+                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  {installment.receiptPath && (
+                    <a className="btn-secondary !px-3 !py-1.5" href={uploadUrl(installment.receiptPath)} target="_blank" rel="noreferrer">
+                      {installment.receiptNumber || 'Recu'}
+                    </a>
+                  )}
                   <button className="btn-ghost !px-3 !py-1.5" onClick={() => openPaymentDateModal(installment)}>
                     Modifier date paiement
                   </button>
@@ -484,7 +489,14 @@ export function InstallmentsPage() {
                       </div>
                     ) : '—'}
                   </td>
-                  <td className="td">{installment.paidAt ? dateOnly(installment.paidAt) : '—'}</td>
+                  <td className="td">
+                    <div>{installment.paidAt ? dateOnly(installment.paidAt) : '—'}</div>
+                    {installment.receiptPath && (
+                      <a className="mt-1 inline-flex text-xs font-semibold text-brand-600 hover:underline" href={uploadUrl(installment.receiptPath)} target="_blank" rel="noreferrer">
+                        {installment.receiptNumber || 'Recu'}
+                      </a>
+                    )}
+                  </td>
                   <td className="td">
                     <div className="flex flex-wrap justify-end gap-2">
                       {installment.status !== 'paid' ? (

@@ -1,6 +1,10 @@
+import { createWriteStream } from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import PDFDocument from 'pdfkit';
 import { Router } from 'express';
 import { z } from 'zod';
-import { isValidObjectId } from 'mongoose';
+import mongoose, { isValidObjectId } from 'mongoose';
 import { requireAuth, requirePermission, requireRole, franchiseScopeFilter } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -11,6 +15,10 @@ import { Client } from '../models/Client.js';
 import { audit } from '../services/audit.service.js';
 import { refreshInstallmentNotifications } from '../services/installmentNotifications.service.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
+import { ensureUploadDir } from '../config/uploads.js';
+import { toUploadPath } from '../middleware/upload.js';
+import { nextSequenceValue } from '../services/sequence.service.js';
+import { formatInstallmentReceiptNumber, installmentReceiptSequenceKey } from '../utils/documentNumbers.js';
 
 const router = Router();
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
@@ -39,6 +47,96 @@ function statusForDueDate(dueDate: Date): 'pending' | 'late' {
   const due = new Date(dueDate);
   due.setHours(0, 0, 0, 0);
   return due < today ? 'late' : 'pending';
+}
+
+function formatMoney(value: number) {
+  return `${value.toLocaleString('fr-TN', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} TND`;
+}
+
+function writeReceiptField(doc: PDFKit.PDFDocument, label: string, value?: string | number | Date | null) {
+  const text = value instanceof Date ? value.toLocaleString('fr-TN') : value == null || value === '' ? '-' : String(value);
+  doc.fontSize(9).fillColor('#64748b').text(label.toUpperCase());
+  doc.fontSize(12).fillColor('#0f172a').text(text, { width: 500 });
+  doc.moveDown(0.45);
+}
+
+async function assignInstallmentReceiptNumber(installment: any, paidAt: Date, session?: mongoose.ClientSession) {
+  if (installment.status !== 'paid' || installment.receiptNumber) return installment;
+  const sequence = await nextSequenceValue(installmentReceiptSequenceKey(paidAt), session);
+  installment.receiptNumber = formatInstallmentReceiptNumber(paidAt, sequence);
+  await installment.save({ session });
+  return installment;
+}
+
+async function ensureInstallmentReceipt(installment: any, force = false) {
+  if (installment.status !== 'paid') return installment;
+  if (installment.receiptPath && !force) return installment;
+
+  const paidAt = installment.paidAt instanceof Date ? installment.paidAt : new Date(installment.paidAt ?? Date.now());
+  await assignInstallmentReceiptNumber(installment, paidAt);
+
+  const populated = await installment.populate([
+    { path: 'franchiseId', select: 'name address phone manager taxId' },
+    { path: 'clientId', select: 'fullName phone phone2 email' },
+    { path: 'saleId', select: 'invoiceNumber total createdAt saleType' },
+    { path: 'userId', select: 'fullName username role' },
+  ]);
+  const receiptNumber = installment.receiptNumber;
+  const filename = `${Date.now()}-${crypto.randomUUID()}-${receiptNumber.toLowerCase()}.pdf`;
+  const absolutePath = path.join(ensureUploadDir('installment-receipts'), filename);
+
+  await new Promise<void>((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 48 });
+    const stream = createWriteStream(absolutePath);
+    stream.on('finish', resolve);
+    stream.on('error', reject);
+    doc.on('error', reject);
+    doc.pipe(stream);
+
+    const franchise = populated.franchiseId && typeof populated.franchiseId === 'object' ? populated.franchiseId : null;
+    const client = populated.clientId && typeof populated.clientId === 'object' ? populated.clientId : null;
+    const sale = populated.saleId && typeof populated.saleId === 'object' ? populated.saleId : null;
+    const author = populated.userId && typeof populated.userId === 'object' ? populated.userId : null;
+
+    doc.fontSize(20).fillColor('#0f172a').text('Recu encaissement echeance');
+    doc.fontSize(10).fillColor('#64748b').text(`Genere le ${new Date().toLocaleString('fr-TN')}`);
+    doc.moveDown();
+
+    doc.roundedRect(48, doc.y, 500, 72, 8).fillAndStroke('#f8fafc', '#e2e8f0');
+    doc.fillColor('#047857').fontSize(24).text(formatMoney(installment.paidAmount || installment.amount), 64, doc.y + 16);
+    doc.fillColor('#334155').fontSize(11).text('ECHEANCE ENCAISSEE', 64, doc.y + 2);
+    doc.moveDown(3.2);
+
+    writeReceiptField(doc, 'Numero recu', receiptNumber);
+    writeReceiptField(doc, 'Facture / vente', sale?.invoiceNumber || sale?._id?.toString?.());
+    writeReceiptField(doc, 'Franchise', franchise?.name);
+    writeReceiptField(doc, 'Client', client?.fullName);
+    writeReceiptField(doc, 'Telephone client', client?.phone || client?.phone2);
+    writeReceiptField(doc, 'Date echeance', installment.dueDate);
+    writeReceiptField(doc, 'Date encaissement', installment.paidAt);
+    writeReceiptField(doc, 'Mode paiement', installment.paymentMethod);
+    writeReceiptField(doc, 'Saisi par', author?.fullName || author?.username);
+    writeReceiptField(doc, 'Note', installment.note);
+
+    doc.moveDown();
+    doc.fontSize(8).fillColor('#64748b').text(
+      'Document genere automatiquement apres encaissement de l echeance. Les reports et paiements partiels restent historises dans ASEL.',
+      { align: 'center' },
+    );
+
+    doc.end();
+  });
+
+  const receiptPath = toUploadPath('installment-receipts', filename);
+  installment.receiptPath = receiptPath;
+  installment.receiptCreatedAt = new Date();
+  const historyEntry = installment.paymentHistory
+    ?.slice()
+    .reverse()
+    .find((entry: any) => entry.receiptNumber === receiptNumber && !entry.receiptPath);
+  if (historyEntry) historyEntry.receiptPath = receiptPath;
+  await installment.save();
+  return installment;
 }
 
 router.get(
@@ -206,6 +304,9 @@ router.patch(
     }
 
     await installment.save();
+    if (installment.status === 'paid') {
+      await ensureInstallmentReceipt(installment, Boolean(input.paidAt));
+    }
     await audit(req, {
       action: 'installment.update',
       entity: 'Installment',
@@ -271,6 +372,17 @@ router.post(
       installment.note = input.note
         ? [installment.note, input.note].filter(Boolean).join(' | ')
         : installment.note;
+      await assignInstallmentReceiptNumber(installment, paidAt, session);
+      installment.paymentHistory.push({
+        amount: paidAmount,
+        paidAt,
+        paymentMethod: installment.paymentMethod,
+        receiptNumber: installment.receiptNumber,
+        receiptPath: null,
+        note: input.note ?? '',
+        userId: req.user!.sub as any,
+        createdAt: new Date(),
+      } as any);
       await installment.save({ session });
 
       if (remainingAmount > 0) {
@@ -312,13 +424,14 @@ router.post(
         await sale.save({ session });
       }
     });
+    await ensureInstallmentReceipt(installment);
 
     await audit(req, {
       action: 'installment.pay',
       entity: 'Installment',
       entityId: installment._id.toString(),
       franchiseId: installment.franchiseId.toString(),
-      details: { amount: paidAmount, paidAt, remainingAmount, salePaymentStatus },
+      details: { amount: paidAmount, paidAt, remainingAmount, salePaymentStatus, receiptNumber: installment.receiptNumber, receiptPath: installment.receiptPath },
     });
 
     res.json({ installment, remainderInstallment });
