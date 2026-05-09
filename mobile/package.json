@@ -1,6 +1,6 @@
 {
   "name": "asel-mobile-pointage",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
@@ -13,6 +13,8 @@
     "web": "expo start --web",
     "build:android:apk": "npx eas-cli build --platform android --profile preview",
     "build:android:dev": "npx eas-cli build --platform android --profile development",
+    "build:android:local-apk": "cd android && ./gradlew assembleRelease",
+    "build:android:vps-apk": "EXPO_PUBLIC_API_BASE_URL=https://asel.saleheddinetouil.tech/api EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY:-} npm run build:android:local-apk",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

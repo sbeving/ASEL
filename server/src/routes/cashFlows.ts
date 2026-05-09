@@ -243,6 +243,14 @@ function canEditCashFlow(req: Express.Request, flow: any) {
   return within24Hours && flow.userId?.toString() === req.user!.sub;
 }
 
+function cashFlowAggregateFilter(filter: Record<string, unknown>) {
+  const aggregateFilter: Record<string, unknown> = { ...filter };
+  if (typeof aggregateFilter.franchiseId === 'string' && isValidObjectId(aggregateFilter.franchiseId)) {
+    aggregateFilter.franchiseId = new mongoose.Types.ObjectId(aggregateFilter.franchiseId);
+  }
+  return aggregateFilter;
+}
+
 router.post(
   '/',
   requireAuth,
@@ -354,8 +362,31 @@ router.get(
 
     const effectivePageSize = query.limit ?? query.pageSize;
     const skip = (query.page - 1) * effectivePageSize;
-    const [total, flows] = await Promise.all([
+    const [total, summaryAgg, flows] = await Promise.all([
       CashFlow.countDocuments(filter),
+      CashFlow.aggregate([
+        { $match: cashFlowAggregateFilter(filter) },
+        {
+          $group: {
+            _id: null,
+            encaissements: {
+              $sum: { $cond: [{ $eq: ['$type', 'encaissement'] }, '$amount', 0] },
+            },
+            decaissements: {
+              $sum: { $cond: [{ $eq: ['$type', 'decaissement'] }, '$amount', 0] },
+            },
+            centralNet: {
+              $sum: {
+                $cond: [
+                  { $eq: ['$isCentralCashbox', true] },
+                  { $cond: [{ $eq: ['$type', 'encaissement'] }, '$amount', { $multiply: ['$amount', -1] }] },
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      ]),
       CashFlow.find(filter)
         .sort({ date: -1 })
         .skip(skip)
@@ -365,8 +396,15 @@ router.get(
         .populate('counterpartyFranchiseId', 'name taxId')
         .populate('reviewedBy', 'fullName username'),
     ]);
+    const summary = summaryAgg[0] ?? { encaissements: 0, decaissements: 0, centralNet: 0 };
     res.json({
       flows,
+      summary: {
+        encaissements: summary.encaissements,
+        decaissements: summary.decaissements,
+        net: summary.encaissements - summary.decaissements,
+        centralNet: summary.centralNet,
+      },
       meta: {
         page: query.page,
         pageSize: effectivePageSize,

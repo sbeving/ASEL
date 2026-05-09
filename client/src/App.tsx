@@ -30,6 +30,7 @@ const ServicesPage = lazy(() => import('./pages/ServicesPage').then((module) => 
 const NetworkPointsPage = lazy(() => import('./pages/NetworkPointsPage').then((module) => ({ default: module.NetworkPointsPage })));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage').then((module) => ({ default: module.NotificationsPage })));
 const CashFlowsPage = lazy(() => import('./pages/CashFlowsPage').then((module) => ({ default: module.CashFlowsPage })));
+const MobileAppPage = lazy(() => import('./pages/MobileAppPage').then((module) => ({ default: module.MobileAppPage })));
 
 const ERP_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'franchise', 'seller', 'vendeur', 'viewer'] as const;
 const STOCK_VIEW_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'stock_central_maintainer', 'franchise', 'seller', 'vendeur', 'viewer'] as const;
@@ -41,6 +42,7 @@ const STOCK_OPS_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'stock_central
 const CASH_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'cash_central_maintainer', 'franchise'] as const;
 const HR_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'commercial_director', 'hr_admin', 'franchise'] as const;
 const NOTIFICATION_ROLES = [...STAFF_ROLES, 'viewer'] as const;
+const MOBILE_APP_ROLES = ['ceo', 'admin', 'superadmin', 'manager', 'commercial_director', 'hr_admin', 'commercial', 'siege_employee'] as const;
 
 function HomeRoute() {
   return <DashboardPage />;
@@ -257,6 +259,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={[...COMMERCIAL_ROLES]}>
               <MapPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="mobile-app"
+          element={
+            <ProtectedRoute roles={[...MOBILE_APP_ROLES]}>
+              <MobileAppPage />
             </ProtectedRoute>
           }
         />

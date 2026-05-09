@@ -27,6 +27,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
+COPY mobile-app ./mobile-app
 RUN mkdir -p /app/uploads
 
 EXPOSE 4000

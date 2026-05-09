@@ -1,15 +1,22 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, FileText, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { api, apiError, uploadUrl } from '../lib/api';
 import { dateTime, money } from '../lib/money';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
+import { TablePagination } from '../components/TablePagination';
 import { useAuth } from '../auth/AuthContext';
-import type { CashFlow, Franchise } from '../lib/types';
+import type { CashFlow, Franchise, PageMeta } from '../lib/types';
 import { downloadHtmlReport, safeReportFilename } from '../lib/report';
 
 type CashFlowSubType = NonNullable<CashFlow['subType']>;
+type CashFlowSummary = {
+  encaissements: number;
+  decaissements: number;
+  net: number;
+  centralNet: number;
+};
 
 const cashFlowSubTypeLabel: Record<CashFlowSubType, string> = {
   cash_sale: 'Vente caisse',
@@ -192,8 +199,12 @@ export function CashFlowsPage() {
   const [statusFilter, setStatusFilter] = useState<'' | NonNullable<CashFlow['status']>>('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [page, setPage] = useState(1);
+  const pageSize = 30;
   const [openCreate, setOpenCreate] = useState(false);
   const [editingFlow, setEditingFlow] = useState<CashFlow | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   const franchises = useQuery({
     enabled: isGlobal,
@@ -201,26 +212,43 @@ export function CashFlowsPage() {
     queryFn: async () => (await api.get<{ franchises: Franchise[] }>('/franchises')).data.franchises,
   });
 
+  const filterParams = useMemo(
+    () => ({
+      franchiseId: franchiseId || undefined,
+      type: typeFilter || undefined,
+      subType: subTypeFilter || undefined,
+      ledger: ledgerFilter === 'all' ? undefined : ledgerFilter,
+      status: statusFilter || undefined,
+      from: from || undefined,
+      to: to || undefined,
+    }),
+    [franchiseId, from, ledgerFilter, statusFilter, subTypeFilter, to, typeFilter],
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [filterParams]);
+
   const flows = useQuery({
-    queryKey: ['cashflows', franchiseId, typeFilter, subTypeFilter, ledgerFilter, statusFilter, from, to],
+    queryKey: ['cashflows', filterParams, page, pageSize],
     queryFn: async () =>
       (
-        await api.get<{ flows: CashFlow[] }>('/cashflows', {
+        await api.get<{ flows: CashFlow[]; summary: CashFlowSummary; meta: PageMeta }>('/cashflows', {
           params: {
-            franchiseId: franchiseId || undefined,
-            type: typeFilter || undefined,
-            subType: subTypeFilter || undefined,
-            ledger: ledgerFilter === 'all' ? undefined : ledgerFilter,
-            status: statusFilter || undefined,
-            from: from || undefined,
-            to: to || undefined,
+            ...filterParams,
+            page,
+            pageSize,
           },
         })
-      ).data.flows,
+      ).data,
   });
 
+  const flowRows = flows.data?.flows ?? [];
+  const flowMeta = flows.data?.meta;
+
   const totals = useMemo(() => {
-    const all = flows.data ?? [];
+    if (flows.data?.summary) return flows.data.summary;
+    const all = flowRows;
     const encaissements = all
       .filter((flow) => flow.type === 'encaissement')
       .reduce((sum, flow) => sum + flow.amount, 0);
@@ -235,7 +263,7 @@ export function CashFlowsPage() {
         .filter((flow) => flow.isCentralCashbox)
         .reduce((sum, flow) => sum + (flow.type === 'encaissement' ? flow.amount : -flow.amount), 0),
     };
-  }, [flows.data]);
+  }, [flowRows, flows.data?.summary]);
 
   const selectedFranchiseLabel = useMemo(() => {
     if (!isGlobal) return 'Franchise courante';
@@ -263,6 +291,28 @@ export function CashFlowsPage() {
       filters: [...reportFilters, ...extraFilters],
       generatedBy: user?.fullName || user?.username,
     });
+  };
+
+  const openFilteredReport = async () => {
+    setReportError(null);
+    setReportLoading(true);
+    try {
+      const response = await api.get<{ flows: CashFlow[] }>('/cashflows', {
+        params: {
+          ...filterParams,
+          page: 1,
+          limit: 500,
+        },
+      });
+      openReport(response.data.flows, 'Rapport tresorerie filtre', [
+        ['Nombre lignes exportees', String(response.data.flows.length)],
+        ['Limite export', '500 lignes'],
+      ]);
+    } catch (err) {
+      setReportError(apiError(err).message);
+    } finally {
+      setReportLoading(false);
+    }
   };
 
   const reviewCentral = useMutation({
@@ -296,9 +346,9 @@ export function CashFlowsPage() {
         subtitle="Cashflow tracking with support document upload (invoice, receipt, PDF)"
         actions={
           <div className="flex flex-wrap gap-2">
-            <button className="btn-secondary" onClick={() => openReport(flows.data ?? [], 'Rapport tresorerie filtre')}>
+            <button className="btn-secondary" disabled={reportLoading} onClick={() => void openFilteredReport()}>
               <FileText className="h-4 w-4" />
-              Generer rapport
+              {reportLoading ? 'Generation...' : 'Generer rapport'}
             </button>
             <button className="btn-primary" onClick={() => setOpenCreate(true)}>
               <Plus className="h-4 w-4" />
@@ -386,10 +436,15 @@ export function CashFlowsPage() {
             Effacer
           </button>
         </div>
+        {reportError && (
+          <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {reportError}
+          </div>
+        )}
       </section>
 
       <section className="mb-5 grid gap-3 lg:hidden">
-        {(flows.data ?? []).map((flow) => {
+        {flowRows.map((flow) => {
           const franchiseName = flowFranchiseName(flow);
           const author =
             typeof flow.userId === 'object' && flow.userId ? flow.userId.fullName || flow.userId.username : '-';
@@ -495,9 +550,10 @@ export function CashFlowsPage() {
             </article>
           );
         })}
-        {!flows.isLoading && (flows.data?.length ?? 0) === 0 && (
+        {!flows.isLoading && flowRows.length === 0 && (
           <div className="mobile-record-card text-sm text-surface-500">Aucun mouvement.</div>
         )}
+        <TablePagination meta={flowMeta} onPageChange={setPage} className="px-1 py-2" />
       </section>
 
       <section className="card hidden overflow-x-auto lg:block">
@@ -519,7 +575,7 @@ export function CashFlowsPage() {
             </tr>
           </thead>
           <tbody>
-            {(flows.data ?? []).map((flow) => (
+            {flowRows.map((flow) => (
               <tr key={flow._id}>
                 <td className="td">{dateTime(flow.date)}</td>
                 <td className="td">
@@ -607,7 +663,7 @@ export function CashFlowsPage() {
                 </td>
               </tr>
             ))}
-            {!flows.isLoading && (flows.data?.length ?? 0) === 0 && (
+            {!flows.isLoading && flowRows.length === 0 && (
               <tr>
                 <td className="td text-slate-400" colSpan={12}>
                   Aucun mouvement.
@@ -616,6 +672,7 @@ export function CashFlowsPage() {
             )}
           </tbody>
         </table>
+        <TablePagination meta={flowMeta} onPageChange={setPage} className="px-4 py-3" />
         {reviewCentral.isError && (
           <div className="border-t border-rose-100 bg-rose-50 px-4 py-2 text-sm text-rose-700">
             {apiError(reviewCentral.error).message}

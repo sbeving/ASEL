@@ -89,12 +89,32 @@ export interface Client {
   creditProfile?: {
     monthlySalary?: number | null;
     additionalIncome?: number | null;
-    employmentStatus?: 'unknown' | 'salaried' | 'self_employed' | 'business_owner' | 'unemployed' | 'retired' | 'student' | 'other';
+    employmentStatus?:
+      | 'unknown'
+      | 'salaried'
+      | 'self_employed'
+      | 'business_owner'
+      | 'unemployed'
+      | 'retired'
+      | 'student'
+      | 'other';
     employer?: string;
     jobTitle?: string;
-    housingStatus?: 'unknown' | 'owner' | 'family' | 'rent' | 'mortgage' | 'other';
+    housingStatus?:
+      | 'unknown'
+      | 'owner'
+      | 'family'
+      | 'rent'
+      | 'mortgage'
+      | 'other';
     monthlyRent?: number | null;
-    maritalStatus?: 'unknown' | 'single' | 'married' | 'divorced' | 'widowed' | 'other';
+    maritalStatus?:
+      | 'unknown'
+      | 'single'
+      | 'married'
+      | 'divorced'
+      | 'widowed'
+      | 'other';
     childrenCount?: number | null;
     spouseWorks?: boolean | null;
     distanceKmToFranchise?: number | null;
@@ -324,7 +344,14 @@ export interface DashboardPayload {
       purchasesTotal: number;
       purchasesCount: number;
       treasury: { encaissements: number; decaissements: number; net: number };
-      topMarginProducts: Array<{ productId: string; name: string; quantity: number; revenue: number; estimatedCost: number; margin: number }>;
+      topMarginProducts: Array<{
+        productId: string;
+        name: string;
+        quantity: number;
+        revenue: number;
+        estimatedCost: number;
+        margin: number;
+      }>;
     };
     commercial?: {
       networkPoints: number;
@@ -340,27 +367,100 @@ export interface DashboardPayload {
       outOfZonePings: number;
       pingsCount: number;
       pointsByStatus: Array<{ status: NetworkPoint['status']; count: number }>;
-      bestCommercial: { commercialId: string; commercialName?: string; points: number; activePoints: number; won: number; lastActivityAt?: string | null } | null;
-      dormantCommercials: Array<{ commercialId: string; commercialName?: string; points: number; activePoints: number; won: number; lastActivityAt?: string | null }>;
-      latestPings: Array<{ _id: string; timestamp: string; inZone: boolean | null; accuracy: number | null; commercialName: string; zoneName: string }>;
+      bestCommercial: {
+        commercialId: string;
+        commercialName?: string;
+        points: number;
+        activePoints: number;
+        won: number;
+        lastActivityAt?: string | null;
+      } | null;
+      dormantCommercials: Array<{
+        commercialId: string;
+        commercialName?: string;
+        points: number;
+        activePoints: number;
+        won: number;
+        lastActivityAt?: string | null;
+      }>;
+      latestPings: Array<{
+        _id: string;
+        timestamp: string;
+        inZone: boolean | null;
+        accuracy: number | null;
+        commercialName: string;
+        zoneName: string;
+      }>;
     };
     employee?: {
       workedMinutesThisWeek: number;
       activeShift: boolean;
       pendingLeaveRequests: number;
       siteName?: string;
-      lastType?: 'entree' | 'sortie' | 'pause_debut' | 'pause_fin' | 'verif' | null;
+      lastType?:
+        | 'entree'
+        | 'sortie'
+        | 'pause_debut'
+        | 'pause_fin'
+        | 'verif'
+        | null;
       lastTimestamp?: string | null;
     };
     pilotage?: {
-      caByFranchise: Array<{ franchiseId: string; franchiseName?: string; ca: number; salesCount: number }>;
-      franchiseProfitability: Array<{ franchiseId: string; franchiseName?: string; ca: number; estimatedCost: number; margin: number }>;
-      bestCommercial: { commercialId: string; commercialName?: string; points: number; activePoints: number; won: number; lastActivityAt?: string | null } | null;
-      dormantCommercials: Array<{ commercialId: string; commercialName: string; points: number; lastActivityAt?: string | null }>;
-      deadZones: Array<{ _id: string; name: string; color?: string; pointCount: number; ownerCount: number }>;
-      dormantProducts: Array<{ _id: string; name: string; reference?: string; barcode?: string; sellPrice?: number; purchasePrice?: number }>;
-      purchasesBySupplier: Array<{ supplierId: string | null; supplierName: string; total: number; count: number }>;
-      stock: { quantity: number; value: number; sellValue: number; marginPotential: number };
+      caByFranchise: Array<{
+        franchiseId: string;
+        franchiseName?: string;
+        ca: number;
+        salesCount: number;
+      }>;
+      franchiseProfitability: Array<{
+        franchiseId: string;
+        franchiseName?: string;
+        ca: number;
+        estimatedCost: number;
+        margin: number;
+      }>;
+      bestCommercial: {
+        commercialId: string;
+        commercialName?: string;
+        points: number;
+        activePoints: number;
+        won: number;
+        lastActivityAt?: string | null;
+      } | null;
+      dormantCommercials: Array<{
+        commercialId: string;
+        commercialName: string;
+        points: number;
+        lastActivityAt?: string | null;
+      }>;
+      deadZones: Array<{
+        _id: string;
+        name: string;
+        color?: string;
+        pointCount: number;
+        ownerCount: number;
+      }>;
+      dormantProducts: Array<{
+        _id: string;
+        name: string;
+        reference?: string;
+        barcode?: string;
+        sellPrice?: number;
+        purchasePrice?: number;
+      }>;
+      purchasesBySupplier: Array<{
+        supplierId: string | null;
+        supplierName: string;
+        total: number;
+        count: number;
+      }>;
+      stock: {
+        quantity: number;
+        value: number;
+        sellValue: number;
+        marginPotential: number;
+      };
       treasury: { encaissements: number; decaissements: number; net: number };
     };
   };
@@ -445,7 +545,12 @@ export interface CashFlow {
   _id: string;
   franchiseId: Franchise | string;
   type: 'encaissement' | 'decaissement';
-  subType?: 'cash_sale' | 'central_cashbox' | 'bank_transfer' | 'expense' | 'other';
+  subType?:
+    | 'cash_sale'
+    | 'central_cashbox'
+    | 'bank_transfer'
+    | 'expense'
+    | 'other';
   isCentralCashbox?: boolean;
   counterpartyFranchiseId?: Franchise | string | null;
   linkedFlowId?: CashFlow | string | null;
@@ -478,11 +583,25 @@ export interface Closing {
   systemCashTotal?: number;
   cashSalesTotal?: number;
   cashInstallmentsTotal?: number;
+  cardSalesTotal?: number;
+  transferSalesTotal?: number;
+  otherSalesTotal?: number;
   installmentAdvancesTotal?: number;
   installmentDueTotal?: number;
   installmentDueCount?: number;
   installmentPaidTotal?: number;
   installmentPaidCount?: number;
+  treasuryCashInTotal?: number;
+  treasuryCashOutTotal?: number;
+  returnRefundTotal?: number;
+  expectedDrawerTotal?: number;
+  cashDenominations?: Array<{
+    label: string;
+    value: number;
+    quantity: number;
+    total: number;
+  }>;
+  varianceReason?: string;
   autoGenerated?: boolean;
   comment?: string;
   validated: boolean;
@@ -501,7 +620,13 @@ export interface Installment {
   originalAmount?: number | null;
   paidAmount?: number;
   dueDate: string;
-  dueDateHistory?: Array<{ from: string; to: string; reason?: string; userId?: User | string; createdAt: string }>;
+  dueDateHistory?: Array<{
+    from: string;
+    to: string;
+    reason?: string;
+    userId?: User | string;
+    createdAt: string;
+  }>;
   dueDateUpdatedBy?: User | string | null;
   dueDateUpdatedAt?: string | null;
   status: 'pending' | 'paid' | 'late';
@@ -531,7 +656,9 @@ export interface Installment {
 export interface ReturnRecord {
   _id: string;
   franchiseId: Franchise | string;
-  productId: { _id: string; name: string; reference?: string; barcode?: string } | string;
+  productId:
+    | { _id: string; name: string; reference?: string; barcode?: string }
+    | string;
   quantity: number;
   returnType: 'return' | 'exchange';
   unitPrice: number;
@@ -588,7 +715,9 @@ export interface ServiceRecord {
     | string;
   franchiseId: Franchise | string;
   clientId?: { _id: string; fullName: string; phone?: string } | string | null;
-  userId?: { _id: string; fullName?: string; username?: string; role?: string } | string;
+  userId?:
+    | { _id: string; fullName?: string; username?: string; role?: string }
+    | string;
   billedPrice: number;
   note?: string;
   performedAt: string;
@@ -598,8 +727,21 @@ export interface NetworkPoint {
   _id: string;
   name: string;
   type: 'franchise' | 'activation' | 'recharge' | 'activation_recharge';
-  status: 'prospect' | 'contact' | 'contrat_non_signe' | 'contrat_signe' | 'actif' | 'suspendu' | 'resilie';
-  leadStatus?: 'lead' | 'contacted' | 'qualified' | 'contract_given' | 'won' | 'lost';
+  status:
+    | 'prospect'
+    | 'contact'
+    | 'contrat_non_signe'
+    | 'contrat_signe'
+    | 'actif'
+    | 'suspendu'
+    | 'resilie';
+  leadStatus?:
+    | 'lead'
+    | 'contacted'
+    | 'qualified'
+    | 'contract_given'
+    | 'won'
+    | 'lost';
   address?: string;
   city?: string;
   governorate?: string;
@@ -644,7 +786,13 @@ export interface NetworkPoint {
     allocationCount: number;
     lastAllocationAt?: string | null;
     daysSinceAllocation?: number | null;
-    recommendation?: 'worthy' | 'watch' | 'review' | 'dormant' | 'revoke_candidate' | 'revoked';
+    recommendation?:
+      | 'worthy'
+      | 'watch'
+      | 'review'
+      | 'dormant'
+      | 'revoke_candidate'
+      | 'revoked';
   };
   active: boolean;
   createdAt?: string;

@@ -19,6 +19,7 @@ import { ensureUploadDir } from '../config/uploads.js';
 import { toUploadPath } from '../middleware/upload.js';
 import { nextSequenceValue } from '../services/sequence.service.js';
 import { formatInstallmentReceiptNumber, installmentReceiptSequenceKey } from '../utils/documentNumbers.js';
+import { refreshClosingSystemTotalsForDates } from '../services/closing.service.js';
 
 const router = Router();
 const objectId = z.string().refine(isValidObjectId, { message: 'Invalid id' });
@@ -58,6 +59,78 @@ function writeReceiptField(doc: PDFKit.PDFDocument, label: string, value?: strin
   doc.fontSize(9).fillColor('#64748b').text(label.toUpperCase());
   doc.fontSize(12).fillColor('#0f172a').text(text, { width: 500 });
   doc.moveDown(0.45);
+}
+
+function installmentAggregateFilter(filter: Record<string, unknown>) {
+  const aggregateFilter: Record<string, unknown> = { ...filter };
+  const franchiseId = aggregateFilter.franchiseId;
+  if (typeof franchiseId === 'string' && mongoose.Types.ObjectId.isValid(franchiseId)) {
+    aggregateFilter.franchiseId = new mongoose.Types.ObjectId(franchiseId);
+  }
+  return aggregateFilter;
+}
+
+function activeInstallmentPipeline(filter: Record<string, unknown>): mongoose.PipelineStage[] {
+  return [
+    { $match: installmentAggregateFilter(filter) },
+    { $lookup: { from: 'sales', localField: 'saleId', foreignField: '_id', as: 'sale' } },
+    { $unwind: '$sale' },
+    { $match: { 'sale.cancelledAt': null } },
+  ];
+}
+
+function installmentSummaryGroupStage(): mongoose.PipelineStage.Group {
+  const paidAmountField = { $ifNull: ['$paidAmount', 0] };
+  const remainingDelta = { $subtract: ['$amount', paidAmountField] };
+  const remainingAmount = {
+    $cond: [{ $gt: [remainingDelta, 0] }, remainingDelta, 0],
+  };
+  const paidValue = {
+    $cond: [{ $gt: [paidAmountField, 0] }, paidAmountField, '$amount'],
+  };
+
+  return {
+    $group: {
+      _id: null,
+      totalCount: { $sum: 1 },
+      pendingCount: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
+      pendingAmount: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, remainingAmount, 0] } },
+      lateCount: { $sum: { $cond: [{ $eq: ['$status', 'late'] }, 1, 0] } },
+      lateAmount: { $sum: { $cond: [{ $eq: ['$status', 'late'] }, remainingAmount, 0] } },
+      paidCount: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, 1, 0] } },
+      paidAmount: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, paidValue, 0] } },
+      receiptCount: {
+        $sum: {
+          $cond: [
+            {
+              $and: [
+                { $eq: ['$status', 'paid'] },
+                { $ne: [{ $ifNull: ['$receiptPath', null] }, null] },
+              ],
+            },
+            1,
+            0,
+          ],
+        },
+      },
+    },
+  };
+}
+
+export function normalizeInstallmentSummary(summary?: Record<string, number>) {
+  const pendingAmount = summary?.pendingAmount ?? 0;
+  const lateAmount = summary?.lateAmount ?? 0;
+  return {
+    totalCount: summary?.totalCount ?? 0,
+    pendingCount: summary?.pendingCount ?? 0,
+    pendingAmount,
+    lateCount: summary?.lateCount ?? 0,
+    lateAmount,
+    dueAmount: pendingAmount + lateAmount,
+    paidCount: summary?.paidCount ?? 0,
+    paidAmount: summary?.paidAmount ?? 0,
+    receiptCount: summary?.receiptCount ?? 0,
+  };
 }
 
 async function assignInstallmentReceiptNumber(installment: any, paidAt: Date, session?: mongoose.ClientSession) {
@@ -163,21 +236,39 @@ router.get(
     }
     const effectivePageSize = limit ?? pageSize;
     const skip = (page - 1) * effectivePageSize;
-    const [total, rows] = await Promise.all([
-      Installment.countDocuments(filter),
-      Installment.find(filter)
-        .sort({ dueDate: 1, createdAt: 1 })
-        .skip(skip)
-        .limit(effectivePageSize)
-        .populate({ path: 'saleId', match: { cancelledAt: null }, select: 'total createdAt invoiceNumber saleType paymentStatus' })
+    const basePipeline = activeInstallmentPipeline(filter);
+    const [countRows, summaryRows, pageIds] = await Promise.all([
+      Installment.aggregate<{ total: number }>([
+        ...basePipeline,
+        { $count: 'total' },
+      ]),
+      Installment.aggregate<Record<string, number>>([
+        ...basePipeline,
+        installmentSummaryGroupStage(),
+      ]),
+      Installment.aggregate<{ _id: mongoose.Types.ObjectId }>([
+        ...basePipeline,
+        { $sort: { dueDate: 1, createdAt: 1 } },
+        { $skip: skip },
+        { $limit: effectivePageSize },
+        { $project: { _id: 1 } },
+      ]),
+    ]);
+    const ids = pageIds.map((row) => row._id);
+    const orderById = new Map(ids.map((id, index) => [id.toString(), index]));
+    const rows = ids.length
+      ? await Installment.find({ _id: { $in: ids } })
+        .populate({ path: 'saleId', select: 'total createdAt invoiceNumber saleType paymentStatus' })
         .populate('clientId', 'fullName phone phone2')
         .populate('userId', 'username fullName')
         .populate('dueDateUpdatedBy', 'username fullName')
-        .populate('paidAtUpdatedBy', 'username fullName'),
-    ]);
-    const installments = rows.filter((installment) => installment.saleId);
+        .populate('paidAtUpdatedBy', 'username fullName')
+      : [];
+    rows.sort((a, b) => (orderById.get(a._id.toString()) ?? 0) - (orderById.get(b._id.toString()) ?? 0));
+    const total = countRows[0]?.total ?? 0;
     res.json({
-      installments,
+      installments: rows,
+      summary: normalizeInstallmentSummary(summaryRows[0]),
       meta: {
         page,
         pageSize: effectivePageSize,
@@ -223,6 +314,12 @@ router.post(
       franchiseId: sale.franchiseId.toString(),
       details: { saleId: sale._id.toString(), amount: installment.amount },
     });
+
+    await refreshClosingSystemTotalsForDates(
+      sale.franchiseId.toString(),
+      [installment.dueDate],
+      `Cloture reouverte suite creation echeance vente ${sale.invoiceNumber || sale._id.toString()}.`,
+    );
 
     res.status(201).json({ installment });
   }),
@@ -307,6 +404,11 @@ router.patch(
     if (installment.status === 'paid') {
       await ensureInstallmentReceipt(installment, Boolean(input.paidAt));
     }
+    await refreshClosingSystemTotalsForDates(
+      installment.franchiseId.toString(),
+      [before.dueDate, installment.dueDate, before.paidAt, installment.paidAt],
+      `Cloture reouverte suite modification echeance ${installment._id.toString()}.`,
+    );
     await audit(req, {
       action: 'installment.update',
       entity: 'Installment',
@@ -353,6 +455,7 @@ router.post(
     if (Number.isNaN(paidAt.getTime())) throw badRequest('Invalid payment date');
 
     let remainderInstallment = null;
+    const previousDueDate = installment.dueDate;
     const originalAmount = installment.originalAmount ?? installment.amount;
     const remainingAmount = Math.round((installment.amount - paidAmount) * 100) / 100;
     let remainderDueDate: Date | null = null;
@@ -425,6 +528,11 @@ router.post(
       }
     });
     await ensureInstallmentReceipt(installment);
+    await refreshClosingSystemTotalsForDates(
+      installment.franchiseId.toString(),
+      [previousDueDate, paidAt, remainderDueDate],
+      `Cloture reouverte suite encaissement echeance ${installment._id.toString()}.`,
+    );
 
     await audit(req, {
       action: 'installment.pay',
@@ -490,6 +598,11 @@ router.post(
     }
 
     const installments = await Installment.insertMany(installmentsData);
+    await refreshClosingSystemTotalsForDates(
+      sale.franchiseId.toString(),
+      installments.map((installment) => installment.dueDate),
+      `Cloture reouverte suite generation echeances vente ${sale.invoiceNumber || sale._id.toString()}.`,
+    );
 
     await audit(req, {
       action: 'installment.generate',

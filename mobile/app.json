@@ -2,7 +2,7 @@
   "expo": {
     "name": "ASEL Pointage",
     "slug": "asel-pointage",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "orientation": "portrait",
     "scheme": "aselpointage",
     "userInterfaceStyle": "light",
@@ -19,7 +19,12 @@
     },
     "android": {
       "package": "com.asel.pointage",
-      "versionCode": 1,
+      "versionCode": 2,
+      "config": {
+        "googleMaps": {
+          "apiKey": "MISSING_GOOGLE_MAPS_API_KEY"
+        }
+      },
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
@@ -41,7 +46,7 @@
       "expo-secure-store"
     ],
     "extra": {
-      "apiBaseUrl": "http://localhost:4000/api"
+      "apiBaseUrl": "https://asel.saleheddinetouil.tech/api"
     }
   }
 }

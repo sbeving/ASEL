@@ -49,6 +49,10 @@ const pointageLabels: Record<TimeLogType, string> = {
 const pointTypes: NetworkPoint['type'][] = ['activation_recharge', 'activation', 'recharge'];
 const pointStatuses: NetworkPoint['status'][] = ['prospect', 'contact', 'contrat_non_signe', 'contrat_signe', 'actif', 'suspendu', 'resilie'];
 const createPointStatuses: NetworkPoint['status'][] = ['prospect', 'contact', 'contrat_signe', 'actif'];
+const androidGoogleMapsKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? '';
+const nativeMapsAvailable =
+  Platform.OS !== 'android' ||
+  Boolean(androidGoogleMapsKey && androidGoogleMapsKey !== 'MISSING_GOOGLE_MAPS_API_KEY');
 
 type Screen = 'dashboard' | 'pointage' | 'map' | 'points' | 'newPoint';
 type PointFilter = 'all' | NetworkPoint['type'];
@@ -912,7 +916,7 @@ export default function App() {
     loadMe()
       .then((me) => {
         setUser(me);
-        if (me?.role === 'commercial') setScreen('map');
+        if (me?.role === 'commercial') setScreen(nativeMapsAvailable ? 'map' : 'dashboard');
       })
       .finally(() => setBooting(false));
   }, []);
@@ -958,7 +962,7 @@ export default function App() {
     try {
       const nextUser = await login(username.trim(), password);
       setUser(nextUser);
-      setScreen(nextUser.role === 'commercial' ? 'map' : 'dashboard');
+      setScreen(nextUser.role === 'commercial' && nativeMapsAvailable ? 'map' : 'dashboard');
       await getQueuedApiRequestCount(nextUser.id).then(setQueuedCount).catch(() => undefined);
     } catch (error) {
       handleApiError(error, 'Connexion impossible');
@@ -1503,41 +1507,45 @@ export default function App() {
                   <Text style={styles.warning}>Precision faible: recapturez si le point n'est pas correct.</Text>
                 ) : null}
                 <View style={styles.gpsMapPreview}>
-                  <MapView
-                    style={styles.map}
-                    initialRegion={{
-                      latitude: lastGps.lat,
-                      longitude: lastGps.lng,
-                      latitudeDelta: 0.004,
-                      longitudeDelta: 0.004,
-                    }}
-                    region={{
-                      latitude: lastGps.lat,
-                      longitude: lastGps.lng,
-                      latitudeDelta: 0.004,
-                      longitudeDelta: 0.004,
-                    }}
-                    scrollEnabled={false}
-                    zoomEnabled={false}
-                    pitchEnabled={false}
-                    rotateEnabled={false}
-                  >
-                    {lastGps.accuracy != null && (
-                      <MapCircle
-                        center={{ latitude: lastGps.lat, longitude: lastGps.lng }}
-                        radius={Math.max(10, Math.min(500, lastGps.accuracy))}
-                        strokeColor={gpsAccuracyColor(lastGps.accuracy)}
-                        fillColor={`${gpsAccuracyColor(lastGps.accuracy)}26`}
-                        strokeWidth={2}
+                  {nativeMapsAvailable ? (
+                    <MapView
+                      style={styles.map}
+                      initialRegion={{
+                        latitude: lastGps.lat,
+                        longitude: lastGps.lng,
+                        latitudeDelta: 0.004,
+                        longitudeDelta: 0.004,
+                      }}
+                      region={{
+                        latitude: lastGps.lat,
+                        longitude: lastGps.lng,
+                        latitudeDelta: 0.004,
+                        longitudeDelta: 0.004,
+                      }}
+                      scrollEnabled={false}
+                      zoomEnabled={false}
+                      pitchEnabled={false}
+                      rotateEnabled={false}
+                    >
+                      {lastGps.accuracy != null && (
+                        <MapCircle
+                          center={{ latitude: lastGps.lat, longitude: lastGps.lng }}
+                          radius={Math.max(10, Math.min(500, lastGps.accuracy))}
+                          strokeColor={gpsAccuracyColor(lastGps.accuracy)}
+                          fillColor={`${gpsAccuracyColor(lastGps.accuracy)}26`}
+                          strokeWidth={2}
+                        />
+                      )}
+                      <Marker
+                        coordinate={{ latitude: lastGps.lat, longitude: lastGps.lng }}
+                        title="Ma position"
+                        description={lastGps.accuracy != null ? `Precision ${lastGps.accuracy} m` : 'Precision inconnue'}
+                        pinColor="#0f172a"
                       />
-                    )}
-                    <Marker
-                      coordinate={{ latitude: lastGps.lat, longitude: lastGps.lng }}
-                      title="Ma position"
-                      description={lastGps.accuracy != null ? `Precision ${lastGps.accuracy} m` : 'Precision inconnue'}
-                      pinColor="#0f172a"
-                    />
-                  </MapView>
+                    </MapView>
+                  ) : (
+                    <MapUnavailableCard />
+                  )}
                 </View>
               </>
             ) : (
@@ -1606,52 +1614,56 @@ export default function App() {
             <PickerRow label="Statut" values={['all', 'prospect', 'contact', 'contrat_signe', 'actif']} value={pointStatusFilter} onChange={(value) => setPointStatusFilter(value as StatusFilter)} compact />
           </View>
           <View style={styles.mapWrap}>
-            <MapView style={styles.map} initialRegion={mapRegion} region={mapRegion}>
-              {lastGps?.accuracy != null && (
-                <MapCircle
-                  center={{ latitude: lastGps.lat, longitude: lastGps.lng }}
-                  radius={Math.max(10, Math.min(500, lastGps.accuracy))}
-                  strokeColor={gpsAccuracyColor(lastGps.accuracy)}
-                  fillColor={`${gpsAccuracyColor(lastGps.accuracy)}26`}
-                  strokeWidth={2}
-                />
-              )}
-              {zones.map((zone) => (
-                <Polygon
-                  key={zone._id}
-                  coordinates={zone.polygon.map((point) => ({ latitude: point.lat, longitude: point.lng }))}
-                  strokeColor={zone.color || '#2563eb'}
-                  fillColor={`${zone.color || '#2563eb'}33`}
-                  strokeWidth={2}
-                />
-              ))}
-              {filteredPoints.map((point) =>
-                point.gps?.lat && point.gps?.lng ? (
+            {nativeMapsAvailable ? (
+              <MapView style={styles.map} initialRegion={mapRegion} region={mapRegion}>
+                {lastGps?.accuracy != null && (
+                  <MapCircle
+                    center={{ latitude: lastGps.lat, longitude: lastGps.lng }}
+                    radius={Math.max(10, Math.min(500, lastGps.accuracy))}
+                    strokeColor={gpsAccuracyColor(lastGps.accuracy)}
+                    fillColor={`${gpsAccuracyColor(lastGps.accuracy)}26`}
+                    strokeWidth={2}
+                  />
+                )}
+                {zones.map((zone) => (
+                  <Polygon
+                    key={zone._id}
+                    coordinates={zone.polygon.map((point) => ({ latitude: point.lat, longitude: point.lng }))}
+                    strokeColor={zone.color || '#2563eb'}
+                    fillColor={`${zone.color || '#2563eb'}33`}
+                    strokeWidth={2}
+                  />
+                ))}
+                {filteredPoints.map((point) =>
+                  point.gps?.lat && point.gps?.lng ? (
+                    <Marker
+                      key={point._id}
+                      coordinate={{ latitude: point.gps.lat, longitude: point.gps.lng }}
+                      title={point.name}
+                      description={`${pointTypeLabel(point.type)} · ${statusLabel(point.status)}`}
+                      onPress={() => selectPoint(point._id).catch(() => undefined)}
+                    >
+                      <View style={[styles.pointMapMarker, { borderColor: pointTypeColor(point.type) }]}>
+                        <Text style={[styles.pointMapMarkerText, { color: pointTypeColor(point.type) }]}>{pointInitials(point.name)}</Text>
+                      </View>
+                    </Marker>
+                  ) : null,
+                )}
+                {lastGps && (
                   <Marker
-	                    key={point._id}
-	                    coordinate={{ latitude: point.gps.lat, longitude: point.gps.lng }}
-	                    title={point.name}
-	                    description={`${pointTypeLabel(point.type)} · ${statusLabel(point.status)}`}
-	                    onPress={() => selectPoint(point._id).catch(() => undefined)}
-	                  >
-	                    <View style={[styles.pointMapMarker, { borderColor: pointTypeColor(point.type) }]}>
-	                      <Text style={[styles.pointMapMarkerText, { color: pointTypeColor(point.type) }]}>{pointInitials(point.name)}</Text>
-	                    </View>
-	                  </Marker>
-	                ) : null,
-	              )}
-              {lastGps && (
-                <Marker
-	                  coordinate={{ latitude: lastGps.lat, longitude: lastGps.lng }}
-	                  title="Ma position"
-	                  description={lastGps.accuracy != null ? `Precision ${lastGps.accuracy} m` : 'Precision inconnue'}
-	                >
-	                  <View style={styles.currentLocationMarker}>
-	                    <View style={styles.currentLocationMarkerCore} />
-	                  </View>
-	                </Marker>
-	              )}
-            </MapView>
+                    coordinate={{ latitude: lastGps.lat, longitude: lastGps.lng }}
+                    title="Ma position"
+                    description={lastGps.accuracy != null ? `Precision ${lastGps.accuracy} m` : 'Precision inconnue'}
+                  >
+                    <View style={styles.currentLocationMarker}>
+                      <View style={styles.currentLocationMarkerCore} />
+                    </View>
+                  </Marker>
+                )}
+              </MapView>
+            ) : (
+              <MapUnavailableCard />
+            )}
             <View style={styles.mapLegend}>
               <View style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: '#7c3aed' }]} />
@@ -1832,74 +1844,78 @@ export default function App() {
               onChange={(value) => setPointLocationMode(value as PointLocationMode)}
             />
             <View style={styles.pointMapPicker}>
-              <MapView
-                style={styles.map}
-                initialRegion={mapRegion}
-                region={pointGps ? {
-                  latitude: pointGps.lat,
-                  longitude: pointGps.lng,
-                  latitudeDelta: 0.025,
-                  longitudeDelta: 0.025,
-                } : mapRegion}
-                onPress={(event) => {
-                  const lat = Number(event.nativeEvent.coordinate.latitude.toFixed(6));
-                  const lng = Number(event.nativeEvent.coordinate.longitude.toFixed(6));
-                  setPointLocationMode('pin');
-                  setPointPin({ lat, lng });
-                }}
-              >
-                {zones.map((zone) => (
-                  <Polygon
-                    key={zone._id}
-                    coordinates={zone.polygon.map((point) => ({ latitude: point.lat, longitude: point.lng }))}
-                    strokeColor={zone.color || '#2563eb'}
-                    fillColor={`${zone.color || '#2563eb'}22`}
-                    strokeWidth={2}
-                  />
-                ))}
-                {points.map((point) =>
-                  point.gps?.lat && point.gps?.lng ? (
-	                    <Marker
-	                      key={point._id}
-	                      coordinate={{ latitude: point.gps.lat, longitude: point.gps.lng }}
-	                      title={point.name}
-	                      description={`${pointTypeLabel(point.type)} · ${point.status}`}
-	                    >
-	                      <View style={[styles.pointMapMarkerSmall, { borderColor: pointTypeColor(point.type) }]}>
-	                        <Text style={[styles.pointMapMarkerSmallText, { color: pointTypeColor(point.type) }]}>{pointInitials(point.name)}</Text>
-	                      </View>
-	                    </Marker>
-	                  ) : null,
-	                )}
-                {lastGps && (
-                  <>
-                    {lastGps.accuracy != null && (
-                      <MapCircle
-                        center={{ latitude: lastGps.lat, longitude: lastGps.lng }}
-                        radius={Math.max(10, Math.min(500, lastGps.accuracy))}
-                        strokeColor={gpsAccuracyColor(lastGps.accuracy)}
-                        fillColor={`${gpsAccuracyColor(lastGps.accuracy)}24`}
-                        strokeWidth={2}
-                      />
-                    )}
-	                    <Marker coordinate={{ latitude: lastGps.lat, longitude: lastGps.lng }} title="GPS actuel">
-	                      <View style={styles.currentLocationMarker}>
-	                        <View style={styles.currentLocationMarkerCore} />
-	                      </View>
-	                    </Marker>
-                  </>
-                )}
-                {pointGps && (
-	                  <Marker
-	                    coordinate={{ latitude: pointGps.lat, longitude: pointGps.lng }}
-	                    title={pointLocationMode === 'pin' ? 'Point choisi' : 'GPS actuel'}
-	                  >
-	                    <View style={styles.newPointMarker}>
-	                      <Text style={styles.newPointMarkerText}>+</Text>
-	                    </View>
-	                  </Marker>
-	                )}
-              </MapView>
+              {nativeMapsAvailable ? (
+                <MapView
+                  style={styles.map}
+                  initialRegion={mapRegion}
+                  region={pointGps ? {
+                    latitude: pointGps.lat,
+                    longitude: pointGps.lng,
+                    latitudeDelta: 0.025,
+                    longitudeDelta: 0.025,
+                  } : mapRegion}
+                  onPress={(event) => {
+                    const lat = Number(event.nativeEvent.coordinate.latitude.toFixed(6));
+                    const lng = Number(event.nativeEvent.coordinate.longitude.toFixed(6));
+                    setPointLocationMode('pin');
+                    setPointPin({ lat, lng });
+                  }}
+                >
+                  {zones.map((zone) => (
+                    <Polygon
+                      key={zone._id}
+                      coordinates={zone.polygon.map((point) => ({ latitude: point.lat, longitude: point.lng }))}
+                      strokeColor={zone.color || '#2563eb'}
+                      fillColor={`${zone.color || '#2563eb'}22`}
+                      strokeWidth={2}
+                    />
+                  ))}
+                  {points.map((point) =>
+                    point.gps?.lat && point.gps?.lng ? (
+                      <Marker
+                        key={point._id}
+                        coordinate={{ latitude: point.gps.lat, longitude: point.gps.lng }}
+                        title={point.name}
+                        description={`${pointTypeLabel(point.type)} · ${point.status}`}
+                      >
+                        <View style={[styles.pointMapMarkerSmall, { borderColor: pointTypeColor(point.type) }]}>
+                          <Text style={[styles.pointMapMarkerSmallText, { color: pointTypeColor(point.type) }]}>{pointInitials(point.name)}</Text>
+                        </View>
+                      </Marker>
+                    ) : null,
+                  )}
+                  {lastGps && (
+                    <>
+                      {lastGps.accuracy != null && (
+                        <MapCircle
+                          center={{ latitude: lastGps.lat, longitude: lastGps.lng }}
+                          radius={Math.max(10, Math.min(500, lastGps.accuracy))}
+                          strokeColor={gpsAccuracyColor(lastGps.accuracy)}
+                          fillColor={`${gpsAccuracyColor(lastGps.accuracy)}24`}
+                          strokeWidth={2}
+                        />
+                      )}
+                      <Marker coordinate={{ latitude: lastGps.lat, longitude: lastGps.lng }} title="GPS actuel">
+                        <View style={styles.currentLocationMarker}>
+                          <View style={styles.currentLocationMarkerCore} />
+                        </View>
+                      </Marker>
+                    </>
+                  )}
+                  {pointGps && (
+                    <Marker
+                      coordinate={{ latitude: pointGps.lat, longitude: pointGps.lng }}
+                      title={pointLocationMode === 'pin' ? 'Point choisi' : 'GPS actuel'}
+                    >
+                      <View style={styles.newPointMarker}>
+                        <Text style={styles.newPointMarkerText}>+</Text>
+                      </View>
+                    </Marker>
+                  )}
+                </MapView>
+              ) : (
+                <MapUnavailableCard />
+              )}
             </View>
             <Text style={styles.muted}>
               {pointGps
@@ -1976,6 +1992,17 @@ function MetricRow({ label, value, compact = false }: { label: string; value: st
     <View style={[styles.metricRow, compact && styles.metricRowCompact]}>
       <Text style={styles.metricLabel}>{label}</Text>
       <Text style={styles.metricValue} numberOfLines={compact ? 1 : 2}>{value}</Text>
+    </View>
+  );
+}
+
+function MapUnavailableCard() {
+  return (
+    <View style={styles.mapUnavailable}>
+      <Text style={styles.mapUnavailableTitle}>Carte desactivee sur ce build</Text>
+      <Text style={styles.mapUnavailableText}>
+        Ajoutez une cle Google Maps Android puis regenerez l'APK. Le pointage, les points et la synchronisation restent actifs.
+      </Text>
     </View>
   );
 }
@@ -2838,6 +2865,26 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  mapUnavailable: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 18,
+    backgroundColor: '#f8fafc',
+  },
+  mapUnavailableTitle: {
+    color: '#0f172a',
+    fontSize: 15,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  mapUnavailableText: {
+    color: '#475569',
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
   },
   pointMapMarker: {
     minWidth: 34,

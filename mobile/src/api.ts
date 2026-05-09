@@ -11,7 +11,7 @@ import type { User } from './types';
 export const SESSION_COOKIE_KEY = 'asel.session.cookie';
 export const SESSION_TOKEN_KEY = 'asel.session.token';
 export const API_BASE_URL =
-  (process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://localhost:4000/api').replace(/\/$/, '');
+  (process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://asel.saleheddinetouil.tech/api').replace(/\/$/, '');
 
 interface ApiErrorPayload {
   code?: string;

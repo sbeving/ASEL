@@ -12,7 +12,7 @@ import { Installment } from '../models/Installment.js';
 import { Stock } from '../models/Stock.js';
 import { applyStockDelta } from '../services/stock.service.js';
 import { audit } from '../services/audit.service.js';
-import { refreshClosingSystemTotals } from '../services/closing.service.js';
+import { refreshClosingSystemTotalsForDates } from '../services/closing.service.js';
 import { nextSequenceValue } from '../services/sequence.service.js';
 import { badRequest, forbidden, notFound } from '../utils/AppError.js';
 import { buildInstallmentSchedule, roundCurrency } from '../utils/installments.js';
@@ -101,6 +101,16 @@ function canCancelSale(req: Express.Request, sale: any) {
     );
   }
   return false;
+}
+
+function saleAggregateFilter(filter: Record<string, unknown>) {
+  const aggregateFilter: Record<string, unknown> = { ...filter };
+  for (const key of ['franchiseId', 'clientId', 'userId'] as const) {
+    if (typeof aggregateFilter[key] === 'string' && isValidObjectId(aggregateFilter[key])) {
+      aggregateFilter[key] = new mongoose.Types.ObjectId(aggregateFilter[key]);
+    }
+  }
+  return aggregateFilter;
 }
 
 function productTypeOf(product: any): 'standard' | 'asel_recharge' | 'asel_forfait' {
@@ -348,6 +358,12 @@ router.post(
       },
     });
 
+    await refreshClosingSystemTotalsForDates(
+      fid,
+      [sale.createdAt, ...installments.map((installment) => installment.dueDate)],
+      `Cloture reouverte suite creation vente ${invoiceNumber}.`,
+    );
+
     res.status(201).json({ sale, installments });
   }),
 );
@@ -430,8 +446,56 @@ router.get(
       ];
     }
 
-    const [total, sales] = await Promise.all([
+    const remainingExpression = {
+      $subtract: ['$total', { $ifNull: ['$amountReceived', 0] }],
+    };
+    const activeCondition = { $eq: ['$cancelledAt', null] };
+    const [total, summaryAgg, sales] = await Promise.all([
       Sale.countDocuments(filter),
+      Sale.aggregate([
+        { $match: saleAggregateFilter(filter) },
+        {
+          $group: {
+            _id: null,
+            activeCount: { $sum: { $cond: [activeCondition, 1, 0] } },
+            cancelledCount: { $sum: { $cond: [activeCondition, 0, 1] } },
+            grossTotal: { $sum: { $cond: [activeCondition, '$total', 0] } },
+            amountReceived: { $sum: { $cond: [activeCondition, { $ifNull: ['$amountReceived', 0] }, 0] } },
+            remainingTotal: {
+              $sum: {
+                $cond: [
+                  activeCondition,
+                  {
+                    $cond: [
+                      { $gt: [remainingExpression, 0] },
+                      remainingExpression,
+                      0,
+                    ],
+                  },
+                  0,
+                ],
+              },
+            },
+            cashSalesTotal: {
+              $sum: {
+                $cond: [
+                  { $and: [activeCondition, { $eq: ['$paymentMethod', 'cash'] }] },
+                  { $ifNull: ['$amountReceived', '$total'] },
+                  0,
+                ],
+              },
+            },
+            installmentSales: {
+              $sum: { $cond: [{ $and: [activeCondition, { $eq: ['$paymentMethod', 'installment'] }] }, 1, 0] },
+            },
+            commissionTotal: { $sum: { $cond: [activeCondition, { $ifNull: ['$commissionTotal', 0] }, 0] } },
+            companyShareTotal: { $sum: { $cond: [activeCondition, { $ifNull: ['$companyShareTotal', 0] }, 0] } },
+            franchiseManagerShareTotal: {
+              $sum: { $cond: [activeCondition, { $ifNull: ['$franchiseManagerShareTotal', 0] }, 0] },
+            },
+          },
+        },
+      ]),
       Sale.find(filter)
         .sort({ createdAt: -1 })
         .skip(skip)
@@ -443,8 +507,33 @@ router.get(
         .populate('items.productId', 'name reference'),
     ]);
 
+    const summary = summaryAgg[0] ?? {
+      activeCount: 0,
+      cancelledCount: 0,
+      grossTotal: 0,
+      amountReceived: 0,
+      remainingTotal: 0,
+      cashSalesTotal: 0,
+      installmentSales: 0,
+      commissionTotal: 0,
+      companyShareTotal: 0,
+      franchiseManagerShareTotal: 0,
+    };
+
     res.json({
       sales,
+      summary: {
+        activeCount: summary.activeCount,
+        cancelledCount: summary.cancelledCount,
+        grossTotal: summary.grossTotal,
+        amountReceived: summary.amountReceived,
+        remainingTotal: summary.remainingTotal,
+        cashSalesTotal: summary.cashSalesTotal,
+        installmentSales: summary.installmentSales,
+        commissionTotal: summary.commissionTotal,
+        companyShareTotal: summary.companyShareTotal,
+        franchiseManagerShareTotal: summary.franchiseManagerShareTotal,
+      },
       meta: {
         page,
         pageSize: effectivePageSize,
@@ -498,13 +587,21 @@ router.post(
 
     let paidInstallments = 0;
     let deletedPendingInstallments = 0;
+    let affectedInstallments: Array<{ status: string; dueDate?: Date | null; paidAt?: Date | null }> = [];
     const restoredQuantity = sale.items.reduce(
       (sum, item) => ((item as any).stockManaged === false ? sum : sum + item.quantity),
       0,
     );
 
     await withMongoTransaction(async (session) => {
-      paidInstallments = await Installment.countDocuments({ saleId: sale._id, status: 'paid' }).session(session ?? null);
+      affectedInstallments = await Installment.find({ saleId: sale._id })
+        .select('status dueDate paidAt')
+        .session(session ?? null)
+        .lean();
+      paidInstallments = affectedInstallments.filter((installment) => installment.status === 'paid').length;
+      if ((req.user!.role === 'seller' || req.user!.role === 'vendeur') && paidInstallments > 0) {
+        throw forbidden('A sale with paid installments must be cancelled by a franchise superior');
+      }
       sale.cancelledAt = new Date();
       sale.cancelledBy = req.user!.sub as any;
       sale.cancelReason = input.reason || 'Annulation vente';
@@ -532,9 +629,13 @@ router.post(
       deletedPendingInstallments = result.deletedCount ?? 0;
     });
 
-    const refreshedClosing = await refreshClosingSystemTotals(
+    const refreshedClosings = await refreshClosingSystemTotalsForDates(
       sale.franchiseId.toString(),
-      sale.createdAt,
+      [
+        sale.createdAt,
+        ...affectedInstallments.map((installment) => installment.dueDate),
+        ...affectedInstallments.map((installment) => installment.paidAt),
+      ],
       `Cloture reouverte suite annulation vente ${sale.invoiceNumber || sale._id.toString()}.`,
     );
 
@@ -551,7 +652,7 @@ router.post(
         restoredQuantity,
         paidInstallments,
         deletedPendingInstallments,
-        refreshedClosingId: refreshedClosing?._id?.toString?.() ?? null,
+        refreshedClosingIds: refreshedClosings.map((closing: any) => closing._id?.toString?.()).filter(Boolean),
         revenueRemovedFromCA: sale.total,
       },
     });

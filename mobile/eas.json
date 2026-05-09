@@ -12,6 +12,9 @@
     },
     "preview": {
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://asel.saleheddinetouil.tech/api"
+      },
       "android": {
         "buildType": "apk"
       }

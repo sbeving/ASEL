@@ -30,6 +30,19 @@ const paymentStatusLabels: Record<Sale['paymentStatus'], string> = {
   pending: 'En attente',
 };
 
+type SalesSummary = {
+  activeCount: number;
+  cancelledCount: number;
+  grossTotal: number;
+  amountReceived: number;
+  remainingTotal: number;
+  cashSalesTotal: number;
+  installmentSales: number;
+  commissionTotal: number;
+  companyShareTotal: number;
+  franchiseManagerShareTotal: number;
+};
+
 function statusBadgeClass(status: Sale['paymentStatus']) {
   if (status === 'paid') return 'badge-success';
   if (status === 'partial') return 'badge-warning';
@@ -105,7 +118,7 @@ export function SalesPage() {
     queryKey: ['sales', selectedFid, debouncedSearch, saleType, paymentMethod, paymentStatus, fromDate, toDate, page],
     queryFn: async () =>
       (
-        await api.get<{ sales: Sale[]; meta: PageMeta }>('/sales', {
+        await api.get<{ sales: Sale[]; summary: SalesSummary; meta: PageMeta }>('/sales', {
           params: {
             franchiseId: selectedFid || undefined,
             q: debouncedSearch || undefined,
@@ -150,12 +163,27 @@ export function SalesPage() {
   );
 
   const summary = useMemo(() => {
+    if (sales.data?.summary) return sales.data.summary;
     const rows = (sales.data?.sales ?? []).filter((sale) => !sale.cancelledAt);
-    const total = rows.reduce((sum, sale) => sum + sale.total, 0);
-    const received = rows.reduce((sum, sale) => sum + (sale.amountReceived ?? 0), 0);
+    const grossTotal = rows.reduce((sum, sale) => sum + sale.total, 0);
+    const amountReceived = rows.reduce((sum, sale) => sum + (sale.amountReceived ?? 0), 0);
+    const remainingTotal = rows.reduce((sum, sale) => sum + Math.max(0, sale.total - (sale.amountReceived ?? 0)), 0);
     const installmentSales = rows.filter((sale) => sale.paymentMethod === 'installment').length;
-    return { total, received, installmentSales };
-  }, [sales.data?.sales]);
+    return {
+      activeCount: rows.length,
+      cancelledCount: (sales.data?.sales ?? []).filter((sale) => sale.cancelledAt).length,
+      grossTotal,
+      amountReceived,
+      remainingTotal,
+      cashSalesTotal: rows
+        .filter((sale) => sale.paymentMethod === 'cash')
+        .reduce((sum, sale) => sum + (sale.amountReceived ?? sale.total), 0),
+      installmentSales,
+      commissionTotal: rows.reduce((sum, sale) => sum + (sale.commissionTotal ?? 0), 0),
+      companyShareTotal: rows.reduce((sum, sale) => sum + (sale.companyShareTotal ?? 0), 0),
+      franchiseManagerShareTotal: rows.reduce((sum, sale) => sum + (sale.franchiseManagerShareTotal ?? 0), 0),
+    };
+  }, [sales.data?.sales, sales.data?.summary]);
 
   function setTodayFilter() {
     const today = new Date().toISOString().slice(0, 10);
@@ -241,21 +269,26 @@ export function SalesPage() {
         </div>
       </section>
 
-      <section className="mb-5 grid gap-4 md:grid-cols-3">
+      <section className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="card p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Total page</div>
-          <div className="mt-2 text-2xl font-semibold text-slate-900">{money(summary.total)}</div>
-          <div className="mt-1 text-sm text-slate-500">Transactions affichees</div>
+          <div className="text-xs uppercase tracking-wide text-slate-500">CA filtre</div>
+          <div className="mt-2 text-2xl font-semibold text-slate-900">{money(summary.grossTotal)}</div>
+          <div className="mt-1 text-sm text-slate-500">{summary.activeCount} vente(s) valide(s)</div>
         </div>
         <div className="card p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Encaisse sur page</div>
-          <div className="mt-2 text-2xl font-semibold text-slate-900">{money(summary.received)}</div>
-          <div className="mt-1 text-sm text-slate-500">Montant effectivement recu</div>
+          <div className="text-xs uppercase tracking-wide text-slate-500">Encaisse filtre</div>
+          <div className="mt-2 text-2xl font-semibold text-emerald-700">{money(summary.amountReceived)}</div>
+          <div className="mt-1 text-sm text-slate-500">Dont especes: {money(summary.cashSalesTotal)}</div>
         </div>
         <div className="card p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Ventes a echeance</div>
-          <div className="mt-2 text-2xl font-semibold text-slate-900">{summary.installmentSales}</div>
-          <div className="mt-1 text-sm text-slate-500">Paiement mode echeance</div>
+          <div className="text-xs uppercase tracking-wide text-slate-500">Reste filtre</div>
+          <div className="mt-2 text-2xl font-semibold text-amber-700">{money(summary.remainingTotal)}</div>
+          <div className="mt-1 text-sm text-slate-500">{summary.installmentSales} vente(s) a echeance</div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wide text-slate-500">Commission filtre</div>
+          <div className="mt-2 text-2xl font-semibold text-slate-900">{money(summary.commissionTotal)}</div>
+          <div className="mt-1 text-sm text-slate-500">{summary.cancelledCount} vente(s) annulee(s)</div>
         </div>
       </section>
 

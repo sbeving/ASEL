@@ -12,7 +12,7 @@ import {
   Bell, Wrench, ArrowRightLeft, ClipboardList, Network, RotateCcw, Clock,
   Wallet, Truck, ClipboardCheck, Lock, CalendarDays, Tag, Layers,
   Briefcase, Store, MapPin, UserCog, History, LogOut, Menu, X, Sun, Moon, ShieldCheck,
-  PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen, Smartphone,
   ChevronRight
 } from 'lucide-react';
 
@@ -28,10 +28,12 @@ const STOCK_OPS_ROLES: Role[] = ['ceo', 'admin', 'superadmin', 'manager', 'stock
 const CASH_ROLES: Role[] = ['ceo', 'admin', 'superadmin', 'manager', 'cash_central_maintainer', 'franchise'];
 const HR_ROLES: Role[] = ['ceo', 'admin', 'superadmin', 'manager', 'commercial_director', 'hr_admin', 'franchise'];
 const NOTIFICATION_ROLES: Role[] = [...STAFF_ROLES, 'viewer'];
+const MOBILE_APP_ROLES: Role[] = ['ceo', 'admin', 'superadmin', 'manager', 'commercial_director', 'hr_admin', 'commercial', 'siege_employee'];
 
 const nav: { to: string; label: string; icon: any; section: string; roles?: Role[] }[] = [
   { to: '/', label: 'Tableau de bord', icon: LayoutDashboard, section: 'Pilotage', roles: DASHBOARD_ROLES },
   { to: '/notifications', label: 'Notifications', icon: Bell, section: 'Pilotage', roles: NOTIFICATION_ROLES },
+  { to: '/mobile-app', label: 'App mobile', icon: Smartphone, section: 'Pilotage', roles: MOBILE_APP_ROLES },
   { to: '/pos', label: 'Caisse (POS)', icon: MonitorSmartphone, section: 'Franchise', roles: SELLING_ROLES },
   { to: '/sales', label: 'Ventes', icon: ShoppingCart, section: 'Franchise', roles: ERP_ROLES },
   { to: '/clients', label: 'Clients', icon: Users, section: 'Franchise', roles: ERP_ROLES },
@@ -375,11 +377,11 @@ export function Layout() {
   const currentSection = currentItem?.section ?? 'Pilotage';
   const roleMobileTabs =
     user.role === 'siege_employee'
-      ? ['/timelogs']
+      ? ['/timelogs', '/mobile-app']
       : user.role === 'hr_admin'
-        ? ['/', '/hr', '/timelogs', '/users']
+        ? ['/', '/hr', '/timelogs', '/mobile-app']
       : user.role === 'commercial'
-        ? ['/timelogs', '/network-points', '/map']
+        ? ['/timelogs', '/network-points', '/map', '/mobile-app']
         : erpMobileTabs;
   const visibleMobileTabs = roleMobileTabs
     .map((path) => items.find((item) => item.to === path))

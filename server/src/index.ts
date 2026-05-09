@@ -38,6 +38,7 @@ import locationPingRoutes from './routes/locationPings.js';
 import notificationRoutes from './routes/notifications.js';
 import uploadRoutes from './routes/uploads.js';
 import backupRoutes from './routes/backups.js';
+import mobileAppRoutes from './routes/mobileApp.js';
 import { scheduleInstallmentNotificationRefresh } from './services/installmentNotifications.service.js';
 import { scheduleDailyBackups } from './services/backup.service.js';
 import { scheduleAutomaticClosings } from './services/closing.service.js';
@@ -98,6 +99,7 @@ async function main() {
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/uploads', uploadRoutes);
   app.use('/api/backups', backupRoutes);
+  app.use('/api/mobile-app', mobileAppRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

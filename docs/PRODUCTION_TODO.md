@@ -85,10 +85,10 @@ Work these one by one. Each item should be implemented, tested, and then marked 
 - [x] Backend calculates system sales total and item total for closing date.
 - [x] Frontend auto-fills declared totals from system summary.
 - [x] Closing summary shows sales count and cash amount.
-- [ ] Add card, transfer, installment, return, cash-in, and cash-out breakdown.
-- [ ] Add expected cash drawer calculation: opening cash + cash sales + cash in - cash out - refunds.
-- [ ] Add declared cash denominations form.
-- [ ] Add variance reason requirement when difference is above threshold.
+- [x] Add card, transfer, installment, return, cash-in, and cash-out breakdown. Verified with server/client typechecks.
+- [x] Add expected cash drawer calculation: cash sales + installment cash + cash in - cash out - refunds. Verified with closing service tests.
+- [x] Add declared cash denominations form. Verified with closing service tests plus server/client typechecks.
+- [x] Add variance reason requirement when difference is above threshold. Verified with closing service tests plus server/client typechecks.
 - [ ] Add manager validation workflow and locked day after validation.
 - [ ] Add closing PDF/export.
 

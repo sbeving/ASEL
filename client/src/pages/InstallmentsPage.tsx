@@ -60,6 +60,18 @@ function installmentReminderMessage(installment: Installment): string {
 
 type InstallmentStatusFilter = '' | 'pending' | 'paid' | 'late';
 
+interface InstallmentSummary {
+  totalCount: number;
+  pendingCount: number;
+  pendingAmount: number;
+  lateCount: number;
+  lateAmount: number;
+  dueAmount: number;
+  paidCount: number;
+  paidAmount: number;
+  receiptCount: number;
+}
+
 function readStatusParam(value: string | null): InstallmentStatusFilter {
   return value === 'pending' || value === 'paid' || value === 'late' ? value : '';
 }
@@ -165,7 +177,7 @@ export function InstallmentsPage() {
     queryKey: ['installments', franchiseId, statusFilter, fromDate, toDate, page],
     queryFn: async () =>
       (
-        await api.get<{ installments: Installment[]; meta: PageMeta }>('/installments', {
+        await api.get<{ installments: Installment[]; summary: InstallmentSummary; meta: PageMeta }>('/installments', {
           params: {
             franchiseId: franchiseId || undefined,
             status: statusFilter || undefined,
@@ -177,6 +189,39 @@ export function InstallmentsPage() {
         })
       ).data,
   });
+
+  const installmentRows = installments.data?.installments ?? [];
+  const installmentSummary = useMemo<InstallmentSummary>(() => {
+    if (installments.data?.summary) return installments.data.summary;
+    return installmentRows.reduce<InstallmentSummary>((summary, installment) => {
+      const remaining = Math.max(0, installment.amount - (installment.paidAmount ?? 0));
+      summary.totalCount += 1;
+      if (installment.status === 'pending') {
+        summary.pendingCount += 1;
+        summary.pendingAmount += remaining;
+        summary.dueAmount += remaining;
+      } else if (installment.status === 'late') {
+        summary.lateCount += 1;
+        summary.lateAmount += remaining;
+        summary.dueAmount += remaining;
+      } else {
+        summary.paidCount += 1;
+        summary.paidAmount += installment.paidAmount || installment.amount;
+        if (installment.receiptPath) summary.receiptCount += 1;
+      }
+      return summary;
+    }, {
+      totalCount: 0,
+      pendingCount: 0,
+      pendingAmount: 0,
+      lateCount: 0,
+      lateAmount: 0,
+      dueAmount: 0,
+      paidCount: 0,
+      paidAmount: 0,
+      receiptCount: 0,
+    });
+  }, [installmentRows, installments.data?.summary]);
 
   const selectedSaleAmount = useMemo(() => {
     const selected = (sales.data ?? []).find((sale) => sale._id === saleId);
@@ -336,6 +381,32 @@ export function InstallmentsPage() {
             Effacer filtres
           </button>
         </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <article className="rounded-lg border border-slate-200 bg-white p-3">
+            <div className="text-xs font-semibold uppercase text-slate-400">A encaisser</div>
+            <div className="mt-1 text-xl font-bold text-slate-900">{money(installmentSummary.dueAmount)}</div>
+            <div className="mt-1 text-xs text-slate-500">
+              {installmentSummary.pendingCount + installmentSummary.lateCount} echeance(s)
+            </div>
+          </article>
+          <article className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <div className="text-xs font-semibold uppercase text-amber-600">En attente</div>
+            <div className="mt-1 text-xl font-bold text-amber-950">{money(installmentSummary.pendingAmount)}</div>
+            <div className="mt-1 text-xs text-amber-700">{installmentSummary.pendingCount} dossier(s)</div>
+          </article>
+          <article className="rounded-lg border border-rose-200 bg-rose-50 p-3">
+            <div className="text-xs font-semibold uppercase text-rose-600">En retard</div>
+            <div className="mt-1 text-xl font-bold text-rose-950">{money(installmentSummary.lateAmount)}</div>
+            <div className="mt-1 text-xs text-rose-700">{installmentSummary.lateCount} dossier(s)</div>
+          </article>
+          <article className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+            <div className="text-xs font-semibold uppercase text-emerald-600">Encaisse</div>
+            <div className="mt-1 text-xl font-bold text-emerald-950">{money(installmentSummary.paidAmount)}</div>
+            <div className="mt-1 text-xs text-emerald-700">
+              {installmentSummary.paidCount} paiement(s), {installmentSummary.receiptCount} recu(s)
+            </div>
+          </article>
+        </div>
         <TablePagination meta={installments.data?.meta} onPageChange={setPage} className="px-1 py-3" />
       </section>
 
@@ -375,7 +446,7 @@ export function InstallmentsPage() {
       )}
 
       <section className="grid gap-3 md:hidden">
-        {(installments.data?.installments ?? []).map((installment) => {
+        {installmentRows.map((installment) => {
           const saleLabel =
             typeof installment.saleId === 'object' && installment.saleId
               ? installment.saleId.invoiceNumber || dateTime(installment.saleId.createdAt)
@@ -442,7 +513,7 @@ export function InstallmentsPage() {
             </article>
           );
         })}
-        {!installments.isLoading && (installments.data?.installments.length ?? 0) === 0 && (
+	        {!installments.isLoading && installmentRows.length === 0 && (
           <div className="card p-5 text-sm text-slate-400">Aucune echeance.</div>
         )}
       </section>
@@ -462,7 +533,7 @@ export function InstallmentsPage() {
               </tr>
             </thead>
             <tbody>
-              {(installments.data?.installments ?? []).map((installment) => (
+	              {installmentRows.map((installment) => (
                 <tr key={installment._id}>
                   <td className="td-action">
                     {typeof installment.saleId === 'object' && installment.saleId
@@ -529,7 +600,7 @@ export function InstallmentsPage() {
                   </td>
                 </tr>
               ))}
-              {!installments.isLoading && (installments.data?.installments.length ?? 0) === 0 && (
+	              {!installments.isLoading && installmentRows.length === 0 && (
                 <tr>
                   <td className="td text-slate-400" colSpan={7}>Aucune échéance.</td>
                 </tr>
