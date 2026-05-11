@@ -1,26 +1,25 @@
-import { Router } from 'express';
-import bcrypt from 'bcryptjs';
-import { z } from 'zod';
-import { env } from '../config/env.js';
-import { AUTH_COOKIE, requireAuth, signSession } from '../middleware/auth.js';
-import { validate } from '../middleware/validate.js';
-import { asyncHandler } from '../middleware/asyncHandler.js';
-import { authLimiter, sensitiveWriteLimiter } from '../middleware/rateLimit.js';
-import { User } from '../models/User.js';
-import { unauthorized, badRequest } from '../utils/AppError.js';
-import { audit, auditSystem } from '../services/audit.service.js';
-import type { Role } from '../utils/roles.js';
-import { normalizeCustomPermissionOverrides } from '../utils/permissions.js';
-import { createFirstLoginTimeLog } from '../services/franchiseWorkSchedule.service.js';
-import { encryptSecret, secretLast4 } from '../utils/secrets.js';
+import { Router } from "express";
+import bcrypt from "bcryptjs";
+import { z } from "zod";
+import { env } from "../config/env.js";
+import { AUTH_COOKIE, requireAuth, signSession } from "../middleware/auth.js";
+import { validate } from "../middleware/validate.js";
+import { asyncHandler } from "../middleware/asyncHandler.js";
+import { authLimiter, sensitiveWriteLimiter } from "../middleware/rateLimit.js";
+import { User } from "../models/User.js";
+import { unauthorized, badRequest } from "../utils/AppError.js";
+import { audit, auditSystem } from "../services/audit.service.js";
+import type { Role } from "../utils/roles.js";
+import { normalizeCustomPermissionOverrides } from "../utils/permissions.js";
+import { createFirstLoginTimeLog } from "../services/franchiseWorkSchedule.service.js";
 
 const router = Router();
 
 const cookieOptions = {
   httpOnly: true,
   secure: env.COOKIE_SECURE,
-  sameSite: 'strict' as const,
-  path: '/',
+  sameSite: "strict" as const,
+  path: "/",
   domain: env.COOKIE_DOMAIN || undefined,
   maxAge: 12 * 60 * 60 * 1000,
 };
@@ -30,53 +29,57 @@ const loginSchema = z.object({
   password: z.string().min(1).max(200),
 });
 
-const googleAiStudioKeySchema = z.object({
-  apiKey: z.string().trim().min(20).max(500),
-});
-
-function ocrSettingsFromUser(user: {
-  googleAiStudioApiKeyEncrypted?: string | null;
-  googleAiStudioApiKeyLast4?: string | null;
-  googleAiStudioApiKeyUpdatedAt?: Date | string | null;
-}) {
+function ocrSettings() {
   return {
-    googleAiStudioConfigured: Boolean(user.googleAiStudioApiKeyEncrypted || user.googleAiStudioApiKeyLast4),
-    googleAiStudioLast4: user.googleAiStudioApiKeyLast4 ?? null,
-    googleAiStudioUpdatedAt: user.googleAiStudioApiKeyUpdatedAt ?? null,
+    mode: "local" as const,
+    localEnabled: env.OCR_LOCAL_ENABLED,
   };
 }
 
 router.post(
-  '/login',
+  "/login",
   authLimiter,
   validate(loginSchema),
   asyncHandler(async (req, res) => {
     const { username, password } = req.body as z.infer<typeof loginSchema>;
 
-    const user = await User.findOne({ username }).select('+passwordHash');
+    const user = await User.findOne({ username }).select("+passwordHash");
     if (!user || !user.active) {
       // Timing-attack mitigation: still perform a bcrypt comparison on a dummy hash
-      await bcrypt.compare(password, '$2a$12$CwTycUXWue0Thq9StjUM0uJ8.HVaA1lR5y/9eTBcvC.dS8xc3w1cm');
+      await bcrypt.compare(
+        password,
+        "$2a$12$CwTycUXWue0Thq9StjUM0uJ8.HVaA1lR5y/9eTBcvC.dS8xc3w1cm",
+      );
       await auditSystem({
-        action: 'auth.login_failed',
-        entity: 'User',
+        action: "auth.login_failed",
+        entity: "User",
         username,
-        details: { username, reason: !user ? 'user_not_found' : 'inactive_user', ip: req.ip, userAgent: req.get('user-agent') },
+        details: {
+          username,
+          reason: !user ? "user_not_found" : "inactive_user",
+          ip: req.ip,
+          userAgent: req.get("user-agent"),
+        },
       });
-      throw unauthorized('Invalid credentials');
+      throw unauthorized("Invalid credentials");
     }
 
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) {
       await auditSystem({
-        action: 'auth.login_failed',
-        entity: 'User',
+        action: "auth.login_failed",
+        entity: "User",
         entityId: user._id.toString(),
         franchiseId: user.franchiseId ? user.franchiseId.toString() : null,
         username,
-        details: { username, reason: 'bad_password', ip: req.ip, userAgent: req.get('user-agent') },
+        details: {
+          username,
+          reason: "bad_password",
+          ip: req.ip,
+          userAgent: req.get("user-agent"),
+        },
       });
-      throw unauthorized('Invalid credentials');
+      throw unauthorized("Invalid credentials");
     }
 
     user.lastLoginAt = new Date();
@@ -88,7 +91,9 @@ router.post(
       franchiseId: user.franchiseId ? user.franchiseId.toString() : null,
       username: user.username,
       sessionVersion: user.sessionVersion ?? 0,
-      customPermissions: normalizeCustomPermissionOverrides(user.customPermissions),
+      customPermissions: normalizeCustomPermissionOverrides(
+        user.customPermissions,
+      ),
     };
     const token = signSession(sessionPayload);
     req.user = sessionPayload;
@@ -101,14 +106,14 @@ router.post(
     } catch (error) {
       autoPointage = {
         created: false,
-        skippedReason: 'error',
-        message: error instanceof Error ? error.message : 'unknown error',
+        skippedReason: "error",
+        message: error instanceof Error ? error.message : "unknown error",
       };
     }
 
     await audit(req, {
-      action: 'auth.login',
-      entity: 'User',
+      action: "auth.login",
+      entity: "User",
       entityId: user._id.toString(),
       details: {
         role: user.role,
@@ -127,30 +132,32 @@ router.post(
         franchiseId: user.franchiseId,
         managerId: user.managerId,
         avatarPath: user.avatarPath,
-        customPermissions: normalizeCustomPermissionOverrides(user.customPermissions),
-        ocrSettings: ocrSettingsFromUser(user),
+        customPermissions: normalizeCustomPermissionOverrides(
+          user.customPermissions,
+        ),
+        ocrSettings: ocrSettings(),
       },
     });
   }),
 );
 
 router.post(
-  '/logout',
+  "/logout",
   asyncHandler(async (req, res) => {
     res.clearCookie(AUTH_COOKIE, { ...cookieOptions, maxAge: undefined });
     if (req.cookies?.[AUTH_COOKIE]) {
-      await audit(req, { action: 'auth.logout' });
+      await audit(req, { action: "auth.logout" });
     }
     res.json({ ok: true });
   }),
 );
 
 router.get(
-  '/me',
+  "/me",
   requireAuth,
   asyncHandler(async (req, res) => {
     const user = await User.findById(req.user!.sub);
-    if (!user || !user.active) throw unauthorized('Session invalid');
+    if (!user || !user.active) throw unauthorized("Session invalid");
     res.json({
       user: {
         id: user._id,
@@ -160,75 +167,22 @@ router.get(
         franchiseId: user.franchiseId,
         managerId: user.managerId,
         avatarPath: user.avatarPath,
-        customPermissions: normalizeCustomPermissionOverrides(user.customPermissions),
-        ocrSettings: ocrSettingsFromUser(user),
+        customPermissions: normalizeCustomPermissionOverrides(
+          user.customPermissions,
+        ),
+        ocrSettings: ocrSettings(),
       },
     });
   }),
 );
 
 router.get(
-  '/ocr-settings',
+  "/ocr-settings",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const user = await User.findById(req.user!.sub)
-      .select('+googleAiStudioApiKeyEncrypted googleAiStudioApiKeyLast4 googleAiStudioApiKeyUpdatedAt')
-      .lean();
-    if (!user) throw unauthorized('Session invalid');
-    res.json({ ocrSettings: ocrSettingsFromUser(user) });
-  }),
-);
-
-router.put(
-  '/ocr-settings/google-aistudio-key',
-  requireAuth,
-  sensitiveWriteLimiter,
-  validate(googleAiStudioKeySchema),
-  asyncHandler(async (req, res) => {
-    const { apiKey } = req.body as z.infer<typeof googleAiStudioKeySchema>;
-    const user = await User.findById(req.user!.sub).select('+googleAiStudioApiKeyEncrypted');
-    if (!user) throw unauthorized('Session invalid');
-
-    user.googleAiStudioApiKeyEncrypted = encryptSecret(apiKey);
-    user.googleAiStudioApiKeyLast4 = secretLast4(apiKey);
-    user.googleAiStudioApiKeyUpdatedAt = new Date();
-    await user.save();
-
-    await audit(req, {
-      action: 'auth.ocr_key.update',
-      entity: 'User',
-      entityId: user._id.toString(),
-      details: {
-        provider: 'google_aistudio',
-        last4: user.googleAiStudioApiKeyLast4,
-      },
-    });
-
-    res.json({ ocrSettings: ocrSettingsFromUser(user) });
-  }),
-);
-
-router.delete(
-  '/ocr-settings/google-aistudio-key',
-  requireAuth,
-  sensitiveWriteLimiter,
-  asyncHandler(async (req, res) => {
-    const user = await User.findById(req.user!.sub).select('+googleAiStudioApiKeyEncrypted');
-    if (!user) throw unauthorized('Session invalid');
-
-    user.googleAiStudioApiKeyEncrypted = null;
-    user.googleAiStudioApiKeyLast4 = null;
-    user.googleAiStudioApiKeyUpdatedAt = null;
-    await user.save();
-
-    await audit(req, {
-      action: 'auth.ocr_key.delete',
-      entity: 'User',
-      entityId: user._id.toString(),
-      details: { provider: 'google_aistudio' },
-    });
-
-    res.json({ ocrSettings: ocrSettingsFromUser(user) });
+    const user = await User.findById(req.user!.sub).select("_id").lean();
+    if (!user) throw unauthorized("Session invalid");
+    res.json({ ocrSettings: ocrSettings() });
   }),
 );
 
@@ -238,25 +192,27 @@ const changePasswordSchema = z
     newPassword: z.string().min(8).max(200),
   })
   .refine((v) => v.currentPassword !== v.newPassword, {
-    message: 'New password must differ from current password',
-    path: ['newPassword'],
+    message: "New password must differ from current password",
+    path: ["newPassword"],
   });
 
 router.post(
-  '/change-password',
+  "/change-password",
   requireAuth,
   sensitiveWriteLimiter,
   validate(changePasswordSchema),
   asyncHandler(async (req, res) => {
-    const { currentPassword, newPassword } = req.body as z.infer<typeof changePasswordSchema>;
-    const user = await User.findById(req.user!.sub).select('+passwordHash');
+    const { currentPassword, newPassword } = req.body as z.infer<
+      typeof changePasswordSchema
+    >;
+    const user = await User.findById(req.user!.sub).select("+passwordHash");
     if (!user) throw unauthorized();
     const ok = await bcrypt.compare(currentPassword, user.passwordHash);
-    if (!ok) throw badRequest('Current password is incorrect');
+    if (!ok) throw badRequest("Current password is incorrect");
     user.passwordHash = await bcrypt.hash(newPassword, env.BCRYPT_ROUNDS);
     user.sessionVersion = (user.sessionVersion ?? 0) + 1;
     await user.save();
-    await audit(req, { action: 'auth.change_password' });
+    await audit(req, { action: "auth.change_password" });
     res.json({ ok: true });
   }),
 );

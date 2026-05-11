@@ -28,9 +28,8 @@ export interface User {
     revokes: string[];
   };
   ocrSettings?: {
-    googleAiStudioConfigured: boolean;
-    googleAiStudioLast4?: string | null;
-    googleAiStudioUpdatedAt?: string | null;
+    mode?: "local";
+    localEnabled?: boolean;
   };
   active?: boolean;
   lastLoginAt?: string | null;
@@ -587,6 +586,21 @@ export interface Reception {
   vat: number;
   totalTtc: number;
   sourceDocumentPath?: string | null;
+  ocrExtraction?: {
+    documentPath?: string | null;
+    engine?: string | null;
+    confidence?: number | null;
+    pageCount?: number | null;
+    warnings?: string[];
+    rawText?: string;
+    parsed?: unknown;
+    corrections?: unknown;
+    reviewStatus?: "auto_approved" | "needs_review" | "reviewed";
+    reviewReasons?: string[];
+    duplicateCandidates?: unknown[];
+    reviewedAt?: string | null;
+    processedAt?: string | null;
+  } | null;
   note?: string;
   userId?: User | string;
   validatedBy?: User | string | null;

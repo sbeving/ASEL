@@ -9,7 +9,8 @@ services:
     volumes:
       - mongo-data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      test:
+        ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -35,8 +36,6 @@ services:
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       CORS_ORIGINS: ${CORS_ORIGINS}
       UPLOAD_DIR: uploads
-      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
-      MISTRAL_OCR_MODEL: ${MISTRAL_OCR_MODEL:-mistral-ocr-latest}
       OCR_LOCAL_ENABLED: ${OCR_LOCAL_ENABLED:-true}
       OCR_PREPROCESS_MAX_EDGE: ${OCR_PREPROCESS_MAX_EDGE:-2600}
       BACKUP_ENABLED: ${BACKUP_ENABLED:-true}

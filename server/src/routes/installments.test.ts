@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyInstallmentWaiverSnapshot,
   normalizeInstallmentSummary,
+  referenceIdString,
   validateRenegotiationParts,
 } from "./installments.js";
 
@@ -101,5 +102,11 @@ describe("installments route helpers", () => {
     expect(() => applyInstallmentWaiverSnapshot(100, 0, 120)).toThrow(
       "Waived amount cannot exceed remaining installment",
     );
+  });
+
+  it("keeps the original franchise id when receipt generation populates refs", () => {
+    const id = "69eac10306c6a2f723472b82";
+    expect(referenceIdString(id)).toBe(id);
+    expect(referenceIdString({ _id: id, name: "ASEL Mobile" })).toBe(id);
   });
 });

@@ -416,6 +416,22 @@ function canActOnInstallment(installment: Installment) {
   return installment.status === "pending" || installment.status === "late";
 }
 
+function canOperateOnInstallments(role?: string | null) {
+  return Boolean(
+    role &&
+      [
+        "ceo",
+        "admin",
+        "superadmin",
+        "manager",
+        "cash_central_maintainer",
+        "franchise",
+        "seller",
+        "vendeur",
+      ].includes(role),
+  );
+}
+
 function refId(value: unknown): string {
   if (!value) return "";
   if (typeof value === "string") return value;
@@ -514,6 +530,7 @@ export function InstallmentsPage() {
       ["ceo", "admin", "superadmin", "manager", "franchise"].includes(
         user.role,
       ));
+  const canCollectInstallments = canOperateOnInstallments(user?.role);
   const defaultFid = isGlobal ? "" : (user?.franchiseId ?? "");
 
   const qc = useQueryClient();
@@ -709,6 +726,7 @@ export function InstallmentsPage() {
       setClientId("");
       setAmount(0);
       qc.invalidateQueries({ queryKey: ["installments"] });
+      qc.invalidateQueries({ queryKey: ["installments-collection"] });
     },
     onError: (error) =>
       setErr(error instanceof Error ? error.message : apiError(error).message),
@@ -744,7 +762,10 @@ export function InstallmentsPage() {
       setPaymentDateLocal(toLocalDateTimeInputValue(new Date()));
       setPaymentNote("");
       qc.invalidateQueries({ queryKey: ["installments"] });
+      qc.invalidateQueries({ queryKey: ["installments-collection"] });
       qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["sales"] });
+      qc.invalidateQueries({ queryKey: ["closings"] });
     },
     onError: (error) =>
       setErr(error instanceof Error ? error.message : apiError(error).message),
@@ -766,6 +787,8 @@ export function InstallmentsPage() {
       setEditingPaymentDate(null);
       setRescheduleReason("");
       qc.invalidateQueries({ queryKey: ["installments"] });
+      qc.invalidateQueries({ queryKey: ["installments-collection"] });
+      qc.invalidateQueries({ queryKey: ["closings"] });
     },
     onError: (error) =>
       setErr(error instanceof Error ? error.message : apiError(error).message),
@@ -809,6 +832,18 @@ export function InstallmentsPage() {
   }
 
   const collection = collectionDashboard.data;
+  const paymentAmountNumber = Math.max(0, Number(paymentAmount) || 0);
+  const paymentIsPartial = Boolean(
+    paying && paymentAmountNumber > 0 && paymentAmountNumber < paying.amount,
+  );
+  const paymentInvalid = Boolean(
+    paying &&
+      (paymentAmountNumber <= 0 ||
+        paymentAmountNumber > paying.amount ||
+        Number.isNaN(new Date(paymentDateLocal).getTime()) ||
+        (paymentIsPartial &&
+          Number.isNaN(new Date(remainingDueDateLocal).getTime()))),
+  );
 
   return (
     <>
@@ -1164,18 +1199,22 @@ export function InstallmentsPage() {
                       Renegocier
                     </button>
                   )}
-                  <button
-                    className="btn-ghost !px-3 !py-1.5"
-                    onClick={() => openRescheduleModal(installment)}
-                  >
-                    Reporter
-                  </button>
-                  <button
-                    className="btn-secondary !px-3 !py-1.5"
-                    onClick={() => openPaymentModal(installment)}
-                  >
-                    Encaisser
-                  </button>
+                  {canCollectInstallments && (
+                    <>
+                      <button
+                        className="btn-ghost !px-3 !py-1.5"
+                        onClick={() => openRescheduleModal(installment)}
+                      >
+                        Reporter
+                      </button>
+                      <button
+                        className="btn-secondary !px-3 !py-1.5"
+                        onClick={() => openPaymentModal(installment)}
+                      >
+                        Encaisser
+                      </button>
+                    </>
+                  )}
                 </div>
               ) : installment.status === "paid" ? (
                 <div className="mt-3 flex flex-wrap justify-end gap-2">
@@ -1189,12 +1228,14 @@ export function InstallmentsPage() {
                       {installment.receiptNumber || "Recu"}
                     </a>
                   )}
-                  <button
-                    className="btn-ghost !px-3 !py-1.5"
-                    onClick={() => openPaymentDateModal(installment)}
-                  >
-                    Modifier date paiement
-                  </button>
+                  {canCollectInstallments && (
+                    <button
+                      className="btn-ghost !px-3 !py-1.5"
+                      onClick={() => openPaymentDateModal(installment)}
+                    >
+                      Modifier date paiement
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="mt-3 text-right text-xs text-slate-400">
@@ -1305,29 +1346,41 @@ export function InstallmentsPage() {
                               Renegocier
                             </button>
                           )}
-                          <button
-                            className="btn-ghost !px-3 !py-1.5"
-                            onClick={() => openRescheduleModal(installment)}
-                            disabled={updateInstallment.isPending}
-                          >
-                            Reporter
-                          </button>
-                          <button
-                            className="btn btn-secondary"
-                            onClick={() => openPaymentModal(installment)}
-                            disabled={pay.isPending}
-                          >
-                            Encaisser
-                          </button>
+                          {canCollectInstallments && (
+                            <>
+                              <button
+                                className="btn-ghost !px-3 !py-1.5"
+                                onClick={() =>
+                                  openRescheduleModal(installment)
+                                }
+                                disabled={updateInstallment.isPending}
+                              >
+                                Reporter
+                              </button>
+                              <button
+                                className="btn btn-secondary"
+                                onClick={() => openPaymentModal(installment)}
+                                disabled={pay.isPending}
+                              >
+                                Encaisser
+                              </button>
+                            </>
+                          )}
                         </>
                       ) : installment.status === "paid" ? (
-                        <button
-                          className="btn-ghost !px-3 !py-1.5"
-                          onClick={() => openPaymentDateModal(installment)}
-                          disabled={updateInstallment.isPending}
-                        >
-                          Modifier date
-                        </button>
+                        canCollectInstallments ? (
+                          <button
+                            className="btn-ghost !px-3 !py-1.5"
+                            onClick={() => openPaymentDateModal(installment)}
+                            disabled={updateInstallment.isPending}
+                          >
+                            Modifier date
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400">
+                            Payee
+                          </span>
+                        )
                       ) : (
                         <span className="text-xs text-slate-400">
                           Remplacee
@@ -1368,7 +1421,7 @@ export function InstallmentsPage() {
               <button
                 className="btn-primary"
                 onClick={() => pay.mutate()}
-                disabled={pay.isPending}
+                disabled={pay.isPending || paymentInvalid}
               >
                 {pay.isPending ? "Encaissement..." : "Valider paiement"}
               </button>
@@ -1405,6 +1458,24 @@ export function InstallmentsPage() {
                   value={paymentAmount}
                   onChange={(event) => setPaymentAmount(event.target.value)}
                 />
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="btn-ghost !px-3 !py-1.5 !text-xs"
+                    onClick={() => setPaymentAmount(String(paying.amount))}
+                  >
+                    Total
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost !px-3 !py-1.5 !text-xs"
+                    onClick={() =>
+                      setPaymentAmount(String(Math.round(paying.amount / 2 * 1000) / 1000))
+                    }
+                  >
+                    50%
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="label">Mode paiement</label>
@@ -1429,13 +1500,10 @@ export function InstallmentsPage() {
                 />
               </div>
             </div>
-            {Math.max(0, Number(paymentAmount) || 0) < paying.amount && (
+            {paymentIsPartial && (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
                 <div className="mb-3 text-sm font-semibold text-amber-900">
-                  Reste a planifier:{" "}
-                  {money(
-                    Math.max(0, paying.amount - (Number(paymentAmount) || 0)),
-                  )}
+                  Reste a planifier: {money(paying.amount - paymentAmountNumber)}
                 </div>
                 <label className="label !text-amber-700">
                   Nouvelle date du reste

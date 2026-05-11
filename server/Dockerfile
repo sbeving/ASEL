@@ -3,7 +3,7 @@ FROM node:20-bookworm-slim AS build
 WORKDIR /app
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates poppler-utils wget \
+  && apt-get install -y --no-install-recommends ca-certificates poppler-utils tesseract-ocr tesseract-ocr-eng tesseract-ocr-fra wget \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
@@ -20,7 +20,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates poppler-utils wget \
+  && apt-get install -y --no-install-recommends ca-certificates poppler-utils tesseract-ocr tesseract-ocr-eng tesseract-ocr-fra wget \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./

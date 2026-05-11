@@ -15,7 +15,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@mistralai/mistralai": "^2.2.1",
     "@repeato/ocr": "^1.5.19",
     "@types/pdfkit": "^0.17.6",
     "bcryptjs": "^2.4.3",

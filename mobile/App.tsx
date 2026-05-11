@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,7 +18,9 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import MapView, { Circle as MapCircle, Marker, Polygon } from 'react-native-maps';
+import { CameraView, useCameraPermissions, type BarcodeScanningResult, type BarcodeType } from 'expo-camera';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import {
   apiFetch,
   flushQueuedApiRequests,
@@ -49,15 +51,15 @@ const pointageLabels: Record<TimeLogType, string> = {
 const pointTypes: NetworkPoint['type'][] = ['activation_recharge', 'activation', 'recharge'];
 const pointStatuses: NetworkPoint['status'][] = ['prospect', 'contact', 'contrat_non_signe', 'contrat_signe', 'actif', 'suspendu', 'resilie'];
 const createPointStatuses: NetworkPoint['status'][] = ['prospect', 'contact', 'contrat_signe', 'actif'];
-const androidGoogleMapsKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? '';
-const nativeMapsAvailable =
-  Platform.OS !== 'android' ||
-  Boolean(androidGoogleMapsKey && androidGoogleMapsKey !== 'MISSING_GOOGLE_MAPS_API_KEY');
 
 type Screen = 'dashboard' | 'pointage' | 'map' | 'points' | 'newPoint';
 type PointFilter = 'all' | NetworkPoint['type'];
 type StatusFilter = 'all' | NetworkPoint['status'];
 type AllocationKind = 'sim' | 'recharge' | 'other';
+type MapLayer = 'street' | 'satellite';
+type AllocationDraft = { kind: AllocationKind; productId: string; amount: string; barcodes: string; note: string };
+
+const simBarcodeTypes: BarcodeType[] = ['ean13', 'ean8', 'code128', 'code39', 'code93', 'upc_a', 'upc_e', 'itf14', 'codabar', 'qr'];
 
 interface TimeLogRow {
   type: TimeLogType;
@@ -90,6 +92,34 @@ type PickedImage = {
   uri: string;
   name: string;
   type: string;
+  compressed?: boolean;
+};
+
+type MapRegion = {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+};
+
+type FreeMapMarker = {
+  id: string;
+  lat: number;
+  lng: number;
+  label: string;
+  title: string;
+  subtitle?: string;
+  color: string;
+  kind: 'point' | 'current' | 'pin';
+  selected?: boolean;
+};
+
+type FreeMapCircle = {
+  id: string;
+  lat: number;
+  lng: number;
+  radius: number;
+  color: string;
 };
 
 interface DashboardData {
@@ -395,6 +425,19 @@ function imageMimeFromUri(uri: string) {
   return 'image/jpeg';
 }
 
+function jpgNameFromUri(uri: string, fallback: string) {
+  const raw = imageNameFromUri(uri, fallback).replace(/\.[^.]+$/, '');
+  return `${raw || fallback.replace(/\.[^.]+$/, '')}.jpg`;
+}
+
+async function compressPickedImage(uri: string) {
+  return manipulateAsync(
+    uri,
+    [{ resize: { width: 1280 } }],
+    { compress: 0.68, format: SaveFormat.JPEG },
+  );
+}
+
 function pointTypeLabel(type: NetworkPoint['type']) {
   if (type === 'activation') return 'Activation';
   if (type === 'recharge') return 'Recharge';
@@ -461,6 +504,272 @@ function openMail(email?: string) {
   Linking.openURL(`mailto:${email}`).catch(() => Alert.alert('Email indisponible', 'Impossible d ouvrir la messagerie.'));
 }
 
+function present<T>(value: T | null | undefined): value is T {
+  return value != null;
+}
+
+function safeColor(color: string | undefined, fallback: string) {
+  return color && /^#[0-9a-f]{3,8}$/i.test(color) ? color : fallback;
+}
+
+function safeMapJson(payload: unknown) {
+  return JSON.stringify(payload)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026');
+}
+
+function freeMapHtml({
+  region,
+  zones,
+  markers,
+  circles,
+  interactive,
+  layer,
+}: {
+  region: MapRegion;
+  zones: CommercialZone[];
+  markers: FreeMapMarker[];
+  circles: FreeMapCircle[];
+  interactive: boolean;
+  layer: MapLayer;
+}) {
+  const payload = safeMapJson({
+    region,
+    zones: zones
+      .filter((zone) => zone.polygon.length >= 3)
+      .map((zone) => ({
+        id: zone._id,
+        name: zone.name,
+        color: safeColor(zone.color, '#2563eb'),
+        polygon: zone.polygon,
+      })),
+    markers,
+    circles,
+    interactive,
+    layer,
+  });
+  return `<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; background: #eef2f7; }
+    .leaflet-container { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .leaflet-control-attribution { font-size: 9px; }
+    .asel-marker { border: 0; background: transparent; }
+    .asel-marker-dot {
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      border: 3px solid #fff;
+      background: var(--marker-color, #2563eb);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 900;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.24);
+    }
+    .asel-marker-dot.point {
+      background: #fff;
+      color: var(--marker-color, #2563eb);
+      border-color: var(--marker-color, #2563eb);
+    }
+    .asel-marker-dot.current {
+      background: #0f172a;
+      color: #38bdf8;
+      border-color: #fff;
+    }
+    .asel-marker-dot.pin {
+      background: #16a34a;
+      color: #fff;
+      font-size: 22px;
+      line-height: 1;
+    }
+    .asel-marker-dot.selected {
+      outline: 4px solid rgba(14, 165, 233, 0.28);
+    }
+    .leaflet-popup-content {
+      margin: 8px 10px;
+      color: #0f172a;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .popup-title { font-weight: 900; margin-bottom: 2px; }
+    .popup-subtitle { color: #475569; font-weight: 700; }
+    .map-fallback {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      box-sizing: border-box;
+      color: #475569;
+      font-size: 13px;
+      font-weight: 800;
+      text-align: center;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const payload = ${payload};
+    const post = (message) => {
+      if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(message));
+    };
+    if (!window.L) {
+      document.getElementById('map').innerHTML = '<div class="map-fallback">Carte libre indisponible. Verifiez la connexion puis rouvrez la carte.</div>';
+      post({ type: 'mapError' });
+    } else {
+    const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (char) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[char]));
+    const center = [payload.region.latitude, payload.region.longitude];
+    const map = L.map('map', {
+      zoomControl: payload.interactive,
+      attributionControl: true,
+      dragging: payload.interactive,
+      scrollWheelZoom: payload.interactive,
+      doubleClickZoom: payload.interactive,
+      boxZoom: payload.interactive,
+      keyboard: payload.interactive,
+      tap: payload.interactive,
+      touchZoom: payload.interactive
+    }).setView(center, payload.region.latitudeDelta <= 0.01 ? 17 : payload.region.latitudeDelta <= 0.03 ? 15 : 12);
+    const satellite = payload.layer === 'satellite';
+    L.tileLayer(
+      satellite
+        ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+        : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {
+      maxZoom: 19,
+      attribution: satellite ? 'Tiles &copy; Esri' : '&copy; OpenStreetMap'
+      }
+    ).addTo(map);
+    payload.zones.forEach((zone) => {
+      const polygon = zone.polygon.map((point) => [point.lat, point.lng]);
+      L.polygon(polygon, {
+        color: zone.color,
+        weight: 2,
+        fillColor: zone.color,
+        fillOpacity: 0.18
+      }).addTo(map).bindPopup('<div class="popup-title">' + escapeHtml(zone.name) + '</div><div class="popup-subtitle">Zone affectee</div>');
+    });
+    payload.circles.forEach((circle) => {
+      L.circle([circle.lat, circle.lng], {
+        radius: circle.radius,
+        color: circle.color,
+        weight: 2,
+        fillColor: circle.color,
+        fillOpacity: 0.16
+      }).addTo(map);
+    });
+    payload.markers.forEach((marker) => {
+      const color = /^#[0-9a-f]{3,8}$/i.test(marker.color) ? marker.color : '#2563eb';
+      const icon = L.divIcon({
+        className: 'asel-marker',
+        iconSize: [38, 38],
+        iconAnchor: [19, 19],
+        html: '<div class="asel-marker-dot ' + escapeHtml(marker.kind) + (marker.selected ? ' selected' : '') + '" style="--marker-color:' + color + '">' + escapeHtml(marker.label) + '</div>'
+      });
+      L.marker([marker.lat, marker.lng], { icon })
+        .addTo(map)
+        .bindPopup('<div class="popup-title">' + escapeHtml(marker.title) + '</div><div class="popup-subtitle">' + escapeHtml(marker.subtitle || '') + '</div>')
+        .on('click', (event) => {
+          if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
+          post({ type: 'point', id: marker.id });
+        });
+    });
+    if (payload.markers.length > 1 || payload.zones.length > 0) {
+      const bounds = [];
+      payload.markers.forEach((marker) => bounds.push([marker.lat, marker.lng]));
+      payload.zones.forEach((zone) => zone.polygon.forEach((point) => bounds.push([point.lat, point.lng])));
+      if (bounds.length > 1) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 16 });
+    }
+    if (payload.interactive) {
+      map.on('click', (event) => post({
+        type: 'mapPress',
+        lat: Number(event.latlng.lat.toFixed(6)),
+        lng: Number(event.latlng.lng.toFixed(6))
+      }));
+    }
+    }
+  </script>
+</body>
+</html>`;
+}
+
+function FreeMap({
+  region,
+  zones = [],
+  markers = [],
+  circles = [],
+  interactive = true,
+  layer = 'street',
+  onPointPress,
+  onMapPress,
+}: {
+  region: MapRegion;
+  zones?: CommercialZone[];
+  markers?: FreeMapMarker[];
+  circles?: FreeMapCircle[];
+  interactive?: boolean;
+  layer?: MapLayer;
+  onPointPress?: (id: string) => void;
+  onMapPress?: (lat: number, lng: number) => void;
+}) {
+  const html = useMemo(() => freeMapHtml({ region, zones, markers, circles, interactive, layer }), [circles, interactive, layer, markers, region, zones]);
+
+  const handleMessage = (event: WebViewMessageEvent) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data) as { type?: string; id?: string; lat?: number; lng?: number };
+      if (data.type === 'point' && data.id) onPointPress?.(data.id);
+      if (data.type === 'mapPress' && typeof data.lat === 'number' && typeof data.lng === 'number') {
+        onMapPress?.(data.lat, data.lng);
+      }
+    } catch {
+      // Ignore malformed WebView messages.
+    }
+  };
+
+  return (
+    <WebView
+      originWhitelist={['*']}
+      source={{ html }}
+      style={styles.map}
+      javaScriptEnabled
+      domStorageEnabled
+      scrollEnabled={false}
+      bounces={false}
+      onMessage={handleMessage}
+      setSupportMultipleWindows={false}
+      startInLoadingState
+      renderLoading={() => (
+        <View style={styles.mapUnavailable}>
+          <ActivityIndicator color="#0f172a" />
+          <Text style={styles.mapUnavailableTitle}>Chargement carte libre</Text>
+        </View>
+      )}
+      renderError={() => (
+        <View style={styles.mapUnavailable}>
+          <Text style={styles.mapUnavailableTitle}>Carte indisponible</Text>
+          <Text style={styles.mapUnavailableText}>Verifiez la connexion et relancez la carte.</Text>
+        </View>
+      )}
+    />
+  );
+}
+
 export default function App() {
   const [booting, setBooting] = useState(true);
   const [user, setUser] = useState<User | null>(null);
@@ -493,10 +802,11 @@ export default function App() {
   const [pointSearch, setPointSearch] = useState('');
   const [pointTypeFilter, setPointTypeFilter] = useState<PointFilter>('all');
   const [pointStatusFilter, setPointStatusFilter] = useState<StatusFilter>('all');
+  const [mapLayer, setMapLayer] = useState<MapLayer>('street');
   const [pointOverview, setPointOverview] = useState<PointOverview | null>(null);
   const [pointOverviewBusy, setPointOverviewBusy] = useState(false);
   const [products, setProducts] = useState<ProductLite[]>([]);
-  const [allocationDraft, setAllocationDraft] = useState({
+  const [allocationDraft, setAllocationDraft] = useState<AllocationDraft>({
     kind: 'recharge' as AllocationKind,
     productId: '',
     amount: '',
@@ -582,6 +892,19 @@ export default function App() {
       return sameName || samePhone || sameCin;
     }).slice(0, 3);
   }, [newPoint.cin, newPoint.name, newPoint.phone, points]);
+  const newPointChecklist = useMemo(
+    () => [
+      { label: 'Nom du point', ok: Boolean(newPoint.name.trim()) },
+      { label: 'Zone assignee', ok: zones.length > 0 },
+      { label: 'Position choisie', ok: Boolean(pointGps) },
+      { label: 'GPS source confirme', ok: canUseConfirmedGps },
+      { label: 'Signature responsable', ok: signatureTrace.length > 0 },
+      { label: 'Photo boutique', ok: Boolean(shopImage), optional: true },
+      { label: 'Preuve CIN', ok: Boolean(cinImage), optional: true },
+    ],
+    [canUseConfirmedGps, cinImage, newPoint.name, pointGps, shopImage, signatureTrace.length, zones.length],
+  );
+  const canCreateNetworkPoint = newPointChecklist.filter((item) => !item.optional).every((item) => item.ok);
   const mapCounters = useMemo(
     () => ({
       zones: zones.length,
@@ -916,7 +1239,7 @@ export default function App() {
     loadMe()
       .then((me) => {
         setUser(me);
-        if (me?.role === 'commercial') setScreen(nativeMapsAvailable ? 'map' : 'dashboard');
+        if (me?.role === 'commercial') setScreen('map');
       })
       .finally(() => setBooting(false));
   }, []);
@@ -962,7 +1285,7 @@ export default function App() {
     try {
       const nextUser = await login(username.trim(), password);
       setUser(nextUser);
-      setScreen(nextUser.role === 'commercial' && nativeMapsAvailable ? 'map' : 'dashboard');
+      setScreen(nextUser.role === 'commercial' ? 'map' : 'dashboard');
       await getQueuedApiRequestCount(nextUser.id).then(setQueuedCount).catch(() => undefined);
     } catch (error) {
       handleApiError(error, 'Connexion impossible');
@@ -1090,10 +1413,12 @@ export default function App() {
           : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.72 });
       if (result.canceled || !result.assets[0]?.uri) return;
       const asset = result.assets[0];
+      const compressed = await compressPickedImage(asset.uri);
       const picked = {
-        uri: asset.uri,
-        name: asset.fileName || imageNameFromUri(asset.uri, kind === 'cin' ? 'cin.jpg' : 'boutique.jpg'),
-        type: asset.mimeType || imageMimeFromUri(asset.uri),
+        uri: compressed.uri,
+        name: jpgNameFromUri(asset.fileName || asset.uri, kind === 'cin' ? 'cin.jpg' : 'boutique.jpg'),
+        type: 'image/jpeg',
+        compressed: true,
       };
       if (kind === 'cin') setCinImage(picked);
       else setShopImage(picked);
@@ -1507,45 +1832,39 @@ export default function App() {
                   <Text style={styles.warning}>Precision faible: recapturez si le point n'est pas correct.</Text>
                 ) : null}
                 <View style={styles.gpsMapPreview}>
-                  {nativeMapsAvailable ? (
-                    <MapView
-                      style={styles.map}
-                      initialRegion={{
-                        latitude: lastGps.lat,
-                        longitude: lastGps.lng,
-                        latitudeDelta: 0.004,
-                        longitudeDelta: 0.004,
-                      }}
-                      region={{
-                        latitude: lastGps.lat,
-                        longitude: lastGps.lng,
-                        latitudeDelta: 0.004,
-                        longitudeDelta: 0.004,
-                      }}
-                      scrollEnabled={false}
-                      zoomEnabled={false}
-                      pitchEnabled={false}
-                      rotateEnabled={false}
-                    >
-                      {lastGps.accuracy != null && (
-                        <MapCircle
-                          center={{ latitude: lastGps.lat, longitude: lastGps.lng }}
-                          radius={Math.max(10, Math.min(500, lastGps.accuracy))}
-                          strokeColor={gpsAccuracyColor(lastGps.accuracy)}
-                          fillColor={`${gpsAccuracyColor(lastGps.accuracy)}26`}
-                          strokeWidth={2}
-                        />
-                      )}
-                      <Marker
-                        coordinate={{ latitude: lastGps.lat, longitude: lastGps.lng }}
-                        title="Ma position"
-                        description={lastGps.accuracy != null ? `Precision ${lastGps.accuracy} m` : 'Precision inconnue'}
-                        pinColor="#0f172a"
-                      />
-                    </MapView>
-                  ) : (
-                    <MapUnavailableCard />
-                  )}
+                  <FreeMap
+                    interactive={false}
+                    layer={mapLayer}
+                    region={{
+                      latitude: lastGps.lat,
+                      longitude: lastGps.lng,
+                      latitudeDelta: 0.004,
+                      longitudeDelta: 0.004,
+                    }}
+                    circles={
+                      lastGps.accuracy != null
+                        ? [{
+                            id: 'gps-accuracy',
+                            lat: lastGps.lat,
+                            lng: lastGps.lng,
+                            radius: Math.max(10, Math.min(500, lastGps.accuracy)),
+                            color: gpsAccuracyColor(lastGps.accuracy),
+                          }]
+                        : []
+                    }
+                    markers={[
+                      {
+                        id: 'current',
+                        lat: lastGps.lat,
+                        lng: lastGps.lng,
+                        label: 'GPS',
+                        title: 'Ma position',
+                        subtitle: lastGps.accuracy != null ? `Precision ${lastGps.accuracy} m` : 'Precision inconnue',
+                        color: '#0f172a',
+                        kind: 'current',
+                      },
+                    ]}
+                  />
                 </View>
               </>
             ) : (
@@ -1612,58 +1931,80 @@ export default function App() {
             />
             <PickerRow label="Type" values={['all', ...pointTypes]} value={pointTypeFilter} onChange={(value) => setPointTypeFilter(value as PointFilter)} compact />
             <PickerRow label="Statut" values={['all', 'prospect', 'contact', 'contrat_signe', 'actif']} value={pointStatusFilter} onChange={(value) => setPointStatusFilter(value as StatusFilter)} compact />
+            <PickerRow
+              label="Fond"
+              values={['street', 'satellite']}
+              value={mapLayer}
+              onChange={(value) => setMapLayer(value as MapLayer)}
+              compact
+              labels={{ street: 'Plan libre', satellite: 'Satellite' }}
+            />
+          </View>
+          <View style={styles.mapStatsBar}>
+            <View style={styles.mapStatPill}>
+              <Text style={styles.mapStatLabel}>Zones</Text>
+              <Text style={styles.mapStatValue}>{mapCounters.zones}</Text>
+            </View>
+            <View style={styles.mapStatPill}>
+              <Text style={styles.mapStatLabel}>Points</Text>
+              <Text style={styles.mapStatValue}>{mapCounters.points}</Text>
+            </View>
+            <View style={styles.mapStatPill}>
+              <Text style={styles.mapStatLabel}>GPS</Text>
+              <Text numberOfLines={1} style={[styles.mapStatValue, { color: gpsAccuracyColor(lastGps?.accuracy) }]}>{gpsQualityLabel(lastGps?.accuracy).replace('GPS ', '')}</Text>
+            </View>
           </View>
           <View style={styles.mapWrap}>
-            {nativeMapsAvailable ? (
-              <MapView style={styles.map} initialRegion={mapRegion} region={mapRegion}>
-                {lastGps?.accuracy != null && (
-                  <MapCircle
-                    center={{ latitude: lastGps.lat, longitude: lastGps.lng }}
-                    radius={Math.max(10, Math.min(500, lastGps.accuracy))}
-                    strokeColor={gpsAccuracyColor(lastGps.accuracy)}
-                    fillColor={`${gpsAccuracyColor(lastGps.accuracy)}26`}
-                    strokeWidth={2}
-                  />
-                )}
-                {zones.map((zone) => (
-                  <Polygon
-                    key={zone._id}
-                    coordinates={zone.polygon.map((point) => ({ latitude: point.lat, longitude: point.lng }))}
-                    strokeColor={zone.color || '#2563eb'}
-                    fillColor={`${zone.color || '#2563eb'}33`}
-                    strokeWidth={2}
-                  />
-                ))}
-                {filteredPoints.map((point) =>
-                  point.gps?.lat && point.gps?.lng ? (
-                    <Marker
-                      key={point._id}
-                      coordinate={{ latitude: point.gps.lat, longitude: point.gps.lng }}
-                      title={point.name}
-                      description={`${pointTypeLabel(point.type)} · ${statusLabel(point.status)}`}
-                      onPress={() => selectPoint(point._id).catch(() => undefined)}
-                    >
-                      <View style={[styles.pointMapMarker, { borderColor: pointTypeColor(point.type) }]}>
-                        <Text style={[styles.pointMapMarkerText, { color: pointTypeColor(point.type) }]}>{pointInitials(point.name)}</Text>
-                      </View>
-                    </Marker>
-                  ) : null,
-                )}
-                {lastGps && (
-                  <Marker
-                    coordinate={{ latitude: lastGps.lat, longitude: lastGps.lng }}
-                    title="Ma position"
-                    description={lastGps.accuracy != null ? `Precision ${lastGps.accuracy} m` : 'Precision inconnue'}
-                  >
-                    <View style={styles.currentLocationMarker}>
-                      <View style={styles.currentLocationMarkerCore} />
-                    </View>
-                  </Marker>
-                )}
-              </MapView>
-            ) : (
-              <MapUnavailableCard />
-            )}
+            <FreeMap
+              region={mapRegion}
+              layer={mapLayer}
+              zones={zones}
+              circles={
+                lastGps?.accuracy != null
+                  ? [{
+                      id: 'gps-accuracy',
+                      lat: lastGps.lat,
+                      lng: lastGps.lng,
+                      radius: Math.max(10, Math.min(500, lastGps.accuracy)),
+                      color: gpsAccuracyColor(lastGps.accuracy),
+                    }]
+                  : []
+              }
+              markers={[
+                ...filteredPoints
+                  .map((point) =>
+                    point.gps?.lat && point.gps?.lng
+                      ? {
+                          id: point._id,
+                          lat: point.gps.lat,
+                          lng: point.gps.lng,
+                          label: pointInitials(point.name),
+                          title: point.name,
+                          subtitle: `${pointTypeLabel(point.type)} · ${statusLabel(point.status)}`,
+                          color: pointTypeColor(point.type),
+                          kind: 'point' as const,
+                          selected: selectedPointId === point._id,
+                        }
+                      : null,
+                  )
+                  .filter(present),
+                lastGps
+                  ? {
+                      id: 'current',
+                      lat: lastGps.lat,
+                      lng: lastGps.lng,
+                      label: 'GPS',
+                      title: 'Ma position',
+                      subtitle: lastGps.accuracy != null ? `Precision ${lastGps.accuracy} m` : 'Precision inconnue',
+                      color: '#0f172a',
+                      kind: 'current' as const,
+                    }
+                  : null,
+              ].filter(present)}
+              onPointPress={(id) => {
+                if (id !== 'current') selectPoint(id).catch(() => undefined);
+              }}
+            />
             <View style={styles.mapLegend}>
               <View style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: '#7c3aed' }]} />
@@ -1843,79 +2184,86 @@ export default function App() {
               value={pointLocationMode}
               onChange={(value) => setPointLocationMode(value as PointLocationMode)}
             />
+            <PickerRow
+              label="Fond"
+              values={['street', 'satellite']}
+              value={mapLayer}
+              onChange={(value) => setMapLayer(value as MapLayer)}
+              compact
+              labels={{ street: 'Plan libre', satellite: 'Satellite' }}
+            />
             <View style={styles.pointMapPicker}>
-              {nativeMapsAvailable ? (
-                <MapView
-                  style={styles.map}
-                  initialRegion={mapRegion}
-                  region={pointGps ? {
-                    latitude: pointGps.lat,
-                    longitude: pointGps.lng,
-                    latitudeDelta: 0.025,
-                    longitudeDelta: 0.025,
-                  } : mapRegion}
-                  onPress={(event) => {
-                    const lat = Number(event.nativeEvent.coordinate.latitude.toFixed(6));
-                    const lng = Number(event.nativeEvent.coordinate.longitude.toFixed(6));
-                    setPointLocationMode('pin');
-                    setPointPin({ lat, lng });
-                  }}
-                >
-                  {zones.map((zone) => (
-                    <Polygon
-                      key={zone._id}
-                      coordinates={zone.polygon.map((point) => ({ latitude: point.lat, longitude: point.lng }))}
-                      strokeColor={zone.color || '#2563eb'}
-                      fillColor={`${zone.color || '#2563eb'}22`}
-                      strokeWidth={2}
-                    />
-                  ))}
-                  {points.map((point) =>
-                    point.gps?.lat && point.gps?.lng ? (
-                      <Marker
-                        key={point._id}
-                        coordinate={{ latitude: point.gps.lat, longitude: point.gps.lng }}
-                        title={point.name}
-                        description={`${pointTypeLabel(point.type)} · ${point.status}`}
-                      >
-                        <View style={[styles.pointMapMarkerSmall, { borderColor: pointTypeColor(point.type) }]}>
-                          <Text style={[styles.pointMapMarkerSmallText, { color: pointTypeColor(point.type) }]}>{pointInitials(point.name)}</Text>
-                        </View>
-                      </Marker>
-                    ) : null,
-                  )}
-                  {lastGps && (
-                    <>
-                      {lastGps.accuracy != null && (
-                        <MapCircle
-                          center={{ latitude: lastGps.lat, longitude: lastGps.lng }}
-                          radius={Math.max(10, Math.min(500, lastGps.accuracy))}
-                          strokeColor={gpsAccuracyColor(lastGps.accuracy)}
-                          fillColor={`${gpsAccuracyColor(lastGps.accuracy)}24`}
-                          strokeWidth={2}
-                        />
-                      )}
-                      <Marker coordinate={{ latitude: lastGps.lat, longitude: lastGps.lng }} title="GPS actuel">
-                        <View style={styles.currentLocationMarker}>
-                          <View style={styles.currentLocationMarkerCore} />
-                        </View>
-                      </Marker>
-                    </>
-                  )}
-                  {pointGps && (
-                    <Marker
-                      coordinate={{ latitude: pointGps.lat, longitude: pointGps.lng }}
-                      title={pointLocationMode === 'pin' ? 'Point choisi' : 'GPS actuel'}
-                    >
-                      <View style={styles.newPointMarker}>
-                        <Text style={styles.newPointMarkerText}>+</Text>
-                      </View>
-                    </Marker>
-                  )}
-                </MapView>
-              ) : (
-                <MapUnavailableCard />
-              )}
+              <FreeMap
+                layer={mapLayer}
+                region={
+                  pointGps
+                    ? {
+                        latitude: pointGps.lat,
+                        longitude: pointGps.lng,
+                        latitudeDelta: 0.025,
+                        longitudeDelta: 0.025,
+                      }
+                    : mapRegion
+                }
+                zones={zones}
+                circles={
+                  lastGps?.accuracy != null
+                    ? [{
+                        id: 'gps-accuracy',
+                        lat: lastGps.lat,
+                        lng: lastGps.lng,
+                        radius: Math.max(10, Math.min(500, lastGps.accuracy)),
+                        color: gpsAccuracyColor(lastGps.accuracy),
+                      }]
+                    : []
+                }
+                markers={[
+                  ...points
+                    .map((point) =>
+                      point.gps?.lat && point.gps?.lng
+                        ? {
+                            id: point._id,
+                            lat: point.gps.lat,
+                            lng: point.gps.lng,
+                            label: pointInitials(point.name),
+                            title: point.name,
+                            subtitle: `${pointTypeLabel(point.type)} · ${statusLabel(point.status)}`,
+                            color: pointTypeColor(point.type),
+                            kind: 'point' as const,
+                          }
+                        : null,
+                    )
+                    .filter(present),
+                  lastGps
+                    ? {
+                        id: 'current',
+                        lat: lastGps.lat,
+                        lng: lastGps.lng,
+                        label: 'GPS',
+                        title: 'GPS actuel',
+                        subtitle: lastGps.accuracy != null ? `Precision ${lastGps.accuracy} m` : 'Precision inconnue',
+                        color: '#0f172a',
+                        kind: 'current' as const,
+                      }
+                    : null,
+                  pointGps
+                    ? {
+                        id: 'new-point',
+                        lat: pointGps.lat,
+                        lng: pointGps.lng,
+                        label: '+',
+                        title: pointLocationMode === 'pin' ? 'Point choisi' : 'GPS actuel',
+                        subtitle: `${pointGps.lat}, ${pointGps.lng}`,
+                        color: '#16a34a',
+                        kind: 'pin' as const,
+                      }
+                    : null,
+                ].filter(present)}
+                onMapPress={(lat, lng) => {
+                  setPointLocationMode('pin');
+                  setPointPin({ lat, lng });
+                }}
+              />
             </View>
             <Text style={styles.muted}>
               {pointGps
@@ -1952,9 +2300,20 @@ export default function App() {
             <Text style={styles.pickerLabel}>Signature responsable</Text>
             <SignaturePad value={signatureTrace} onChange={setSignatureTrace} />
           </View>
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Controle avant creation</Text>
+            <View style={styles.checklistGrid}>
+              {newPointChecklist.map((item) => (
+                <View key={item.label} style={[styles.checklistItem, item.ok ? styles.checklistItemOk : styles.checklistItemTodo]}>
+                  <Text style={[styles.checklistMark, item.ok ? styles.checklistMarkOk : styles.checklistMarkTodo]}>{item.ok ? 'OK' : item.optional ? 'OPT' : 'TODO'}</Text>
+                  <Text style={styles.checklistLabel}>{item.label}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
           <Pressable
-            style={[styles.primaryButton, (!pointGps || !canUseConfirmedGps || zones.length === 0 || signatureTrace.length === 0) && styles.disabledButton]}
-            disabled={busy || !pointGps || !canUseConfirmedGps || zones.length === 0 || signatureTrace.length === 0}
+            style={[styles.primaryButton, !canCreateNetworkPoint && styles.disabledButton]}
+            disabled={busy || !canCreateNetworkPoint}
             onPress={createNetworkPoint}
           >
             <Text style={styles.primaryButtonText}>{busy ? 'Enregistrement...' : 'Ajouter point + fiche signee'}</Text>
@@ -1996,13 +2355,96 @@ function MetricRow({ label, value, compact = false }: { label: string; value: st
   );
 }
 
-function MapUnavailableCard() {
+function SimBarcodeScanner({
+  barcodes,
+  onChangeBarcodes,
+  onClose,
+}: {
+  barcodes: string[];
+  onChangeBarcodes: (barcodes: string[]) => void;
+  onClose: () => void;
+}) {
+  const [permission, requestPermission] = useCameraPermissions();
+  const [scanMessage, setScanMessage] = useState('Scanner pret: gardez la camera ouverte et passez les SIM une par une.');
+  const lastScanRef = useRef<{ data: string; at: number }>({ data: '', at: 0 });
+  const barcodesRef = useRef(barcodes);
+
+  useEffect(() => {
+    barcodesRef.current = barcodes;
+  }, [barcodes]);
+
+  useEffect(() => {
+    if (permission && !permission.granted && permission.canAskAgain) {
+      requestPermission().catch(() => undefined);
+    }
+  }, [permission?.granted, permission?.canAskAgain]);
+
+  const handleBarcode = (result: BarcodeScanningResult) => {
+    const data = result.data.trim();
+    if (!data) return;
+    const now = Date.now();
+    if (lastScanRef.current.data === data && now - lastScanRef.current.at < 1600) return;
+    lastScanRef.current = { data, at: now };
+
+    const current = barcodesRef.current;
+    if (current.includes(data)) {
+      setScanMessage(`Deja scanne: ${data}`);
+      return;
+    }
+    const next = [...current, data];
+    barcodesRef.current = next;
+    onChangeBarcodes(next);
+    setScanMessage(`Ajoute: ${data} (${next.length} SIM)`);
+  };
+
+  if (!permission?.granted) {
+    return (
+      <View style={styles.scannerPanel}>
+        <Text style={styles.scannerTitle}>Scanner SIM</Text>
+        <Text style={styles.muted}>Autorisez la camera pour scanner les codes-barres SIM en continu.</Text>
+        <View style={styles.actionGrid}>
+          <Pressable style={styles.secondaryButton} onPress={() => requestPermission().catch(() => undefined)}>
+            <Text style={styles.secondaryButtonText}>Autoriser camera</Text>
+          </Pressable>
+          <Pressable style={styles.secondaryButton} onPress={onClose}>
+            <Text style={styles.secondaryButtonText}>Fermer</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.mapUnavailable}>
-      <Text style={styles.mapUnavailableTitle}>Carte desactivee sur ce build</Text>
-      <Text style={styles.mapUnavailableText}>
-        Ajoutez une cle Google Maps Android puis regenerez l'APK. Le pointage, les points et la synchronisation restent actifs.
-      </Text>
+    <View style={styles.scannerPanel}>
+      <View style={styles.scannerHeader}>
+        <View style={styles.selectedPointText}>
+          <Text style={styles.scannerTitle}>Scan SIM continu</Text>
+          <Text style={styles.muted}>{barcodes.length} code(s) dans le lot</Text>
+        </View>
+        <Pressable style={styles.smallSecondaryButton} onPress={onClose}>
+          <Text style={styles.smallSecondaryButtonText}>Terminer</Text>
+        </Pressable>
+      </View>
+      <View style={styles.cameraBox}>
+        <CameraView
+          style={styles.camera}
+          facing="back"
+          barcodeScannerSettings={{ barcodeTypes: simBarcodeTypes }}
+          onBarcodeScanned={handleBarcode}
+        >
+          <View style={styles.scanFrame}>
+            <View style={styles.scanFrameLine} />
+          </View>
+        </CameraView>
+      </View>
+      <Text style={styles.scannerMessage}>{scanMessage}</Text>
+      {barcodes.length > 0 ? (
+        <View style={styles.scannedPreview}>
+          {barcodes.slice(-5).reverse().map((barcode) => (
+            <Text key={barcode} style={styles.scannedCode} numberOfLines={1}>{barcode}</Text>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -2024,8 +2466,8 @@ function PointDetail({
   overview: PointOverview | null;
   loading: boolean;
   products: ProductLite[];
-  allocationDraft: { kind: AllocationKind; productId: string; amount: string; barcodes: string; note: string };
-  setAllocationDraft: (next: { kind: AllocationKind; productId: string; amount: string; barcodes: string; note: string }) => void;
+  allocationDraft: AllocationDraft;
+  setAllocationDraft: Dispatch<SetStateAction<AllocationDraft>>;
   busy: boolean;
   onDirections: () => void;
   onPhone: () => void;
@@ -2034,6 +2476,7 @@ function PointDetail({
 }) {
   const selectedProduct = products.find((product) => product._id === allocationDraft.productId);
   const barcodes = splitBarcodes(allocationDraft.barcodes);
+  const [scannerOpen, setScannerOpen] = useState(false);
   return (
     <View style={styles.sectionCard}>
       <View style={styles.sectionHeader}>
@@ -2078,7 +2521,11 @@ function PointDetail({
         label="Type dotation"
         values={['recharge', 'sim', 'other']}
         value={allocationDraft.kind}
-        onChange={(value) => setAllocationDraft({ ...allocationDraft, kind: value as AllocationKind })}
+        onChange={(value) => {
+          const kind = value as AllocationKind;
+          setAllocationDraft((prev) => ({ ...prev, kind }));
+          if (kind !== 'sim') setScannerOpen(false);
+        }}
         compact
       />
       {allocationDraft.kind === 'sim' ? (
@@ -2087,7 +2534,7 @@ function PointDetail({
             label="Produit SIM"
             values={products.slice(0, 12).map((product) => product._id)}
             value={allocationDraft.productId}
-            onChange={(value) => setAllocationDraft({ ...allocationDraft, productId: value })}
+            onChange={(value) => setAllocationDraft((prev) => ({ ...prev, productId: value }))}
             compact
             labels={products.reduce<Record<string, string>>((acc, product) => {
               acc[product._id] = product.reference ? `${product.reference}` : product.name;
@@ -2095,11 +2542,35 @@ function PointDetail({
             }, {})}
           />
           {selectedProduct ? <Text style={styles.muted}>{selectedProduct.name}</Text> : null}
+          <View style={styles.simBatchToolbar}>
+            <View style={styles.simBatchCount}>
+              <Text style={styles.mapStatLabel}>Lot SIM</Text>
+              <Text style={styles.mapStatValue}>{barcodes.length} code(s)</Text>
+            </View>
+            <Pressable style={styles.secondaryButton} onPress={() => setScannerOpen((open) => !open)}>
+              <Text style={styles.secondaryButtonText}>{scannerOpen ? 'Masquer scanner' : 'Scanner SIM'}</Text>
+            </Pressable>
+            {barcodes.length > 0 ? (
+              <Pressable
+                style={styles.secondaryButton}
+                onPress={() => setAllocationDraft((prev) => ({ ...prev, barcodes: '' }))}
+              >
+                <Text style={styles.secondaryButtonText}>Vider</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          {scannerOpen ? (
+            <SimBarcodeScanner
+              barcodes={barcodes}
+              onClose={() => setScannerOpen(false)}
+              onChangeBarcodes={(nextBarcodes) => setAllocationDraft((prev) => ({ ...prev, barcodes: nextBarcodes.join('\n') }))}
+            />
+          ) : null}
           <TextInput
             style={[styles.input, styles.note]}
-            placeholder="Codes-barres SIM, un par ligne ou separes par virgule"
+            placeholder="Codes-barres SIM, un par ligne. Le scanner reste ouvert pour les lots."
             value={allocationDraft.barcodes}
-            onChangeText={(value) => setAllocationDraft({ ...allocationDraft, barcodes: value })}
+            onChangeText={(value) => setAllocationDraft((prev) => ({ ...prev, barcodes: value }))}
             multiline
             autoCapitalize="none"
           />
@@ -2111,14 +2582,14 @@ function PointDetail({
           placeholder="Montant solde TND"
           keyboardType="numeric"
           value={allocationDraft.amount}
-          onChangeText={(value) => setAllocationDraft({ ...allocationDraft, amount: value })}
+          onChangeText={(value) => setAllocationDraft((prev) => ({ ...prev, amount: value }))}
         />
       )}
       <TextInput
         style={[styles.input, styles.note]}
         placeholder="Note dotation"
         value={allocationDraft.note}
-        onChangeText={(value) => setAllocationDraft({ ...allocationDraft, note: value })}
+        onChangeText={(value) => setAllocationDraft((prev) => ({ ...prev, note: value }))}
         multiline
       />
       <Pressable style={[styles.primaryButton, busy && styles.disabledButton]} disabled={busy} onPress={onAllocate}>
@@ -2191,7 +2662,7 @@ function ImagePickerRow({
       </View>
       <View style={styles.imagePickerContent}>
         <Text style={styles.pickerLabel}>{label}</Text>
-        <Text style={styles.muted}>{image?.name ?? 'Photo ou galerie'}</Text>
+        <Text style={styles.muted}>{image ? `${image.name}${image.compressed ? ' · compressee' : ''}` : 'Photo ou galerie'}</Text>
         <View style={styles.inlineInputs}>
           <Pressable style={[styles.secondaryButton, styles.inlineInput]} onPress={() => onPick('camera')}>
             <Text style={styles.secondaryButtonText}>Camera</Text>
@@ -2856,6 +3327,33 @@ const styles = StyleSheet.create({
   mapSearchInput: {
     minHeight: 44,
   },
+  mapStatsBar: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  mapStatPill: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    justifyContent: 'center',
+  },
+  mapStatLabel: {
+    color: '#64748b',
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  mapStatValue: {
+    color: '#0f172a',
+    fontSize: 12,
+    fontWeight: '900',
+    marginTop: 2,
+  },
   mapWrap: {
     flex: 1,
     overflow: 'hidden',
@@ -3103,6 +3601,128 @@ const styles = StyleSheet.create({
   },
   detailGrid: {
     gap: 6,
+  },
+  checklistGrid: {
+    gap: 8,
+  },
+  checklistItem: {
+    minHeight: 42,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  checklistItemOk: {
+    borderColor: '#bbf7d0',
+    backgroundColor: '#ecfdf5',
+  },
+  checklistItemTodo: {
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+  },
+  checklistMark: {
+    minWidth: 40,
+    textAlign: 'center',
+    overflow: 'hidden',
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  checklistMarkOk: {
+    color: '#166534',
+    backgroundColor: '#dcfce7',
+  },
+  checklistMarkTodo: {
+    color: '#475569',
+    backgroundColor: '#e2e8f0',
+  },
+  checklistLabel: {
+    flex: 1,
+    color: '#0f172a',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  simBatchToolbar: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  simBatchCount: {
+    minWidth: 96,
+    minHeight: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    justifyContent: 'center',
+  },
+  scannerPanel: {
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    padding: 10,
+    gap: 10,
+  },
+  scannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  scannerTitle: {
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  cameraBox: {
+    height: 260,
+    overflow: 'hidden',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#0f172a',
+    backgroundColor: '#0f172a',
+  },
+  camera: {
+    flex: 1,
+  },
+  scanFrame: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  scanFrameLine: {
+    width: '100%',
+    height: 96,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#38bdf8',
+    backgroundColor: 'rgba(15, 23, 42, 0.16)',
+  },
+  scannerMessage: {
+    color: '#0f172a',
+    fontWeight: '900',
+  },
+  scannedPreview: {
+    gap: 6,
+  },
+  scannedCode: {
+    color: '#334155',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    fontWeight: '800',
   },
   pointMapPicker: {
     height: 280,

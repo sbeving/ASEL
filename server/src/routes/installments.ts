@@ -78,6 +78,16 @@ function roundMoney(value: number) {
   return Math.round(value * 1000) / 1000;
 }
 
+export function referenceIdString(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (value instanceof mongoose.Types.ObjectId) return value.toString();
+  if (typeof value === "object" && "_id" in value) {
+    return referenceIdString((value as { _id?: unknown })._id);
+  }
+  return String(value);
+}
+
 function installmentSnapshot(installment: any) {
   return {
     id: installment._id?.toString?.(),
@@ -481,7 +491,7 @@ router.get(
     const ids = pageIds.map((row) => row._id);
     const orderById = new Map(ids.map((id, index) => [id.toString(), index]));
     const rows = ids.length
-      ? await Installment.find({ _id: { $in: ids } })
+      ? await Installment.find({ _id: mongoose.trusted({ $in: ids }) })
           .populate({
             path: "saleId",
             select: "total createdAt invoiceNumber saleType paymentStatus",
@@ -710,8 +720,8 @@ router.post(
 const paySchema = z.object({
   paymentMethod: z.string().trim().max(40).optional(),
   amount: z.number().positive().optional(),
-  paidAt: z.string().datetime().optional(),
-  remainingDueDate: z.string().datetime().optional(),
+  paidAt: z.string().trim().min(1).optional(),
+  remainingDueDate: z.string().trim().min(1).optional(),
   note: z.string().trim().max(1000).optional(),
 });
 
@@ -749,11 +759,9 @@ router.patch(
     const input = req.body as z.infer<typeof updateSchema>;
     const installment = await Installment.findById(req.params.id);
     if (!installment) throw notFound("Installment not found");
+    const installmentFranchiseId = referenceIdString(installment.franchiseId);
     const scope = franchiseScopeFilter(req.user);
-    if (
-      scope.franchiseId &&
-      scope.franchiseId !== installment.franchiseId.toString()
-    )
+    if (scope.franchiseId && scope.franchiseId !== installmentFranchiseId)
       throw forbidden();
     const linkedSale = await Sale.findById(installment.saleId).select(
       "cancelledAt",
@@ -827,7 +835,7 @@ router.patch(
       await ensureInstallmentReceipt(installment, Boolean(input.paidAt));
     }
     await refreshClosingSystemTotalsForDates(
-      installment.franchiseId.toString(),
+      installmentFranchiseId,
       [before.dueDate, installment.dueDate, before.paidAt, installment.paidAt],
       `Cloture reouverte suite modification echeance ${installment._id.toString()}.`,
     );
@@ -835,7 +843,7 @@ router.patch(
       action: "installment.update",
       entity: "Installment",
       entityId: installment._id.toString(),
-      franchiseId: installment.franchiseId.toString(),
+      franchiseId: installmentFranchiseId,
       details: {
         before,
         after: {
@@ -890,11 +898,9 @@ router.post(
     const input = req.body as z.infer<typeof renegotiateSchema>;
     const installment = await Installment.findById(req.params.id);
     if (!installment) throw notFound("Installment not found");
+    const installmentFranchiseId = referenceIdString(installment.franchiseId);
     const scope = franchiseScopeFilter(req.user);
-    if (
-      scope.franchiseId &&
-      scope.franchiseId !== installment.franchiseId.toString()
-    )
+    if (scope.franchiseId && scope.franchiseId !== installmentFranchiseId)
       throw forbidden();
     if (installment.status === "paid" || installment.status === "renegotiated")
       throw badRequest("Only unpaid active installments can be renegotiated");
@@ -1093,7 +1099,7 @@ router.post(
     });
 
     await refreshClosingSystemTotalsForDates(
-      installment.franchiseId.toString(),
+      installmentFranchiseId,
       refreshDates,
       `Cloture reouverte suite renegociation echeance ${installment._id.toString()}.`,
     );
@@ -1101,7 +1107,7 @@ router.post(
       action: `installment.renegotiate.${input.type}`,
       entity: "Installment",
       entityId: installment._id.toString(),
-      franchiseId: installment.franchiseId.toString(),
+      franchiseId: installmentFranchiseId,
       details: {
         type: input.type,
         reason: input.reason,
@@ -1152,11 +1158,9 @@ router.post(
   asyncHandler(async (req, res) => {
     const installment = await Installment.findById(req.params.id);
     if (!installment) throw notFound("Installment not found");
+    const installmentFranchiseId = referenceIdString(installment.franchiseId);
     const scope = franchiseScopeFilter(req.user);
-    if (
-      scope.franchiseId &&
-      scope.franchiseId !== installment.franchiseId.toString()
-    )
+    if (scope.franchiseId && scope.franchiseId !== installmentFranchiseId)
       throw forbidden();
     if (installment.status === "paid")
       throw badRequest("Installment already paid");
@@ -1170,8 +1174,7 @@ router.post(
       throw badRequest("Cannot pay an installment linked to a cancelled sale");
 
     const input = req.body as z.infer<typeof paySchema>;
-    const paidAmount =
-      Math.round((input.amount ?? installment.amount) * 100) / 100;
+    const paidAmount = roundMoney(input.amount ?? installment.amount);
     if (paidAmount <= 0) throw badRequest("Payment amount must be positive");
     if (paidAmount > installment.amount)
       throw badRequest("Payment amount cannot exceed installment amount");
@@ -1182,8 +1185,7 @@ router.post(
     let remainderInstallment = null;
     const previousDueDate = installment.dueDate;
     const originalAmount = installment.originalAmount ?? installment.amount;
-    const remainingAmount =
-      Math.round((installment.amount - paidAmount) * 100) / 100;
+    const remainingAmount = roundMoney(installment.amount - paidAmount);
     let remainderDueDate: Date | null = null;
     if (remainingAmount > 0) {
       remainderDueDate = input.remainingDueDate
@@ -1246,8 +1248,7 @@ router.post(
         .select("total amountReceived paymentStatus")
         .session(session ?? null);
       if (sale) {
-        const received =
-          Math.round(((sale.amountReceived ?? 0) + paidAmount) * 100) / 100;
+        const received = roundMoney((sale.amountReceived ?? 0) + paidAmount);
         sale.amountReceived = Math.min(sale.total, received);
         sale.paymentStatus =
           sale.amountReceived >= sale.total
@@ -1261,7 +1262,7 @@ router.post(
     });
     await ensureInstallmentReceipt(installment);
     await refreshClosingSystemTotalsForDates(
-      installment.franchiseId.toString(),
+      installmentFranchiseId,
       [previousDueDate, paidAt, remainderDueDate],
       `Cloture reouverte suite encaissement echeance ${installment._id.toString()}.`,
     );
@@ -1270,7 +1271,7 @@ router.post(
       action: "installment.pay",
       entity: "Installment",
       entityId: installment._id.toString(),
-      franchiseId: installment.franchiseId.toString(),
+      franchiseId: installmentFranchiseId,
       details: {
         amount: paidAmount,
         paidAt,

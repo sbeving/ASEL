@@ -12,6 +12,7 @@
         "UIBackgroundModes": [
           "location"
         ],
+        "NSCameraUsageDescription": "ASEL utilise la camera pour scanner les SIM et prendre les preuves terrain.",
         "NSLocationWhenInUseUsageDescription": "ASEL utilise votre position pour le pointage et le suivi des commerciaux pendant les heures de travail.",
         "NSLocationAlwaysUsageDescription": "ASEL utilise la position en arriere-plan uniquement quand un commercial est en travail.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "ASEL envoie la position toutes les 5 minutes pour la tracabilite des commerciaux."
@@ -20,14 +21,10 @@
     "android": {
       "package": "com.asel.pointage",
       "versionCode": 2,
-      "config": {
-        "googleMaps": {
-          "apiKey": "MISSING_GOOGLE_MAPS_API_KEY"
-        }
-      },
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
+        "CAMERA",
         "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION"

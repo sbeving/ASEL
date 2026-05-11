@@ -186,7 +186,7 @@ export const treasuryAttachmentUpload = createUploader(
 
 export const receptionOcrUpload = createUploader(
   "reception-ocr",
-  ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+  ["image/jpeg", "image/png", "image/webp", "application/pdf", "text/plain"],
   30 * 1024 * 1024,
 );
 

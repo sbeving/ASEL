@@ -94,14 +94,12 @@ Work these one by one. Each item should be implemented, tested, and then marked 
 
 ## 5. OCR And Facture Entry
 
-- [x] OCR service no longer depends only on local Tesseract. It can use a configured HTTP OCR provider first.
-- [x] Keep local pdftotext/Tesseract fallback when installed.
-- [ ] Choose production OCR provider and set `OCR_HTTP_ENDPOINT` plus `OCR_HTTP_API_KEY`.
-- [ ] Add provider-specific adapters for invoice OCR fields: supplier, invoice number, date, totals, VAT, line items.
-- [ ] Store source document, raw OCR text, parsed JSON, confidence, and user corrections.
+- [x] OCR is local-only: digital PDFs use `pdftotext`, scanned PDFs are rasterized with `pdftoppm`, and images/pages are processed through local PaddleOCR plus Tesseract variants. No external OCR API keys are required. Verified with server/client typechecks and OCR parser tests.
+- [x] Store source document, raw OCR text, parsed JSON, confidence, warnings, and user product-match corrections on reception drafts. Verified with server/client typechecks.
+- [x] Add invoice OCR field parsing for supplier, invoice number, date, VAT, quantities, prices, and product matching by barcode/reference/name. Verified with OCR parser tests.
 - [ ] Train matching rules by supplier and product reference aliases.
-- [ ] Add approval queue for low-confidence lines.
-- [ ] Add duplicate invoice detection by supplier + number + total + date.
+- [x] Add approval queue for low-confidence lines. OCR drafts now expose a review status, can be filtered as `OCR a revoir`, and validation is blocked until review is acknowledged. Verified with OCR review tests plus server/client typechecks.
+- [x] Add duplicate invoice detection by supplier + number + total + date. OCR now returns similar reception candidates and forces manual review before import/validation. Verified with OCR review tests plus server/client typechecks.
 
 ## 6. Product Batch Input And Excel
 
@@ -177,7 +175,7 @@ Work these one by one. Each item should be implemented, tested, and then marked 
 
 - [x] Production Docker compose with Mongo persistence, API, web, backups, and optional offsite backup mount.
 - [ ] TLS domain instead of temporary tunnel.
-- [ ] Health checks for API, database, frontend, and OCR provider.
+- [ ] Health checks for API, database, frontend, and local OCR binaries/models.
 - [ ] Error monitoring and request logs.
 - [ ] Admin password rotation and forced first-login password change.
 - [ ] Role/permission review before handoff.
